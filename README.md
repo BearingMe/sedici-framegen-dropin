@@ -8,23 +8,27 @@ Sedici takes the original DLL's name. The original is renamed to
 `amd_fidelityfx_framegeneration_dx12.dll.orig` and all five `ffx*` exports are
 forwarded with identical arguments, return values and timing. On top of that
 forwarding, it sends one optional configure call that removes a measured
-frame-time tail, and it writes a local log of what the game asks frame
-generation to do.
+frame-time tail, optionally caps the game's real frames against a deadline, and
+writes a local log of what the game asks frame generation to do.
 
 Nothing else changes. The loader and upscaler DLLs are never touched.
 
 ## What it does now
 
-**Milestone 1: the pacing fix is on by default.**
+**Milestone 2: the pacing fix is on by default, and an optional real-frame
+limiter sits in front of the game's presents.**
 
 | Behaviour | Default | How to change it |
 |---|---|---|
 | Frame pacing tuning sent after each FG swapchain is created | **on** (`hybrid`) | `pacing.mode = "off"` or `SEDICI_PACING=off` |
 | `allowAsyncWorkloads` rewritten to `false` | **off** (`game`) | `async.mode = "off"` or `SEDICI_ASYNC=0` |
+| Real-frame limiter | **off** (`0`) | `limiter.fps = 37` or `SEDICI_LIMIT_FPS=37` |
+| Limiter busy-wait window | `1000` us | `limiter.spin_us` |
 | Log level | `1` | `log.level` or `MFSRFG_LOG` |
 
-With `pacing.mode = "off"` and `async.mode = "game"`, Sedici forwards exactly
-what it forwarded in milestone 0: no extra calls, no desc rewrites.
+With `pacing.mode = "off"`, `async.mode = "game"` and `limiter.fps = 0`, Sedici
+forwards exactly what it forwarded in milestone 0: no extra calls, no desc
+rewrites, and no limiter work at all.
 
 ### Why this specific fix
 
@@ -42,6 +46,16 @@ and a 37 fps frame cap reproduced the same clean tail (so the cap and the fix
 address the same contention). The async toggle removes the same tail and does
 not stack with it, which is why it stays off by default and is kept for A/B
 testing.
+
+### Why a limiter
+
+Run G in `002` used the game's own 37 fps cap with 2x frame generation and
+produced the tightest distribution in the whole set: **74.0 fps output, standard
+deviation 0.324 ms, worst interval 15.4 ms, and zero intervals outside
+0.5-1.5x the median**. Cyberpunk will not let Anti-Lag 2 and Maximum FPS be
+enabled together, however. The limiter moves that cap into Sedici, so the game
+can keep Anti-Lag 2 on and run uncapped while the real presents are paced to
+`limiter.fps`.
 
 ## How it works
 
@@ -70,12 +84,29 @@ Cyberpunk2077.exe
 3. **Retry, bounded.** If the swapchain path rejects the tuning, Sedici retries
    through the next successful `ffxConfigure` on that context, at most five
    attempts. A rejected tuning is logged and never changes what the game sees.
-4. **Observe.** Desc chains, return codes, cadence statistics and detected
-   prepare stalls are written to `sedici.log`.
+4. **Cap, when asked.** The `Present`/`Present1` hook on the FG swapchain runs
+   before the original call. With `limiter.fps > 0`, it targets
+   `previous_deadline + 1/fps`, waits on a high-resolution waitable timer until
+   `deadline - spin_us`, then spins on QPC to the deadline. If the frame is
+   already past its deadline it does not wait; if it is more than one full
+   interval late, the schedule reseeds at the current time instead of bursting
+   to catch up. The arguments and the return value are passed through
+   untouched.
+5. **Observe.** Desc chains, return codes, cadence statistics, limiter
+   statistics and detected prepare stalls are written to `sedici.log`.
 
-The send happens on Sedici's side of the call. It is an extra `ffxConfigure`
-call into AMD's DLL made *after* the game's own call has already completed and
-returned, so the game's call itself is untouched.
+The pacing send happens on Sedici's side of the call. It is an extra
+`ffxConfigure` call into AMD's DLL made *after* the game's own call has already
+completed and returned, so the game's call itself is untouched.
+
+The limiter is different: it deliberately delays the game's `Present`, and
+therefore the game's render loop, before forwarding. That is the mechanism, not
+a side effect. The hook is installed on the object returned by the frame
+generation swapchain create/wrap desc, which is FFX's wrapper. It sees exactly
+one `Present` per real frame (`presentsPerPrepare` is 1.0); the generated frames
+are presented inside AMD's swapchain and never reach Sedici. Capping here
+therefore caps real frames, and with 2x frame generation the output lands at
+about twice `limiter.fps`.
 
 ## Configuration
 
@@ -115,6 +146,34 @@ The rewrite is scoped: Sedici changes the caller's desc in place for the duratio
 of one call and restores every byte before returning, so the game never observes
 a modified desc.
 
+### `[limiter]`
+
+| Key | Type | Default | Valid values | Effect |
+|---|---|---|---|---|
+| `fps` | number | `0` | `0` to `1000` | target real-frame rate; `0` disables the limiter; fractions allowed (`36.5` gives 73 output with 2x) |
+| `spin_us` | integer | `1000` | `0` to `100000` | final busy-wait window before the deadline, in microseconds |
+
+For a 75 Hz panel with VRR in the 40-75 Hz range, `fps = 36.5` gives 73 output
+fps: inside the VRR window, with about 2 fps of headroom under the 75 Hz
+ceiling. That is the usual target when VSync cannot be used with FG. At 74 the
+cap sits on the ceiling, and the 9/18 ms real/generated split is more likely to
+tear.
+
+The timer is a `CreateWaitableTimerExW` handle created with
+`CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, one per process, and it is armed per
+frame. There is no `Sleep` and no `timeBeginPeriod`. The spin is the last
+`spin_us` before the deadline and uses QPC plus `YieldProcessor`.
+
+`spin_us = 0` is timer-only and measurably coarser. In an offline test at 37 fps
+with 320 frames, overshoot p99 was 0.017 ms with the default 1000 us spin and
+0.533 ms with no spin; the median interval was exact in both cases.
+
+The limiter only engages on the game's swapchain path. If the game never
+creates or wraps a frame generation swapchain, or the present hook could not be
+installed, nothing is capped and the reason is logged. When frame generation is
+off the same code still caps at `fps`, and the log labels the mode `fg=off`
+(so the output rate is about `fps`, not 2x).
+
 ### `[log]`
 
 | Key | Type | Default | Valid values | Effect |
@@ -130,9 +189,12 @@ one configuration without editing anything.
 |---|---|---|
 | `SEDICI_PACING` | `pacing.mode` | `hybrid`, `off` |
 | `SEDICI_ASYNC` | `async.mode` | `0`, `game` |
+| `SEDICI_LIMIT_FPS` | `limiter.fps` | number `0` to `1000` |
 | `MFSRFG_LOG` | `log.level` | `0`, `1`, `2` |
 
-String values are case-insensitive.
+String values are case-insensitive. Numeric overrides must be a plain
+non-negative decimal; `36.5 ` or `-1` is reported and ignored rather than
+half-parsed.
 
 ### Errors never fail the game
 
@@ -175,8 +237,10 @@ sedici:   pacing.variance_factor                  = 0.1 [default]
 sedici:   pacing.hybrid_spin_time                 = 2 [default]
 sedici:   pacing.wait_for_single_object_on_fence  = false [default]
 sedici:   async.mode                              = "game" [default]
+sedici:   limiter.fps                             = 0 [default]
+sedici:   limiter.spin_us                         = 1000 [default]
 sedici:   log.level                               = 1 [default]
-sedici: effective: frame pacing tuning ON (hybrid spin), async workloads as the game sets them
+sedici: effective: frame pacing tuning ON (hybrid spin), async workloads as the game sets them, real-frame limiter off
 ```
 
 `[default]`, `[file]` and `[env]` say where each value came from. A missing file
@@ -196,8 +260,8 @@ Levels:
 - **0** - only load/forward failures and internal errors.
 - **1** - the effective configuration; first 50 calls of each export; one full
   description per newly seen desc type; every non-OK return; present-hook
-  installation; pacing tuning sends; stats every 300 prepares; one line per
-  detected prepare stall.
+  installation; pacing tuning sends; limiter activation and stats; stats every
+  300 prepares; one line per detected prepare stall.
 - **2** - every call, in addition to level 1.
 
 The log level controls logging only. Turning it down does not turn the pacing
@@ -247,6 +311,35 @@ Every 300 prepare calls:
 
 If the present hook could not be installed, the present-interval fields show
 `n/a`; the rest of the log still works.
+
+### Limiter
+
+Activation is logged once, and again whenever the frame-generation state
+changes:
+
+```text
+sedici: limiter active target=37 fps interval=27.027 ms spin=1000 us fg=on
+```
+
+Every 300 real frames it reports what the schedule actually achieved:
+
+```text
+sedici: limiter stats frames=300 target_ms=27.027 interval_ms{avg=27.027 p50=27.027 p99=27.027 max=27.132} wait_ms{avg=26.936} overshoot_ms{avg=0.001 p99=0.000 max=0.105} late=0 resets=0 fg=on
+```
+
+| Field | Meaning |
+|---|---|
+| `frames` | real frames in this window |
+| `target_ms` | `1000 / limiter.fps` |
+| `interval_ms` | measured interval between real presents after the wait: avg, p50, p99, max |
+| `wait_ms` | average time spent waiting (timer + spin) before the original Present |
+| `overshoot_ms` | how far past the deadline the spin ended, for frames that waited; this is spin accuracy, not lateness |
+| `late` | frames that arrived at or after their deadline and were not waited on |
+| `resets` | times the schedule reseeded because a frame arrived more than one interval late |
+| `fg` | frame generation state reported by the game's last configure |
+
+`late` and `resets` are the two numbers to watch for a hitch: a long stall
+produces one reset and no burst, rather than a queue of back-to-back presents.
 
 ### Stall instrumentation
 
@@ -356,28 +449,65 @@ Both scripts only touch `amd_fidelityfx_framegeneration_dx12.dll`, its `.orig`
 backup, `sedici.toml` and `sedici.log`. The loader and upscaler DLLs are never
 modified.
 
+## Capture analysis
+
+`tools/capture.ps1` writes one PresentMon v1 CSV per run. `tools/analyze.py`
+summarizes it per swapchain and can append the Markdown report to a findings
+file:
+
+```powershell
+python tools\analyze.py --histogram captures\2026-11-05-N1.csv
+python tools\analyze.py --histogram --append docs\findings\005-sedici-limiter.md captures\2026-11-05-N1.csv
+```
+
+`--histogram` adds the `MsBetweenDisplayChange` distribution in 1 ms bins
+(`--bin-ms` changes the width). The histogram is how the two clusters of a
+non-uniform pattern become visible; the summary tables alone hide them.
+
+When the CSV contains them, these columns are reported as well. They are
+relative proxies, not click-to-photon measurements:
+
+| Column | What it measures | What it does not measure |
+|---|---|---|
+| `MsUntilDisplayed` | PresentMon's software estimate from the Present call to the display change | input sampling, game simulation, photon emission; not comparable across present modes |
+| `MsInPresentAPI` | how long the application blocked inside Present | latency; with the limiter it includes the deliberate wait |
+| `MsUntilRenderComplete` | Present call to GPU render completion | display latency; mostly queue depth |
+| `MsGPUActive` | GPU busy time for the frame | CPU frame time or latency |
+
 ## Milestones
 
 - **M0 - observe and forward.** No behavior changes. Validate desc shapes,
   pacing tuning, `frameTimeDelta` versus measured intervals, present cadence.
   Shipped.
-- **M1 - pacing fix on by default (current).** `sedici.toml` configuration,
-  per-context pacing send, stall instrumentation, confirmation capture runs.
-- **M2 - further tuning.** Only if M1's confirmation runs point somewhere:
-  correcting `frameTimeDelta`, or extending the tuning to latency-driven cases.
+- **M1 - pacing fix on by default.** `sedici.toml` configuration, per-context
+  pacing send, stall instrumentation, confirmation capture runs. Shipped.
+- **M2 - built-in real-frame limiter (current).** `[limiter]` configuration, a
+  high-resolution timer plus QPC spin in front of the game's `Present`,
+  per-300-frame accuracy stats, so Anti-Lag 2 can stay on with a cap inside
+  Sedici. Confirmation runs pending.
+- **M3 - further tuning.** Only if M2's runs point somewhere: correcting
+  `frameTimeDelta`, or extending the tuning to latency-driven cases.
 
 ## Present-hook risk
 
-The hook patches the shared DXGI swapchain vtable's `Present` and `Present1`
-slots. It chains to whatever was there before (D3D runtime or another overlay)
-and restores the original page protection. If `VirtualProtect` fails, the hook
-is skipped and an error is logged. No other behavior is changed. The hook is only
-used for timing measurements; removing it does not affect the pacing fix.
+The hook patches the shared DXGI swapchain vtable's `Present` (slot 8) and
+`Present1` (slot 22) entries. It chains to whatever was there before (D3D
+runtime or another overlay) and restores the original page protection. Both
+hooks forward exactly the arguments they received, including `Present1`'s
+`PresentFlags` and `DXGI_PRESENT_PARAMETERS`; `DXGI_PRESENT_TEST` is passed
+through without being capped. If `VirtualProtect` fails, the hook is skipped and
+an error is logged. When the hook is active it serves two purposes: timing
+measurements and, when `limiter.fps > 0`, the real-frame cap. If it is skipped,
+neither happens; the pacing fix and forwarding are unaffected.
+
+The limiter's timer is created lazily on the first capped present, never in
+`DllMain`, and is never closed: the process exit reclaims it.
 
 ## Rules
 
-- Forward everything. Only the documented pacing send and the opt-in async
-  rewrite may change behavior, and both are inert when configured off.
+- Forward everything. Only the documented pacing send, the opt-in async
+  rewrite and the opt-in real-frame limiter may change behavior, and all three
+  are inert when configured off.
 - Never fail a game call because of Sedici's own bookkeeping.
 - Do not modify the loader or the upscaler DLL.
 - Keep `third_party/ffx/` and `third_party/tomlplusplus/` unmodified.

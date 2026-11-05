@@ -11,6 +11,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstring>
 #include <iomanip>
 #include <iterator>
@@ -19,7 +20,6 @@
 #include <set>
 #include <sstream>
 #include <string>
-
 #pragma warning(push)
 #pragma warning(disable : 4996) // The SDK marks the legacy prepare desc deprecated.
 
@@ -129,6 +129,17 @@ bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc) noexcept
     return false;
 }
 
+bool chain_has_fg_create(const ffxApiHeader* desc) noexcept
+{
+    std::set<const ffxApiHeader*> seen;
+    for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+        if (!seen.insert(item).second) break;
+        if (item->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION) return true;
+        if (seen.size() >= kMaxChainItems) break;
+    }
+    return false;
+}
+
 // Per frame generation context pacing state.
 struct ContextPacing {
     bool tracked = false;      // see `swapchain`
@@ -139,6 +150,12 @@ struct ContextPacing {
 
 std::mutex g_pacing_mutex;
 std::map<void*, ContextPacing> g_pacing_contexts;
+
+// Frame generation contexts, and the last state the game gave them. The set is
+// only there so destroying the last FG context clears the flag; a recycled
+// pointer cannot keep the limiter labelled "fg=on" forever.
+std::atomic<bool> g_fg_enabled{false};
+std::set<void*> g_fg_contexts;
 
 // Caller holds g_pacing_mutex. Returns nullptr only when the table is full and
 // the context is new, which means "do not track, do not send".
@@ -223,6 +240,11 @@ bool toggles_pacing_hybrid() noexcept
     return sedici::settings().pacing.mode == sedici::PacingMode::Hybrid;
 }
 
+bool toggles_fg_active() noexcept
+{
+    return g_fg_enabled.load(std::memory_order_relaxed);
+}
+
 void ScopedDescOverride::patch(void* address, size_t size, uint64_t value) noexcept
 {
     if (!address || size == 0 || size > sizeof(uint64_t) || m_count >= std::size(m_restore)) return;
@@ -292,13 +314,22 @@ void toggles_after_create(ffxContext* context, const ffxCreateContextDescHeader*
     if (!desc) return;
 
     try {
+        void* key = context ? *context : nullptr;
+
+        // Record the frame generation context even though it has no swapchain
+        // desc: the limiter uses this to label its mode and to clear that label
+        // when the context is destroyed.
+        if (key && chain_has_fg_create(desc)) {
+            std::lock_guard<std::mutex> lock(g_pacing_mutex);
+            if (g_fg_contexts.size() < kMaxTrackedContexts) g_fg_contexts.insert(key);
+        }
+
         // Recorded even when pacing is off, so the stall detector still knows
         // that the swapchain was rebuilt.
         const SwapchainRef swapchain = find_swapchain(desc);
         if (!swapchain.present) return;
         stats_on_swapchain_event("swapchain-create");
 
-        void* key = context ? *context : nullptr;
         if (!key) return;
 
         bool send = false;
@@ -345,7 +376,33 @@ void toggles_after_configure(ffxContext* context, const ffxConfigureDescHeader* 
     try {
         // The stall detector cares about any configure reaching the DLL, not
         // just the ones Sedici takes an interest in.
-        if (result == FFX_API_RETURN_OK) stats_on_swapchain_event("configure");
+        if (result == FFX_API_RETURN_OK) {
+            stats_on_swapchain_event("configure");
+
+            // What the game asked of frame generation, for the limiter's mode
+            // label. The desc is the caller's original here (any async rewrite
+            // has already been restored), and frameGenerationEnabled is never
+            // touched by Sedici.
+            std::set<const ffxApiHeader*> seen;
+            for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+                if (!seen.insert(item).second) break;
+                if (item->type == FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION) {
+                    g_fg_enabled.store(
+                        reinterpret_cast<const ffxConfigureDescFrameGeneration&>(*item)
+                            .frameGenerationEnabled,
+                        std::memory_order_relaxed);
+                    break;
+                }
+                if (item->type == FFX_API_FRAME_GENERATION_CONFIG) {
+                    g_fg_enabled.store(
+                        reinterpret_cast<const FfxFrameGenerationConfig&>(*item)
+                            .frameGenerationEnabled,
+                        std::memory_order_relaxed);
+                    break;
+                }
+                if (seen.size() >= kMaxChainItems) break;
+            }
+        }
 
         if (!toggles_pacing_hybrid()) return;
         if (result != FFX_API_RETURN_OK) return;
@@ -377,6 +434,9 @@ void toggles_on_destroy(void* context) noexcept
         if (!context) return;
         std::lock_guard<std::mutex> lock(g_pacing_mutex);
         g_pacing_contexts.erase(context);
+        if (g_fg_contexts.erase(context) > 0 && g_fg_contexts.empty()) {
+            g_fg_enabled.store(false, std::memory_order_relaxed);
+        }
     } catch (...) {
         log_error("failed to drop the frame pacing state for a destroyed context");
     }

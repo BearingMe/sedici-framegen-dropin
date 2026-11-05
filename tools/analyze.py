@@ -12,9 +12,20 @@ Reports, per file and per swapchain:
   * share of intervals above 1.5x the median (stutter)
   * share of intervals below 0.5x the median (bunching)
   * the same for MsBetweenPresents
+  * optional latency columns present in the PresentMon 2.x v1 schema:
+    MsUntilDisplayed, MsInPresentAPI, MsUntilRenderComplete, MsGPUActive
+  * with --histogram, the output-interval distribution in fixed-width bins
 
 The swapchain with the highest present rate is the frame-generation output;
 the other one carries the game's real frames.
+
+Latency caveat: MsUntilDisplayed is PresentMon's software estimate from the
+Present call to the display change. It is a useful relative proxy for
+presentation latency, but it is not click-to-photon: it excludes input
+sampling, game simulation and the physical display response, and it is not
+comparable across present modes or display pipelines. MsInPresentAPI measures
+how long the application blocked inside Present (including Sedici's limiter
+wait), so it is not latency either.
 """
 
 from __future__ import annotations
@@ -113,6 +124,11 @@ class SwapChainStats:
     presents: Series
     duration_s: float = 0.0
     fps: float = 0.0
+    until_displayed: Series = field(default_factory=Series)
+    in_present_api: Series = field(default_factory=Series)
+    until_render_complete: Series = field(default_factory=Series)
+    gpu_active: Series = field(default_factory=Series)
+    display_values: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -143,6 +159,15 @@ def analyze_file(path: str) -> FileStats:
                 display_column = find_column(header, "DisplayedTime")
             swapchain_column = find_column(header, "SwapChainAddress")
 
+            # Optional PresentMon 2.x latency columns. Older schemas simply do
+            # not have them; the tables are then omitted.
+            latency_columns = {
+                "until_displayed": find_column(header, "MsUntilDisplayed"),
+                "in_present_api": find_column(header, "MsInPresentAPI"),
+                "until_render_complete": find_column(header, "MsUntilRenderComplete"),
+                "gpu_active": find_column(header, "MsGPUActive"),
+            }
+
             if not presents_column:
                 result.error = "no MsBetweenPresents / msBetweenPresents column"
                 return result
@@ -153,9 +178,11 @@ def analyze_file(path: str) -> FileStats:
             i_display = index(display_column)
             i_presents = index(presents_column)
             i_swap = index(swapchain_column)
+            i_latency = {key: index(name) for key, name in latency_columns.items()}
 
             display: dict[str, list[float]] = {}
             presents: dict[str, list[float]] = {}
+            latency: dict[str, dict[str, list[float]]] = {key: {} for key in latency_columns}
 
             for row in reader:
                 if not row:
@@ -174,12 +201,25 @@ def analyze_file(path: str) -> FileStats:
                     if value is not None and value >= 0:
                         display[swapchain].append(value)
 
+                for key, i_column in i_latency.items():
+                    latency[key].setdefault(swapchain, [])
+                    if i_column is not None and i_column < len(row):
+                        value = to_float(row[i_column])
+                        if value is not None and value >= 0:
+                            latency[key][swapchain].append(value)
+
         for swapchain in sorted(presents, key=lambda key: -len(presents[key])):
             entry = SwapChainStats(
                 swapchain=swapchain,
                 display=summarize(display.get(swapchain, [])),
                 presents=summarize(presents.get(swapchain, [])),
             )
+            entry.until_displayed = summarize(latency["until_displayed"].get(swapchain, []))
+            entry.in_present_api = summarize(latency["in_present_api"].get(swapchain, []))
+            entry.until_render_complete = summarize(
+                latency["until_render_complete"].get(swapchain, []))
+            entry.gpu_active = summarize(latency["gpu_active"].get(swapchain, []))
+            entry.display_values = display.get(swapchain, [])
             # Faster and schema independent than any timestamp column: the mean
             # interval between present calls is the frame period.
             if entry.presents.avg > 0:
@@ -228,7 +268,7 @@ def row_values(label: str, item: SwapChainStats, series: Series, role: str) -> l
     ]
 
 
-def print_table(title: str, rows: list[list[str]], markdown: bool) -> list[str]:
+def print_rows(title: str, headers: list[str], rows: list[list[str]], markdown: bool) -> list[str]:
     out: list[str] = []
     out.append(title)
     if not rows:
@@ -237,14 +277,14 @@ def print_table(title: str, rows: list[list[str]], markdown: bool) -> list[str]:
         return out
 
     if markdown:
-        out.append("| " + " | ".join(HEADERS) + " |")
-        out.append("|" + "|".join(["---"] * len(HEADERS)) + "|")
+        out.append("| " + " | ".join(headers) + " |")
+        out.append("|" + "|".join(["---"] * len(headers)) + "|")
         for row in rows:
             out.append("| " + " | ".join(row) + " |")
         out.append("")
         return out
 
-    widths = [len(name) for name in HEADERS]
+    widths = [len(name) for name in headers]
     for row in rows:
         for index, value in enumerate(row):
             widths[index] = max(widths[index], len(value))
@@ -252,7 +292,7 @@ def print_table(title: str, rows: list[list[str]], markdown: bool) -> list[str]:
     def line(row: list[str]) -> str:
         return "  ".join(value.rjust(widths[index]) for index, value in enumerate(row))
 
-    out.append(line(HEADERS))
+    out.append(line(headers))
     out.append("  ".join("-" * width for width in widths))
     for row in rows:
         out.append(line(row))
@@ -260,7 +300,45 @@ def print_table(title: str, rows: list[list[str]], markdown: bool) -> list[str]:
     return out
 
 
-def build_report(files: list[FileStats], markdown: bool) -> str:
+def print_table(title: str, rows: list[list[str]], markdown: bool) -> list[str]:
+    return print_rows(title, HEADERS, rows, markdown)
+
+
+def interval_histogram(values: list[float], bin_ms: float,
+                       max_ms: float = 0.0) -> list[tuple[float, float, int, float]]:
+    """Fixed-width bins starting at the floor of the minimum value.
+
+    With `max_ms > 0`, bins stop at `max_ms` and everything at or above it is
+    collected in a final overflow bin. That keeps one 120 ms hitch from turning
+    a 1 ms histogram into a 120-row table.
+    """
+    if not values or bin_ms <= 0:
+        return []
+    low = math.floor(min(values) / bin_ms) * bin_ms
+    counts: dict[int, int] = {}
+    overflow = 0
+    for value in values:
+        if max_ms > 0 and value >= max_ms:
+            overflow += 1
+            continue
+        bucket = int(math.floor((value - low) / bin_ms))
+        counts[bucket] = counts.get(bucket, 0) + 1
+    total = len(values)
+    last = max(counts) if counts else -1
+    if max_ms > 0:
+        last = max(last, int(math.ceil((max_ms - low) / bin_ms)) - 1)
+    out = [
+        (low + i * bin_ms, low + (i + 1) * bin_ms, counts.get(i, 0),
+         100.0 * counts.get(i, 0) / total)
+        for i in range(last + 1)
+    ]
+    if overflow:
+        out.append((max_ms, float("inf"), overflow, 100.0 * overflow / total))
+    return out
+
+
+def build_report(files: list[FileStats], markdown: bool, histogram: bool = False,
+                 bin_ms: float = 1.0, histogram_max_ms: float = 0.0) -> str:
     display_rows: list[list[str]] = []
     present_rows: list[list[str]] = []
     notes: list[str] = []
@@ -291,6 +369,59 @@ def build_report(files: list[FileStats], markdown: bool) -> str:
     out: list[str] = []
     out.extend(print_table("MsBetweenDisplayChange (output cadence, ms)", display_rows, markdown))
     out.extend(print_table("MsBetweenPresents (present call cadence, ms)", present_rows, markdown))
+
+    # Optional latency columns. Only emit a table when the CSV actually carried
+    # the column and at least one swapchain has samples.
+    latency_tables = [
+        ("MsUntilDisplayed (present-to-display proxy, ms)", "until_displayed"),
+        ("MsInPresentAPI (time blocked inside Present, ms)", "in_present_api"),
+        ("MsUntilRenderComplete (present-to-GPU-complete, ms)", "until_render_complete"),
+        ("MsGPUActive (GPU busy time, ms)", "gpu_active"),
+    ]
+    for title, attribute in latency_tables:
+        rows: list[list[str]] = []
+        for entry in files:
+            if entry.error:
+                continue
+            for item in order_swapchains(entry):
+                series = getattr(item, attribute)
+                if series.count:
+                    rows.append(row_values(entry.label, item, series, ""))
+        if rows:
+            out.extend(print_table(title, rows, markdown))
+
+    if any(getattr(item, "until_displayed").count
+           for entry in files if not entry.error
+           for item in order_swapchains(entry)):
+        out.append("Latency notes")
+        out.append("  MsUntilDisplayed is PresentMon's software estimate from the Present call to")
+        out.append("  the display change. Use it for relative comparisons only: it is not")
+        out.append("  click-to-photon, it excludes input sampling and game simulation, and it is")
+        out.append("  not comparable across present modes. MsInPresentAPI is how long the")
+        out.append("  application blocked inside Present; with a limiter it includes the")
+        out.append("  deliberate wait, so it is not latency. MsUntilRenderComplete reflects")
+        out.append("  queue depth. MsGPUActive is GPU busy time per frame.")
+        out.append("")
+
+    if histogram:
+        for entry in files:
+            if entry.error:
+                continue
+            ordered = order_swapchains(entry)
+            if not ordered:
+                continue
+            output = ordered[0]
+            bins = interval_histogram(output.display_values, bin_ms, histogram_max_ms)
+            if not bins:
+                continue
+            rows = []
+            for low, high, count, pct in bins:
+                label = f"{low:.1f}+" if math.isinf(high) else f"{low:.1f}-{high:.1f}"
+                rows.append([label, str(count), f"{pct:.2f}"])
+            title = (f"Output interval histogram, {bin_ms:g} ms bins "
+                     f"(MsBetweenDisplayChange, {entry.label}, {output.swapchain})")
+            out.extend(print_rows(title, ["bin (ms)", "frames", "%"], rows, markdown))
+
     if notes:
         out.append("Swapchains")
         out.extend(notes)
@@ -304,7 +435,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--markdown", action="store_true", help="emit Markdown tables instead of fixed width text")
     parser.add_argument("--append", metavar="PATH", help="append the Markdown report to this file")
     parser.add_argument("--title", default="", help="heading used when appending")
+    parser.add_argument("--histogram", action="store_true",
+                        help="include the output-interval histogram")
+    parser.add_argument("--bin-ms", type=float, default=1.0,
+                        help="histogram bin width in milliseconds (default 1)")
+    parser.add_argument("--histogram-max-ms", type=float, default=40.0,
+                        help="stop the histogram at this value and add an overflow bin "
+                             "(0 = no cap; default 40)")
     args = parser.parse_args(argv)
+
+    if args.bin_ms <= 0:
+        parser.error("--bin-ms must be greater than zero")
+    if args.histogram_max_ms < 0:
+        parser.error("--histogram-max-ms must be zero or greater")
 
     missing = [path for path in args.csv if not os.path.isfile(path)]
     for path in missing:
@@ -313,7 +456,8 @@ def main(argv: list[str]) -> int:
     if not files:
         return 1
 
-    report = build_report(files, args.markdown or bool(args.append))
+    report = build_report(files, args.markdown or bool(args.append), args.histogram,
+                          args.bin_ms, args.histogram_max_ms)
     print(report)
 
     if args.append:

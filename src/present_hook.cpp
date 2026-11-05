@@ -1,5 +1,7 @@
 #include "present_hook.h"
 
+#include "config.h"
+#include "limiter.h"
 #include "log.h"
 #include "stats.h"
 
@@ -17,7 +19,8 @@
 namespace {
 
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
-using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, const DXGI_PRESENT_PARAMETERS*);
+using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT,
+                                               const DXGI_PRESENT_PARAMETERS*);
 
 constexpr size_t kMaxTargets = 8;
 
@@ -74,11 +77,15 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval,
     } guard{in_hook};
     in_hook = true;
 
-    if (is_target(self)) stats_on_present(qpc_now());
+    if (is_target(self)) {
+        const uint64_t now = qpc_now();
+        stats_on_present(now);
+        if ((flags & DXGI_PRESENT_TEST) == 0) limiter_before_present(now);
+    }
     return original(self, sync_interval, flags);
 }
 
-HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval,
+HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval, UINT flags,
                                         const DXGI_PRESENT_PARAMETERS* parameters)
 {
     static thread_local bool in_hook = false;
@@ -86,7 +93,7 @@ HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval
     Present1Fn original = g_present1_original.load(std::memory_order_acquire);
     if (!original) return E_FAIL;
 
-    if (in_hook) return original(self, sync_interval, parameters);
+    if (in_hook) return original(self, sync_interval, flags, parameters);
 
     struct Guard {
         bool& value;
@@ -94,8 +101,12 @@ HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval
     } guard{in_hook};
     in_hook = true;
 
-    if (is_target(self)) stats_on_present(qpc_now());
-    return original(self, sync_interval, parameters);
+    if (is_target(self)) {
+        const uint64_t now = qpc_now();
+        stats_on_present(now);
+        if ((flags & DXGI_PRESENT_TEST) == 0) limiter_before_present(now);
+    }
+    return original(self, sync_interval, flags, parameters);
 }
 
 bool patch_vtable(void** vtable) noexcept
@@ -172,7 +183,11 @@ bool install(IDXGISwapChain* swapchain) noexcept
 
 void present_hook_maybe_install(const ffxCreateContextDescHeader* desc) noexcept
 {
-    if (log_level() < 1 || !desc) return;
+    // The limiter needs the hook even when logging is off. Milestone 1 only
+    // installed it for timing statistics, so `fps = 0` plus log level 0 still
+    // skips the hook exactly as before.
+    const bool limiter_enabled = sedici::settings().limiter.fps > 0;
+    if ((log_level() < 1 && !limiter_enabled) || !desc) return;
 
     try {
         std::set<const ffxApiHeader*> seen;

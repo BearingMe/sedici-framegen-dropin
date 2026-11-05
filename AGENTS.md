@@ -6,18 +6,20 @@ Sedici is a Windows x64 C++20 proxy DLL named
 `amd_fidelityfx_framegeneration_dx12.dll`. It loads the original as
 `amd_fidelityfx_framegeneration_dx12.dll.orig`, forwards the five `ffx*`
 exports, and on top of that sends one frame-pacing tuning configure that removes
-a measured frame-time tail. Behaviour is driven by `sedici.toml` beside the DLL,
-with environment overrides.
+a measured frame-time tail, plus an optional real-frame limiter. Behaviour is
+driven by `sedici.toml` beside the DLL, with environment overrides.
 
 ## Hard rules
 
 - **Forward everything.** Every argument, return value and timing passes through
-  unchanged. The only permitted behaviour changes are the two documented ones:
-  the frame pacing tuning send (`pacing.mode`) and the async-workload rewrite
-  (`async.mode`). Both must be inert when configured off. Do not "fix" anything
+  unchanged. The only permitted behaviour changes are the three documented ones:
+  the frame pacing tuning send (`pacing.mode`), the async-workload rewrite
+  (`async.mode`) and the real-frame limiter (`limiter.fps`, which deliberately
+  delays Present). All must be inert when configured off. Do not "fix" anything
   else, including unknown descs, return codes, or swapchain behaviour.
 - Only change behaviour when a milestone explicitly says so. Milestone 1 is the
-  pacing fix; it is on by default and must remain fully opt-out.
+  pacing fix; milestone 2 adds the real-frame limiter. The pacing fix is on by
+  default; the limiter is off by default. Both must remain fully opt-out.
 - Never fail a game call because of Sedici's own bookkeeping. Configuration
   errors, a rejected tuning and logging failures are all non-fatal.
 - Do not touch `amd_fidelityfx_loader_dx12.dll` or
@@ -36,9 +38,14 @@ with environment overrides.
 - `src/forward.*` — `LoadLibraryExW` + `GetProcAddress` for the `.orig`.
 - `src/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
-- `src/toggles.*` — the two behaviour switches and per-context pacing state.
+- `src/toggles.*` — the pacing and async behaviour switches, per-context pacing
+  state, and the frame-generation-active label used by the limiter.
 - `src/describe.*` — desc-chain walking and per-type logging.
 - `src/present_hook.*` — optional `Present`/`Present1` vtable hook.
+- `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
+  plus QPC spin, scheduling, and per-300-frame accuracy stats.
+- `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
+  separate so it can be tested without a clock.
 - `src/stats.*` — rolling prepare/present stats every 300 prepares, plus the
   prepare stall detector.
 - `src/log.*` — `sedici.log` beside the DLL, flushed per write,

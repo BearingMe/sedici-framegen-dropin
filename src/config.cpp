@@ -22,6 +22,7 @@
 #pragma warning(pop)
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -69,6 +70,32 @@ bool env_string(const char* name, std::string& out)
     if (length == 0 || length >= sizeof(buffer)) return false; // absent, empty, or implausibly long
     out.assign(buffer, buffer + length);
     return true;
+}
+
+// Strict non-negative decimal. Rejects signs, whitespace and trailing junk, so
+// an override such as "36.5 " or "-1" is reported instead of being half-parsed.
+// Fractions are allowed for the limiter target.
+bool parse_decimal(std::string_view text, double& out) noexcept
+{
+    if (text.empty()) return false;
+    double value = 0.0;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return false;
+    if (!std::isfinite(value) || value < 0.0) return false;
+    out = value;
+    return true;
+}
+
+// 37 -> "37", 36.5 -> "36.5", 36.500 -> "36.5". Used in the log so a whole
+// number does not acquire a decimal point.
+std::string format_number(double value)
+{
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(3) << value;
+    std::string text = out.str();
+    while (!text.empty() && text.back() == '0') text.pop_back();
+    if (!text.empty() && text.back() == '.') text.pop_back();
+    return text;
 }
 
 // Wide -> UTF-8, used so the log file stays readable and ASCII-compatible even
@@ -208,6 +235,8 @@ void read_pacing(const toml::table& root, PacingSettings& pacing,
                  std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_async(const toml::table& root, AsyncSettings& async,
                 std::vector<std::string>& problems);
+void read_limiter(const toml::table& root, LimiterSettings& limiter,
+                  std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems);
 
 // Reads `sedici.toml` and applies every key it contains.
@@ -257,6 +286,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
 
     read_pacing(root, config.pacing, problems, notes);
     read_async(root, config.async, problems);
+    read_limiter(root, config.limiter, problems, notes);
     read_log(root, config.log, problems);
 }
 
@@ -431,6 +461,71 @@ void read_async(const toml::table& root, AsyncSettings& async,
     }
 }
 
+void read_limiter(const toml::table& root, LimiterSettings& limiter,
+                  std::vector<std::string>& problems, std::vector<std::string>& notes)
+{
+    check_section(root, "limiter", problems);
+
+    // fps ---------------------------------------------------------------
+    {
+        double value = 0.0;
+        const node* entry = section_key(root, "limiter", "fps");
+        switch (read_number(entry, value)) {
+        case Read::Missing:
+            break;
+        case Read::WrongType:
+            problem_at(problems, *entry, "limiter.fps",
+                       std::string("expected a number, got ") + type_name(entry->type()) +
+                           " - using default 0 (off)");
+            break;
+        case Read::Ok:
+            if (!std::isfinite(value) || value < 0.0 || value > 1000.0) {
+                problem_at(problems, *entry, "limiter.fps",
+                           "must be within [0, 1000] (0 = off) - using default 0");
+            } else {
+                limiter.fps = value;
+                limiter.fps_source = Source::File;
+            }
+            break;
+        }
+    }
+
+    // spin_us -----------------------------------------------------------
+    {
+        int64_t value = 0;
+        const node* entry = section_key(root, "limiter", "spin_us");
+        switch (read_integer(entry, value)) {
+        case Read::Missing:
+            break;
+        case Read::WrongType:
+            problem_at(problems, *entry, "limiter.spin_us",
+                       std::string("expected an integer, got ") + type_name(entry->type()) +
+                           " - using default 1000");
+            break;
+        case Read::Ok:
+            if (value < 0 || value > 100000) {
+                problem_at(problems, *entry, "limiter.spin_us",
+                           "must be within [0, 100000] microseconds - using default 1000");
+            } else {
+                limiter.spin_us = static_cast<int>(value);
+                limiter.spin_us_source = Source::File;
+            }
+            break;
+        }
+    }
+
+    if (limiter.fps > 0.0) {
+        const long interval_us = std::lround(1000000.0 / limiter.fps);
+        if (static_cast<double>(limiter.spin_us) >= static_cast<double>(interval_us)) {
+            notes.push_back(
+                "sedici.toml: limiter.spin_us: " + std::to_string(limiter.spin_us) +
+                " us is not shorter than the " + std::to_string(interval_us) +
+                " us frame interval; the timer wait is skipped and the limiter spins for the "
+                "whole wait");
+        }
+    }
+}
+
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems)
 {
     check_section(root, "log", problems);
@@ -492,6 +587,18 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
         } else {
             problems.push_back("SEDICI_ASYNC=\"" + value +
                                "\": unknown value (expected \"0\" or \"game\") - override "
+                               "ignored");
+        }
+    }
+
+    if (env_string("SEDICI_LIMIT_FPS", value)) {
+        double parsed = 0.0;
+        if (parse_decimal(value, parsed) && parsed <= 1000.0) {
+            config.limiter.fps = parsed;
+            config.limiter.fps_source = Source::Env;
+        } else {
+            problems.push_back("SEDICI_LIMIT_FPS=\"" + value +
+                               "\": expected a number within [0, 1000] (0 = off) - override "
                                "ignored");
         }
     }
@@ -559,6 +666,9 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.pacing.wait_for_single_object_on_fence_source},
         {"async.mode", config.async.mode == AsyncMode::Game ? "\"game\"" : "\"off\"",
          config.async.mode_source},
+        {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
+        {"limiter.spin_us", std::to_string(config.limiter.spin_us),
+         config.limiter.spin_us_source},
         {"log.level", std::to_string(config.log.level), config.log.level_source},
     };
 
@@ -579,7 +689,14 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
     effective << "sedici: effective: frame pacing tuning "
               << (config.pacing.mode == PacingMode::Hybrid ? "ON (hybrid spin)" : "off")
               << ", async workloads "
-              << (config.async.mode == AsyncMode::Off ? "forced off" : "as the game sets them");
+              << (config.async.mode == AsyncMode::Off ? "forced off" : "as the game sets them")
+              << ", real-frame limiter ";
+    if (config.limiter.fps > 0.0) {
+        effective << format_number(config.limiter.fps) << " fps (spin " << config.limiter.spin_us
+                  << " us)";
+    } else {
+        effective << "off";
+    }
     log_raw(effective.str());
 }
 

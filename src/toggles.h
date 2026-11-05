@@ -19,6 +19,11 @@
 bool toggles_async_disable() noexcept;
 bool toggles_pacing_hybrid() noexcept;
 
+// True while a frame generation context exists and the last frame generation
+// configure told the runtime that generation is enabled. Used only to label the
+// limiter's mode ("fg=on/off"); the limiter caps real frames either way.
+bool toggles_fg_active() noexcept;
+
 // Rewrites the caller's desc chain in place for the duration of one call, then
 // restores every byte it touched. Nested descs are handled; the walk is bounded
 // and cycle safe. Does nothing when async.mode is not "off".

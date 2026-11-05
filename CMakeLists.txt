@@ -34,6 +34,7 @@ add_library(sedici SHARED
     src/describe.cpp
     src/present_hook.cpp
     src/stats.cpp
+    src/limiter.cpp
     src/toggles.cpp
     src/config.cpp
     src/log.cpp

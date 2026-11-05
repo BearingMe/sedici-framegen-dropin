@@ -56,6 +56,23 @@ wait_for_single_object_on_fence = false
 # default. Kept for A/B testing.
 mode = "game"
 
+[limiter]
+# Cap the game's real frames inside Sedici's Present hook, before the original
+# Present is called. The generated frames are presented inside AMD's swapchain
+# and are not capped; with 2x frame generation the output lands at about twice
+# this rate. 0 = off (default, exact milestone-1 behaviour).
+#
+# Fractions are allowed. Example: 36.5 gives about 73 output fps with 2x frame
+# generation. On a 75 Hz panel with VRR (40-75 Hz) that is the usual target:
+# inside the VRR window and ~2 fps under the ceiling. 37 gives 74 output.
+fps = 0
+
+# Final busy-wait window before the deadline, in microseconds. The high
+# resolution waitable timer covers everything before this window; the spin
+# covers the last part so the present lands on the deadline rather than on a
+# timer tick. 0 = never spin (timer only, coarser). Must be within [0, 100000].
+spin_us = 1000
+
 [log]
 # 0 = errors only
 # 1 = normal: calls, configuration, stats every 300 prepares, and one line per
