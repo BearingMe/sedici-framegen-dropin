@@ -1,0 +1,5 @@
+# Vendored third-party code is kept byte-for-byte as upstream, so the SHA-256
+# recorded in README.md survives a checkout. core.autocrlf=true would otherwise
+# rewrite this file's line endings on the way out of the index and change its
+# hash.
+third_party/tomlplusplus/** -text

@@ -1,0 +1,64 @@
+# Sedici configuration.
+#
+# This file lives beside amd_fidelityfx_framegeneration_dx12.dll and is read
+# once, on the first ffx* call of the process.
+#
+# Every key is optional. Delete a key and its built-in default applies; delete
+# the whole file and every default applies. The values below ARE the defaults,
+# written out so the full set is visible in one place.
+#
+# Environment variables override this file:
+#   SEDICI_PACING=hybrid|off     overrides [pacing] mode
+#   SEDICI_ASYNC=0|game          overrides [async] mode
+#   MFSRFG_LOG=0|1|2             overrides [log] level
+#
+# A malformed file is never fatal. Each bad key is reported in sedici.log with
+# its line and column, that key falls back to its default, and the rest of the
+# file still applies. A syntax error falls back to defaults for every key.
+#
+# Full reference: README.md. Measurements behind these defaults:
+# docs/findings/002-pacing-baseline.md.
+
+[pacing]
+# "hybrid" - after each frame generation swapchain is created, send the
+#            swapchain frame pacing tuning desc with allowHybridSpin = true.
+#            This is the fix: it removes the 50-67 ms frame-time tail without
+#            costing throughput.
+# "off"    - send nothing; forward everything untouched. Combined with
+#            async.mode = "game" this is exact milestone-0 behaviour.
+mode = "hybrid"
+
+# Frame pacing sleep safety margin, in milliseconds.
+# SDK default: 0.1. Must be finite and >= 0.
+safety_margin_ms = 0.1
+
+# Variance factor for consecutive frame times.
+# SDK default: 0.1. Must be within [0.0, 1.0].
+variance_factor = 0.1
+
+# How long to spin, in timer resolution units, when hybrid spin is allowed.
+# The SDK recommends at least 2; lower values overshoot more often.
+# SDK default: 2. Must be within [0, 1000].
+hybrid_spin_time = 2
+
+# Wait on the fence with WaitForSingleObject instead of spinning for it.
+# SDK default: false.
+wait_for_single_object_on_fence = false
+
+[async]
+# "game" - forward allowAsyncWorkloads exactly as the game sets it.
+# "off"  - clear FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT from the
+#          frame generation create flags and force allowAsyncWorkloads = false
+#          in every frame generation configure desc.
+#
+# This was the second tail fix found in the baseline investigation. It removes
+# the same tail as [pacing] and does not stack with it, so it is not the
+# default. Kept for A/B testing.
+mode = "game"
+
+[log]
+# 0 = errors only
+# 1 = normal: calls, configuration, stats every 300 prepares, and one line per
+#     detected prepare stall
+# 2 = verbose: every call
+level = 1

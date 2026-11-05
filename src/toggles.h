@@ -2,22 +2,26 @@
 
 #include "ffx_api.h"
 
-// Opt-in experiment toggles. Both are inert unless their environment variable
-// is set, so an unset environment stays bit-identical to milestone 0.
+// The two behaviour switches, both resolved from sedici.toml with environment
+// overrides. See config.h and README.md.
 //
-//   SEDICI_ASYNC=0        Clears FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT
-//                         from the frame generation create flags and forces
-//                         allowAsyncWorkloads=false in every frame generation
-//                         configure desc.
-//   SEDICI_PACING=hybrid  After the frame generation swapchain context is
-//                         created or wrapped, sends the swapchain frame pacing
-//                         tuning configure with allowHybridSpin=true.
+//   pacing.mode = "hybrid"   After the frame generation swapchain context is
+//                            created, sends the swapchain frame pacing tuning
+//                            configure with allowHybridSpin=true.
+//   async.mode  = "off"      Clears FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT
+//                            from the frame generation create flags and forces
+//                            allowAsyncWorkloads=false in every frame generation
+//                            configure desc.
+//
+// Both default to the milestone-1 behaviour (pacing hybrid, async untouched).
+// Setting pacing.mode="off" and async.mode="game" makes Sedici forward exactly
+// what it did in milestone 0.
 bool toggles_async_disable() noexcept;
 bool toggles_pacing_hybrid() noexcept;
 
 // Rewrites the caller's desc chain in place for the duration of one call, then
 // restores every byte it touched. Nested descs are handled; the walk is bounded
-// and cycle safe. Does nothing when no toggle applies.
+// and cycle safe. Does nothing when async.mode is not "off".
 class ScopedDescOverride {
 public:
     explicit ScopedDescOverride(const ffxApiHeader* desc) noexcept;
@@ -39,11 +43,22 @@ private:
     size_t m_count = 0; // 0 means "nothing overridden".
 };
 
-// Called after a successful ffxCreateContext. Sends the pacing tuning desc when
-// the create chain contains a frame generation swapchain desc.
+// Called after a successful ffxCreateContext. Records the swapchain for the
+// stall detector, and sends the pacing tuning desc when this call created or
+// wrapped a frame generation swapchain.
+//
+// State is tracked per frame generation context, so a swapchain recreated by
+// the game (resolution change, frame generation toggled) gets its own send
+// instead of inheriting the previous context's "already applied" flag.
 void toggles_after_create(ffxContext* context, const ffxCreateContextDescHeader* desc) noexcept;
 
-// Called after ffxConfigure. Retries the pacing tuning desc on the frame
-// generation context when the swapchain context rejected it.
+// Called after ffxConfigure. Records the event for the stall detector and
+// retries the pacing tuning desc on the frame generation context if the
+// swapchain path did not accept it.
 void toggles_after_configure(ffxContext* context, const ffxConfigureDescHeader* desc,
                              ffxReturnCode_t result) noexcept;
+
+// Called before the original ffxDestroyContext, to drop the per-context pacing
+// state. Without this a recycled context pointer would look "already applied".
+// Takes the context value (the `void*` the game holds), not the slot pointer.
+void toggles_on_destroy(void* context) noexcept;

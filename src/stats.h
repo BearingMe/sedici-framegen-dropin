@@ -7,3 +7,9 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept;
 
 // Called from the swapchain Present/Present1 hooks with a QPC timestamp.
 void stats_on_present(uint64_t qpc) noexcept;
+
+// Records that a frame generation swapchain context was created, or that a
+// successful ffxConfigure reached the original DLL. Used only by the stall
+// detector, which reports whether a stall coincided with one of these. `kind`
+// must be a string literal; only the pointer is stored.
+void stats_on_swapchain_event(const char* kind) noexcept;

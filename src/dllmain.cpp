@@ -51,6 +51,10 @@ extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
         ? g_ffxDestroyContext(context, callbacks)
         : FFX_API_RETURN_ERROR;
 
+    // Drop any pacing bookkeeping for this context so a recycled pointer does
+    // not look like a context Sedici already tuned.
+    if (result == FFX_API_RETURN_OK) toggles_on_destroy(existing);
+
     describe_call(FfxExportKind::Destroy, nullptr, result, existing);
     return result;
 }

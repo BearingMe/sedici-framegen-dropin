@@ -1,8 +1,10 @@
 #include "toggles.h"
 
+#include "config.h"
 #include "describe.h"
 #include "forward.h"
 #include "log.h"
+#include "stats.h"
 
 #include "ffx_framegeneration.h"
 #include "ffx_api_framegeneration_dx12.h"
@@ -12,6 +14,7 @@
 #include <cstring>
 #include <iomanip>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -23,22 +26,15 @@
 namespace {
 
 constexpr size_t kMaxChainItems = 64;
+
+// How many ffxConfigure attempts a single context gets before Sedici gives up.
+// In practice the first one succeeds; the bound exists so a rejecting driver
+// cannot turn every configure into an extra call for the rest of the session.
 constexpr int kMaxPacingAttempts = 5;
 
-bool env_equals(const char* name, const char* expected) noexcept
-{
-    char value[32]{};
-    const DWORD length = GetEnvironmentVariableA(name, value, sizeof(value));
-    if (length == 0 || length >= sizeof(value)) return false;
-
-    for (size_t i = 0;; ++i) {
-        char actual = value[i];
-        const char wanted = expected[i];
-        if (actual == '\0' || wanted == '\0') return actual == wanted;
-        if (actual >= 'A' && actual <= 'Z') actual = static_cast<char>(actual + ('a' - 'A'));
-        if (actual != wanted) return false;
-    }
-}
+// Contexts are created and destroyed rarely. The cap only exists so a game that
+// leaks contexts cannot grow this without bound.
+constexpr size_t kMaxTrackedContexts = 32;
 
 std::string hx(const void* value)
 {
@@ -51,7 +47,7 @@ void log_async_once() noexcept
 {
     static std::once_flag flag;
     std::call_once(flag, [] {
-        log_event(1, "sedici: SEDICI_ASYNC=0 active - cleared AsyncWorkloads (0x1) from the frame "
+        log_event(1, "sedici: async.mode=off active - cleared AsyncWorkloads (0x1) from the frame "
                      "generation create flags and forcing allowAsyncWorkloads=false in frame "
                      "generation configure descs");
     });
@@ -61,29 +57,56 @@ void log_pacing_once() noexcept
 {
     static std::once_flag flag;
     std::call_once(flag, [] {
-        log_event(1, "sedici: SEDICI_PACING=hybrid active - sending "
+        log_event(1, "sedici: pacing.mode=hybrid active - sending "
                      "FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 "
                      "(0x30008) key=2 (FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING) "
-                     "after the frame generation swapchain is created");
+                     "once per frame generation swapchain context");
     });
 }
 
-bool chain_has_swapchain_create(const ffxApiHeader* desc) noexcept
+// Whether the chain contains a frame generation swapchain create desc, and the
+// swapchain it names. `pointer` is null when the out-pointer had not been
+// filled in, which is not a reason to skip the send: whether the *desc* is
+// present is what decides that.
+struct SwapchainRef {
+    bool present = false;
+    const void* pointer = nullptr;
+};
+
+SwapchainRef find_swapchain(const ffxApiHeader* desc) noexcept
 {
+    SwapchainRef ref;
     std::set<const ffxApiHeader*> seen;
     for (const ffxApiHeader* item = desc; item; item = item->pNext) {
         if (!seen.insert(item).second) break;
         switch (item->type) {
-        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12:
-        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12:
-        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12:
-            return true;
+        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12: {
+            const auto& d =
+                reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainWrapDX12&>(*item);
+            ref.present = true;
+            if (d.swapchain && *d.swapchain) ref.pointer = static_cast<const void*>(*d.swapchain);
+            return ref;
+        }
+        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12: {
+            const auto& d =
+                reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainNewDX12&>(*item);
+            ref.present = true;
+            if (d.swapchain && *d.swapchain) ref.pointer = static_cast<const void*>(*d.swapchain);
+            return ref;
+        }
+        case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12: {
+            const auto& d = reinterpret_cast<
+                const ffxCreateContextDescFrameGenerationSwapChainForHwndDX12&>(*item);
+            ref.present = true;
+            if (d.swapchain && *d.swapchain) ref.pointer = static_cast<const void*>(*d.swapchain);
+            return ref;
+        }
         default:
             break;
         }
         if (seen.size() >= kMaxChainItems) break;
     }
-    return false;
+    return ref;
 }
 
 bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc) noexcept
@@ -106,29 +129,43 @@ bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc) noexcept
     return false;
 }
 
-struct PacingState {
-    std::mutex mutex;
-    bool applied = false;
-    int attempts = 0;
+// Per frame generation context pacing state.
+struct ContextPacing {
+    bool tracked = false;      // see `swapchain`
+    const void* swapchain = nullptr;
+    bool applied = false;      // the tuning was accepted
+    int attempts = 0;          // ffxConfigure calls made for this context
 };
 
-PacingState& pacing_state() noexcept
+std::mutex g_pacing_mutex;
+std::map<void*, ContextPacing> g_pacing_contexts;
+
+// Caller holds g_pacing_mutex. Returns nullptr only when the table is full and
+// the context is new, which means "do not track, do not send".
+ContextPacing* acquire_state(void* key) noexcept
 {
-    static PacingState state;
-    return state;
+    const auto existing = g_pacing_contexts.find(key);
+    if (existing != g_pacing_contexts.end()) return &existing->second;
+    if (g_pacing_contexts.size() >= kMaxTrackedContexts) return nullptr;
+    return &g_pacing_contexts.emplace(key, ContextPacing{}).first->second;
 }
 
-void send_pacing_tuning(ffxContext* context, const char* reason) noexcept
+// Sends the tuning desc and logs it. Returns the original DLL's return code so
+// the caller can update its per-context state. Deliberately called without
+// g_pacing_mutex held: it enters the original DLL, and holding our own lock
+// across foreign code is a needless deadlock risk.
+ffxReturnCode_t send_pacing_tuning(ffxContext* context, const char* reason) noexcept
 {
-    if (!context || !*context || !g_ffxConfigure) return;
+    if (!context || !*context || !g_ffxConfigure) return FFX_API_RETURN_ERROR;
 
-    // Documented defaults (ffx_framegeneration_api_types.h), plus hybrid spin.
+    const sedici::PacingSettings& pacing = sedici::settings().pacing;
+
     FfxApiSwapchainFramePacingTuning tuning{};
-    tuning.safetyMarginInMs = 0.1f;
-    tuning.varianceFactor = 0.1f;
+    tuning.safetyMarginInMs = pacing.safety_margin_ms;
+    tuning.varianceFactor = pacing.variance_factor;
     tuning.allowHybridSpin = true;
-    tuning.hybridSpinTime = 2;
-    tuning.allowWaitForSingleObjectOnFence = false;
+    tuning.hybridSpinTime = pacing.hybrid_spin_time;
+    tuning.allowWaitForSingleObjectOnFence = pacing.wait_for_single_object_on_fence;
 
     ffxConfigureDescFrameGenerationSwapChainKeyValueDX12 config{};
     config.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12;
@@ -152,23 +189,38 @@ void send_pacing_tuning(ffxContext* context, const char* reason) noexcept
         << " result=" << static_cast<int>(result) << " (" << ffx_return_code_name(result) << ')';
     log_event(1, out.str());
 
-    std::lock_guard<std::mutex> lock(pacing_state().mutex);
-    pacing_state().attempts += 1;
-    if (result == FFX_API_RETURN_OK) pacing_state().applied = true;
+    if (result != FFX_API_RETURN_OK) {
+        // Not fatal: the call has already been forwarded, and the game must not
+        // see a different return code because of an optional tuning tweak.
+        std::ostringstream note;
+        note << "sedici: frame pacing tuning was rejected (result=" << static_cast<int>(result)
+             << "); forwarding continues unchanged and the retry path through ffxConfigure "
+                "stays armed";
+        log_event(1, note.str());
+    }
+
+    return result;
+}
+
+void record_attempt(void* key, ffxReturnCode_t result) noexcept
+{
+    std::lock_guard<std::mutex> lock(g_pacing_mutex);
+    ContextPacing* state = acquire_state(key);
+    if (!state) return;
+    state->attempts += 1;
+    if (result == FFX_API_RETURN_OK) state->applied = true;
 }
 
 } // namespace
 
 bool toggles_async_disable() noexcept
 {
-    static const bool value = env_equals("SEDICI_ASYNC", "0");
-    return value;
+    return sedici::settings().async.mode == sedici::AsyncMode::Off;
 }
 
 bool toggles_pacing_hybrid() noexcept
 {
-    static const bool value = env_equals("SEDICI_PACING", "hybrid");
-    return value;
+    return sedici::settings().pacing.mode == sedici::PacingMode::Hybrid;
 }
 
 void ScopedDescOverride::patch(void* address, size_t size, uint64_t value) noexcept
@@ -221,7 +273,7 @@ ScopedDescOverride::ScopedDescOverride(const ffxApiHeader* desc) noexcept
             if (seen.size() >= kMaxChainItems) break;
         }
     } catch (...) {
-        log_error("failed to apply the SEDICI_ASYNC override");
+        log_error("failed to apply the async.mode=off override");
     }
 }
 
@@ -237,18 +289,49 @@ ScopedDescOverride::~ScopedDescOverride()
 
 void toggles_after_create(ffxContext* context, const ffxCreateContextDescHeader* desc) noexcept
 {
-    if (!desc || !toggles_pacing_hybrid()) return;
+    if (!desc) return;
 
     try {
-        log_pacing_once();
-        if (!chain_has_swapchain_create(desc)) return;
+        // Recorded even when pacing is off, so the stall detector still knows
+        // that the swapchain was rebuilt.
+        const SwapchainRef swapchain = find_swapchain(desc);
+        if (!swapchain.present) return;
+        stats_on_swapchain_event("swapchain-create");
 
+        void* key = context ? *context : nullptr;
+        if (!key) return;
+
+        bool send = false;
         {
-            std::lock_guard<std::mutex> lock(pacing_state().mutex);
-            if (pacing_state().applied) return;
-            if (pacing_state().attempts >= kMaxPacingAttempts) return;
+            std::lock_guard<std::mutex> lock(g_pacing_mutex);
+            ContextPacing* state = acquire_state(key);
+            if (!state) return;
+
+            // Only a swapchain pointer we could actually read can prove that the
+            // swapchain changed. When it is null, keep whatever we had.
+            if (state->tracked && swapchain.pointer && state->swapchain &&
+                state->swapchain != swapchain.pointer) {
+                // Same context, new swapchain: the game recreated it (resolution
+                // change, frame generation toggled). The previous tuning does
+                // not apply to the new one.
+                state->applied = false;
+                state->attempts = 0;
+                log_event(1, "sedici: frame generation swapchain recreated on the same context; "
+                             "pacing tuning will be sent again");
+            }
+
+            if (swapchain.pointer) state->swapchain = swapchain.pointer;
+            state->tracked = true;
+
+            if (!toggles_pacing_hybrid()) return;
+            if (state->applied) return;
+            if (state->attempts >= kMaxPacingAttempts) return;
+            send = true;
         }
-        send_pacing_tuning(context, "swapchain create");
+
+        if (!send) return;
+        log_pacing_once();
+        record_attempt(key, send_pacing_tuning(context, "swapchain create"));
     } catch (...) {
         log_error("failed to send the frame pacing tuning after swapchain creation");
     }
@@ -257,18 +340,45 @@ void toggles_after_create(ffxContext* context, const ffxCreateContextDescHeader*
 void toggles_after_configure(ffxContext* context, const ffxConfigureDescHeader* desc,
                              ffxReturnCode_t result) noexcept
 {
-    if (!desc || !toggles_pacing_hybrid() || result != FFX_API_RETURN_OK) return;
+    if (!desc) return;
 
     try {
-        {
-            std::lock_guard<std::mutex> lock(pacing_state().mutex);
-            if (pacing_state().applied) return;
-            if (pacing_state().attempts >= kMaxPacingAttempts) return;
-        }
+        // The stall detector cares about any configure reaching the DLL, not
+        // just the ones Sedici takes an interest in.
+        if (result == FFX_API_RETURN_OK) stats_on_swapchain_event("configure");
+
+        if (!toggles_pacing_hybrid()) return;
+        if (result != FFX_API_RETURN_OK) return;
         if (!chain_has_fg_configure_with_swapchain(desc)) return;
-        send_pacing_tuning(context, "frame generation configure");
+
+        void* key = context ? *context : nullptr;
+        if (!key) return;
+
+        {
+            std::lock_guard<std::mutex> lock(g_pacing_mutex);
+            const auto state = g_pacing_contexts.find(key);
+            if (state != g_pacing_contexts.end()) {
+                if (state->second.applied) return;
+                if (state->second.attempts >= kMaxPacingAttempts) return;
+            } else if (g_pacing_contexts.size() >= kMaxTrackedContexts) {
+                return;
+            }
+        }
+
+        record_attempt(key, send_pacing_tuning(context, "frame generation configure"));
     } catch (...) {
         log_error("failed to send the frame pacing tuning after configure");
+    }
+}
+
+void toggles_on_destroy(void* context) noexcept
+{
+    try {
+        if (!context) return;
+        std::lock_guard<std::mutex> lock(g_pacing_mutex);
+        g_pacing_contexts.erase(context);
+    } catch (...) {
+        log_error("failed to drop the frame pacing state for a destroyed context");
     }
 }
 

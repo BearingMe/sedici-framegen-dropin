@@ -112,4 +112,12 @@ Move-Item -LiteralPath $backup -Destination $dll
 $log = Join-Path $target.Bin 'sedici.log'
 if (Test-Path -LiteralPath $log -PathType Leaf) { Remove-Item -LiteralPath $log -Force }
 
+# sedici.toml ships with Sedici, so restoring removes it as well. If you tuned
+# it, copy your version out first: this is an uninstall, not a merge.
+$config = Join-Path $target.Bin 'sedici.toml'
+if (Test-Path -LiteralPath $config -PathType Leaf) {
+    Remove-Item -LiteralPath $config -Force
+    Write-Host "Removed $config."
+}
+
 Write-Host "Restored $($target.Bin); original DLL is back in place."

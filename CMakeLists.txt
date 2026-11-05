@@ -20,6 +20,14 @@ foreach(header IN LISTS SEDICI_FFX_HEADERS)
     endif()
 endforeach()
 
+# Vendored, unmodified single-header toml++ v3.4.0 (MIT). See README.md.
+set(SEDICI_TOML_HEADER third_party/tomlplusplus/toml.hpp)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${SEDICI_TOML_HEADER}")
+    message(FATAL_ERROR
+        "Missing ${SEDICI_TOML_HEADER}. Download the single-header toml.hpp from "
+        "https://github.com/marzer/tomlplusplus/releases/tag/v3.4.0 and place it there unmodified.")
+endif()
+
 add_library(sedici SHARED
     src/dllmain.cpp
     src/forward.cpp
@@ -27,6 +35,7 @@ add_library(sedici SHARED
     src/present_hook.cpp
     src/stats.cpp
     src/toggles.cpp
+    src/config.cpp
     src/log.cpp
     exports.def
 )
@@ -37,6 +46,7 @@ target_include_directories(sedici PRIVATE
     third_party/ffx/api/include/dx12
     third_party/ffx/framegeneration/include
     third_party/ffx/framegeneration/include/dx12
+    third_party/tomlplusplus
 )
 
 target_compile_definitions(sedici PRIVATE

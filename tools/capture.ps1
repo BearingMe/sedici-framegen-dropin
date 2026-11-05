@@ -142,14 +142,33 @@ if (Test-Path -LiteralPath $logSource -PathType Leaf) {
 $meta = Join-Path $OutDir "$base.meta.txt"
 $logAsync = 'not seen in log'
 $logPacing = 'not seen in log'
+$logSource = 'not seen in log'
+$logLevel = 'not seen in log'
+$logTuning = 'not seen in log'
 if (Test-Path -LiteralPath $logTarget -PathType Leaf) {
     $logText = Get-Content -LiteralPath $logTarget -Raw
-    if ($logText -match 'SEDICI_ASYNC=0 active') { $logAsync = 'disabled (SEDICI_ASYNC=0)' }
-    if ($logText -match 'SEDICI_PACING=hybrid active') { $logPacing = 'hybrid requested' }
-    if ($logText -match 'FramePacingTuning sent') { $logPacing = 'hybrid, tuning sent' }
+
+    # Milestone 1 logs the effective configuration with provenance, so the meta
+    # records what the process actually used rather than what the shell asked
+    # for. "[default]", "[file]" and "[env]" say where the value came from.
+    if ($logText -match 'pacing\.mode\s+= "([^"]+)" \[(\w+)\]') { $logPacing = "$($Matches[1]) ($($Matches[2]))" }
+    if ($logText -match 'async\.mode\s+= "([^"]+)" \[(\w+)\]') { $logAsync = "$($Matches[1]) ($($Matches[2]))" }
+    if ($logText -match 'log\.level\s+= (\d+) \[(\w+)\]') { $logLevel = "$($Matches[1]) ($($Matches[2]))" }
+    if ($logText -match 'FramePacingTuning sent') {
+        $logTuning = 'sent'
+    } elseif ($logPacing -match '^hybrid') {
+        $logTuning = 'not sent'
+    } else {
+        $logTuning = 'not requested'
+    }
+    if ($logText -match 'sedici: read ([^\r\n]+) \(once') { $logSource = $Matches[1] }
+    elseif ($logText -match 'no sedici\.toml beside the DLL') { $logSource = 'no file, defaults' }
 } else {
     $logAsync = 'no sedici.log'
     $logPacing = 'no sedici.log'
+    $logSource = 'no sedici.log'
+    $logLevel = 'no sedici.log'
+    $logTuning = 'no sedici.log'
 }
 $lines = @(
     "label=$Label",
@@ -158,8 +177,11 @@ $lines = @(
     "seconds=$Seconds",
     "presentmon=$presentMonExe",
     "exe=$($process.Path)",
-    "sedici_async=$logAsync",
     "sedici_pacing=$logPacing",
+    "sedici_async=$logAsync",
+    "sedici_log_level=$logLevel",
+    "sedici_tuning=$logTuning",
+    "sedici_config=$logSource",
     "capture_shell_async=$($env:SEDICI_ASYNC)",
     "capture_shell_pacing=$($env:SEDICI_PACING)",
     "sedici_async_user=$([Environment]::GetEnvironmentVariable('SEDICI_ASYNC','User'))",

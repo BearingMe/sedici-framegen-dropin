@@ -1,5 +1,7 @@
 #include "log.h"
 
+#include "config.h"
+
 #include <windows.h>
 
 #include <chrono>
@@ -78,16 +80,19 @@ std::filesystem::path dll_directory()
 
 int log_level() noexcept
 {
-    static const int level = [] {
-        char value[8]{};
-        const DWORD length = GetEnvironmentVariableA("MFSRFG_LOG", value, sizeof(value));
-        if (length == 1 && value[0] >= '0' && value[0] <= '2') return value[0] - '0';
-        return 1;
-    }();
+    // The level comes from `[log] level`, with MFSRFG_LOG overriding it; both
+    // are resolved once inside settings(). This is deliberately not a direct
+    // read of the environment any more, so the file can set it.
+    static const int level = sedici::settings().log.level;
     return level;
 }
 
 void log_error(std::string_view message) noexcept
+{
+    write_line(message);
+}
+
+void log_raw(std::string_view message) noexcept
 {
     write_line(message);
 }

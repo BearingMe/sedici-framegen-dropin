@@ -117,4 +117,19 @@ $sourceHash = (Get-FileHash -LiteralPath $sourceDll -Algorithm SHA256).Hash
 $destHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash
 if ($sourceHash -ne $destHash) { throw 'Deployed DLL hash mismatch.' }
 
+# Ship the default configuration beside the DLL, but never overwrite a copy that
+# is already there: that file is the user's, and it is the documented way to
+# change Sedici's behaviour without touching the environment.
+$sourceConfig = Join-Path $repoRoot 'sedici.toml'
+$destConfig = Join-Path $target.Bin 'sedici.toml'
+if (-not (Test-Path -LiteralPath $sourceConfig -PathType Leaf)) {
+    throw 'sedici.toml is missing from the repository root.'
+}
+if (Test-Path -LiteralPath $destConfig) {
+    Write-Host "Kept existing $destConfig (not overwritten)."
+} else {
+    Copy-Item -LiteralPath $sourceConfig -Destination $destConfig
+    Write-Host "Wrote default configuration to $destConfig."
+}
+
 Write-Host "Deployed Sedici to $($target.Bin); original preserved as .orig."
