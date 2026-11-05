@@ -1,0 +1,21 @@
+{
+  "cp2077": {
+    "name": "Cyberpunk 2077",
+    "steamAppId": "1091500",
+    "steamFolder": "Cyberpunk 2077",
+    "installDirHints": [
+      "%ProgramFiles(x86)%\\Steam\\steamapps\\common\\Cyberpunk 2077",
+      "%ProgramFiles%\\Steam\\steamapps\\common\\Cyberpunk 2077",
+      "%ProgramFiles(x86)%\\GOG Galaxy\\Games\\Cyberpunk 2077",
+      "%ProgramFiles%\\GOG Galaxy\\Games\\Cyberpunk 2077",
+      "%ProgramFiles(x86)%\\Epic Games\\Cyberpunk 2077",
+      "%ProgramFiles%\\Epic Games\\Cyberpunk 2077"
+    ],
+    "binSubdir": "bin\\x64",
+    "executable": "Cyberpunk2077.exe",
+    "targetDll": "amd_fidelityfx_framegeneration_dx12.dll",
+    "backupSuffix": ".orig",
+    "loaderDll": "amd_fidelityfx_loader_dx12.dll",
+    "upscalerDll": "amd_fidelityfx_upscaler_dx12.dll"
+  }
+}
