@@ -26,6 +26,7 @@ add_library(sedici SHARED
     src/describe.cpp
     src/present_hook.cpp
     src/stats.cpp
+    src/toggles.cpp
     src/log.cpp
     exports.def
 )

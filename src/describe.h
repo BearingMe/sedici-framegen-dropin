@@ -12,6 +12,9 @@ enum class FfxExportKind {
 
 const char* ffx_export_name(FfxExportKind kind) noexcept;
 
+// Human readable name for an FFX return code.
+const char* ffx_return_code_name(ffxReturnCode_t code) noexcept;
+
 // Logs the call when the level/novelty policy allows it. `context` is the
 // ffxContext value, not a pointer to the ffxContext slot.
 void describe_call(FfxExportKind kind, const ffxApiHeader* desc,

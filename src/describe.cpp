@@ -726,6 +726,12 @@ const char* ffx_export_name(FfxExportKind kind) noexcept
     }
 }
 
+const char* ffx_return_code_name(ffxReturnCode_t code) noexcept
+{
+    return rc_name(code);
+}
+
+
 void describe_call(FfxExportKind kind, const ffxApiHeader* desc,
                    ffxReturnCode_t result, void* context) noexcept
 {

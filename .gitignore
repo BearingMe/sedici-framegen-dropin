@@ -3,3 +3,6 @@
 /.vs/
 /out/
 /CMakeUserPresets.json
+/captures/
+__pycache__/
+*.pyc

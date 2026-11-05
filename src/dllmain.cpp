@@ -3,6 +3,7 @@
 #include "log.h"
 #include "present_hook.h"
 #include "stats.h"
+#include "toggles.h"
 
 #include <windows.h>
 
@@ -20,6 +21,11 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
                                             ffxCreateContextDescHeader* desc,
                                             const ffxAllocationCallbacks* callbacks)
 {
+    // Scoped: the original DLL sees the toggled desc, the caller keeps its own.
+    // The override is still in effect for describe_call, so the log shows what
+    // was actually forwarded, and is restored on return.
+    ScopedDescOverride desc_override(desc);
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxCreateContext
         ? g_ffxCreateContext(context, desc, callbacks)
@@ -28,9 +34,13 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     void* created = (result == FFX_API_RETURN_OK && context) ? *context : nullptr;
     describe_call(FfxExportKind::Create, desc, result, created);
 
-    if (result == FFX_API_RETURN_OK) present_hook_maybe_install(desc);
+    if (result == FFX_API_RETURN_OK) {
+        present_hook_maybe_install(desc);
+        toggles_after_create(context, desc);
+    }
     return result;
 }
+
 
 extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
                                               const ffxAllocationCallbacks* callbacks)
@@ -48,6 +58,8 @@ extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
 extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
                                         const ffxConfigureDescHeader* desc)
 {
+    ScopedDescOverride desc_override(desc);
+
     void* existing = context ? *context : nullptr;
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxConfigure
@@ -55,8 +67,10 @@ extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
         : FFX_API_RETURN_ERROR;
 
     describe_call(FfxExportKind::Configure, desc, result, existing);
+    if (result == FFX_API_RETURN_OK) toggles_after_configure(context, desc, result);
     return result;
 }
+
 
 extern "C" ffxReturnCode_t ffxQuery(ffxContext* context, ffxQueryDescHeader* desc)
 {
