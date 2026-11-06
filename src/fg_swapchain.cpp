@@ -146,7 +146,6 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     m_generated_ready = false;
     m_game_index = 0;
-    m_native_index = 0;
     return S_OK;
 }
 catch (...) { return E_OUTOFMEMORY; }
@@ -213,9 +212,8 @@ HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceSta
     return S_OK;
 }
 
-void Swapchain::record_generated(double now) noexcept
+void Swapchain::record_generated() noexcept
 {
-    (void)now;
     if (!m_sink.record || !m_generated || m_generated_ready) return;
     auto* allocator = m_generate_allocator.Get();
     auto* list = m_generate_list.Get();
@@ -313,8 +311,7 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
         m_cycle_started = true;
         // Prepare the next midpoint from the frame just shown. It is presented
         // one cycle later, so this work never blocks the real frame.
-        m_native_index = (m_native_index + 1) % static_cast<UINT>(m_buffers.size());
-        record_generated(now);
+        record_generated();
         m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
     }
     return hr;

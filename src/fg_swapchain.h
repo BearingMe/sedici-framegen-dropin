@@ -108,7 +108,7 @@ private:
     HRESULT drain() noexcept;
     HRESULT blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept;
     HRESULT present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
-    void record_generated(double now) noexcept;
+    void record_generated() noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
 
@@ -138,7 +138,6 @@ private:
     uint64_t m_skipped_generates = 0;
 
     UINT m_game_index = 0;   // game-facing buffer, advances once per cycle
-    UINT m_native_index = 0;
     UINT64 m_fence_value = 0;
     HANDLE m_event = nullptr;
 
