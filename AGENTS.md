@@ -94,21 +94,20 @@ recording the origin commit, and do not build them into the DLL.
   forward-to-`.orig` behaviour and logs it. A game call must never fail because
   the new path is unavailable.
 
-**Milestones.**
+**Execution plan.** Follow [MILESTONES.md](MILESTONES.md), the source of truth for
+experiment delivery. Phase 1 ships Mob-FGSR at 1080p with custom scheduling and
+2× interpolation in Cyberpunk, before adding GFFE.
 
-- **E0 — contract capture.** Reuse the existing desc logging to record exactly
-  what Cyberpunk asks of FSR 3.1 FG in each flow: create wrap, configure, prepare,
-  dispatch, present, UI registration, teardown. Done when the observed contract is
-  written down as a checklist in `docs/findings/`.
-- **E1 — analytical stage.** HLSL compute implementation of Stage 1 producing
-  `I_base` behind a debug output, compared against AMD's composed frame.
-- **E2 — residual stage.** 540p network inference in the same command stream,
-  INT8 or FP16 chosen by measurement.
-- **E3 — drop-in integration.** Swapchain wrapper presents generated frames with
-  Sedici's own pipeline; FSR 3.1 FG on in the game menu means Sedici's generator.
-- **E4 — validation.** Frametime, PresentMon capture, latency comparison against
-  the `.orig` path, artifact review in motion, disocclusion and camera-cut
-  behaviour.
+- Build the baseline from the existing working implementation and findings
+  002/005/006. Do not require another contract-capture run or launch the game
+  before the first deploy. Deployment still does not authorize a launch.
+- Keep validation small: one offline DX12 executable using the production path,
+  PSNR/SSIM comparisons, GPU timing and a brief presentation check, then deploy
+  with authorization. Do not add a broad test matrix or dozens of new tests.
+- Treat vendored FFX SDK 2.4.0 / FG 4.0.2 / swapchain 4.0.0 headers as reference
+  declarations, not proof of the installed FSR 3.1 binary's implementation.
+- Record source revisions and license obligations for adapted material;
+  MobFGSR is CC BY-NC 4.0. Keep submodules unmodified.
 
 **Open questions.** Whether the FG swapchain wrapper can be reproduced without
 AMD's private swapchain implementation; how the game's `HUDLessColor` and UI
@@ -118,6 +117,7 @@ alone.
 
 ## Layout
 
+- `MILESTONES.md` — experiment phases, acceptance gates and implementation references.
 - `src/dllmain.cpp` — the five exports; loads lazily and forwards.
 - `src/forward.*` — `LoadLibraryExW` + `GetProcAddress` for the `.orig`.
 - `src/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,

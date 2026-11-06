@@ -83,8 +83,17 @@ measurements.
 Status: **design only.** Nothing on this branch generates a frame yet. The pacing
 fix, limiter and overlay described above still work and stay in scope; the new
 path falls back to forwarding to the `.orig` DLL whenever it is disabled,
-unsupported or fails to initialize. Milestones, constraints and open questions
-are in [`AGENTS.md`](AGENTS.md).
+unsupported or fails to initialize. Constraints and open questions are in
+[`AGENTS.md`](AGENTS.md); the delivery plan is in
+[`MILESTONES.md`](MILESTONES.md).
+
+**Phase 1 ships the first layer:** Mob-FGSR at 1080p, 2× interpolation and
+Sedici-owned presentation scheduling, deployed for use in Cyberpunk before GFFE
+is added. Establish the baseline from the current implementation and existing
+findings, implement the generator and schedule, run one small offline acceptance
+executable (PSNR, SSIM, GPU time and presentation), then deploy with authorization.
+No game launch before the first deploy; deployment is not launch authorization.
+No broad new test matrix. All Phase 1 work is currently planned, not implemented.
 
 Reference code lives in `references/sources/` as shallow, blobless, sparsely
 checked-out submodules (`mobfgsr`, `stssnet`, `tbfe`, `lmv`, `moflow`). They are
@@ -587,7 +596,8 @@ relative proxies, not click-to-photon measurements:
   `frameTimeDelta`, or extending the tuning to latency-driven cases.
 - **M5 - own frame generation (branch `experiment/cobalt-otter`).** Replace AMD's
   FSR 3.1 frame generation with a two-stage generator built from Mob-FGSR and
-  GFFE. Design only; see the experiment section above.
+  GFFE. [Phase 1](MILESTONES.md) first deploys Mob-FGSR with custom scheduling;
+  GFFE follows later. Planned; see the experiment section above.
 
 ## Present-hook risk
 
