@@ -15,8 +15,7 @@ Nothing else changes. The loader and upscaler DLLs are never touched.
 
 ## What it does now
 
-**Milestone 2: the pacing fix is on by default, and an optional real-frame
-limiter sits in front of the game's presents.**
+**Milestone 3: the pacing fix, the real-frame limiter, and an in-game overlay.**
 
 | Behaviour | Default | How to change it |
 |---|---|---|
@@ -24,6 +23,7 @@ limiter sits in front of the game's presents.**
 | `allowAsyncWorkloads` rewritten to `false` | **off** (`game`) | `async.mode = "off"` or `SEDICI_ASYNC=0` |
 | Real-frame limiter | **off** (`0`) | `limiter.fps = 37` or `SEDICI_LIMIT_FPS=37` |
 | Limiter busy-wait window | `1000` us | `limiter.spin_us` |
+| Overlay menu | **off** until `Alt+F10` | `[ui] mode`, `[ui] hotkey` |
 | Log level | `1` | `log.level` or `MFSRFG_LOG` |
 
 With `pacing.mode = "off"`, `async.mode = "game"` and `limiter.fps = 0`, Sedici
@@ -140,7 +140,11 @@ values below 2 as prone to overshoot; Sedici applies them anyway but logs a note
 
 | Key | Type | Default | Valid values | Effect |
 |---|---|---|---|---|
-| `mode` | string | `"game"` | `"game"`, `"off"` | `game` forwards `allowAsyncWorkloads` untouched; `off` clears `AsyncWorkloads` from the FG create flags and forces `allowAsyncWorkloads = false` in every FG configure desc |
+| `mode` | string | `"game"` | `"game"`, `"off"` | `game` forwards `allowAsyncWorkloads` untouched; `off` forces `allowAsyncWorkloads = false` in every FG configure desc and leaves the FG create flags as the game set them |
+
+This differs from run D in `docs/findings/005-sedici-limiter.md`, which also
+cleared `FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT` from the create
+flags. The current `off` only changes the per-frame configure value.
 
 The rewrite is scoped: Sedici changes the caller's desc in place for the duration
 of one call and restores every byte before returning, so the game never observes
@@ -179,6 +183,32 @@ off the same code still caps at `fps`, and the log labels the mode `fg=off`
 | Key | Type | Default | Valid values | Effect |
 |---|---|---|---|---|
 | `level` | integer | `1` | `0`, `1`, `2` | `0` errors only, `1` normal, `2` verbose |
+
+### `[ui]`
+
+| Key | Type | Default | Valid values | Effect |
+|---|---|---|---|---|
+| `mode` | string | `"off"` | `"off"`, `"mini"`, `"full"` | startup overlay mode; `off` stays invisible until the hotkey is pressed |
+| `scale` | string or number | `"auto"` | `"auto"` or `0.5`-`2.0` | menu scale; `auto` uses output height / 1080, clamped |
+| `hotkey` | string | `"alt+f10"` | modifier(s) plus F1-F12 or a letter/digit | cycles `Off -> Mini -> Full -> Off` |
+
+The overlay is drawn on the final output image inside FFX's present callback,
+after frame generation, so it is not interpolated and does not ghost. It is
+only drawn when no separate UI resource is registered; in that configuration
+Sedici also performs the same back-buffer copy AMD's default callback does.
+Cyberpunk registers no UI resource, so the overlay runs there. If a game does
+register one, Sedici leaves composition to FFX and does not draw.
+
+`Alt+F10` cycles the mode. In `Full`, the game's window procedure is subclassed,
+keyboard and mouse input is consumed while the menu is open, and the cursor is
+shown. Closing the menu returns input to the game.
+
+The `Full` menu can change the real-frame limit, pacing, async mode, log level
+and menu scale live. Controls overridden by `SEDICI_*`/`MFSRFG_LOG` are disabled
+and say which variable wins. **Save** patches `sedici.toml` in place, preserving
+comments and formatting; **Cancel** restores the values captured when the menu
+opened; **Close** keeps the live values. `[ui] mode` is a startup preference and
+is not rewritten by Save.
 
 ### Environment overrides
 
@@ -239,6 +269,9 @@ sedici:   pacing.wait_for_single_object_on_fence  = false [default]
 sedici:   async.mode                              = "game" [default]
 sedici:   limiter.fps                             = 0 [default]
 sedici:   limiter.spin_us                         = 1000 [default]
+sedici:   ui.mode                                 = "off" [default]
+sedici:   ui.scale                                = "auto" [default]
+sedici:   ui.hotkey                               = "alt+f10" [default]
 sedici:   log.level                               = 1 [default]
 sedici: effective: frame pacing tuning ON (hybrid spin), async workloads as the game sets them, real-frame limiter off
 ```
@@ -380,8 +413,23 @@ rebuilding its swapchain or reconfiguring frame generation.
   headers. See `third_party/ffx/README.md` for upstream paths and blob IDs.
 - toml++ v3.4.0, single-header flavour, unmodified, in
   `third_party/tomlplusplus/toml.hpp`. MIT.
+- Dear ImGui v1.93.0, unmodified, in `third_party/imgui/` with the DX12 and
+  Win32 backends. MIT. See `third_party/imgui/README.md`.
 
 No other dependencies.
+
+### Dear ImGui provenance
+
+| | |
+|---|---|
+| Project | [ocornut/imgui](https://github.com/ocornut/imgui) |
+| Version | **v1.93.0** (released 2026-10-14) |
+| Tag commit | `c1aaac65e896a45f81f47a4d68f9959e0f86c859` |
+| Sources | core `imgui*.cpp/.h`, `imconfig.h`, `imstb_*.h`; `backends/imgui_impl_dx12.*`, `backends/imgui_impl_win32.*` |
+| Licence | MIT (`third_party/imgui/LICENSE.txt`) |
+
+The files are copied byte-for-byte from the release archive. `imgui_demo.cpp`
+is vendored for completeness and is not compiled.
 
 ### toml++ provenance
 
@@ -481,11 +529,15 @@ relative proxies, not click-to-photon measurements:
   Shipped.
 - **M1 - pacing fix on by default.** `sedici.toml` configuration, per-context
   pacing send, stall instrumentation, confirmation capture runs. Shipped.
-- **M2 - built-in real-frame limiter (current).** `[limiter]` configuration, a
+- **M2 - built-in real-frame limiter.** `[limiter]` configuration, a
   high-resolution timer plus QPC spin in front of the game's `Present`,
   per-300-frame accuracy stats, so Anti-Lag 2 can stay on with a cap inside
-  Sedici. Confirmation runs pending.
-- **M3 - further tuning.** Only if M2's runs point somewhere: correcting
+  Sedici. Shipped.
+- **M3 - in-game overlay (current).** Dear ImGui on the final output image,
+  `Alt+F10` Off/Mini/Full, live limiter/pacing/async/log/scale controls,
+  comment-preserving Save. Composition-safe callback shipped; in-game
+  confirmation pending.
+- **M4 - further tuning.** Only if M3's runs point somewhere: correcting
   `frameTimeDelta`, or extending the tuning to latency-driven cases.
 
 ## Present-hook risk

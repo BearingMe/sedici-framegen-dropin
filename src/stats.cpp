@@ -104,6 +104,10 @@ struct Window {
     EventRing events;
     bool have_stall_log = false;
     uint64_t last_stall_log_qpc = 0;
+    uint64_t stall_count = 0;
+    double last_stall_interval_ms = 0.0;
+    uint32_t render_width = 0;
+    uint32_t render_height = 0;
 };
 
 std::mutex g_mutex;
@@ -240,6 +244,8 @@ struct PrepareInfo {
     uint64_t frame_id = 0;
     bool reset = false;
     bool reset_known = false;
+    uint32_t render_width = 0;
+    uint32_t render_height = 0;
 };
 
 bool find_prepare(const ffxDispatchDescHeader* desc, PrepareInfo& info)
@@ -255,6 +261,8 @@ bool find_prepare(const ffxDispatchDescHeader* desc, PrepareInfo& info)
             info.frame_id = prepare.frameID;
             info.reset = false;
             info.reset_known = false;
+            info.render_width = prepare.renderSize.width;
+            info.render_height = prepare.renderSize.height;
             return true;
         }
         case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: {
@@ -264,6 +272,8 @@ bool find_prepare(const ffxDispatchDescHeader* desc, PrepareInfo& info)
             info.frame_id = prepare.frameID;
             info.reset = prepare.reset;
             info.reset_known = true;
+            info.render_width = prepare.renderSize.width;
+            info.render_height = prepare.renderSize.height;
             return true;
         }
         default:
@@ -322,7 +332,7 @@ std::string stall_line_locked(const PrepareInfo& info, double interval_ms, doubl
 
 void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
 {
-    if (log_level() < 1 || !desc) return;
+    if (!desc) return;
 
     try {
         if (!g_qpc_frequency) return;
@@ -349,6 +359,8 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
 
                 if (enough_samples && interval_ms > kStallRatio * median_ms &&
                     interval_ms >= kStallFloorMs) {
+                    ++g_window.stall_count;
+                    g_window.last_stall_interval_ms = interval_ms;
                     if (!rate_limited) {
                         stall = stall_line_locked(info, interval_ms, median_ms, now);
                         g_window.have_stall_log = true;
@@ -363,6 +375,8 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
             }
 
             g_window.frame_time_delta.push_back(static_cast<double>(info.frame_time_delta));
+            g_window.render_width = info.render_width;
+            g_window.render_height = info.render_height;
             g_window.last_prepare_qpc = now;
             g_window.have_prepare = true;
             g_window.presents_since_prepare = 0;
@@ -409,6 +423,38 @@ void stats_on_swapchain_event(const char* kind) noexcept
         g_window.events.push(Event{qpc_now(), kind});
     } catch (...) {
         log_error("failed to record a swapchain event");
+    }
+}
+
+uint64_t stats_stall_count() noexcept
+{
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return g_window.stall_count;
+    } catch (...) {
+        return 0;
+    }
+}
+
+double stats_last_stall_ms() noexcept
+{
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return g_window.last_stall_interval_ms;
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+void stats_render_size(uint32_t& width, uint32_t& height) noexcept
+{
+    width = 0;
+    height = 0;
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        width = g_window.render_width;
+        height = g_window.render_height;
+    } catch (...) {
     }
 }
 

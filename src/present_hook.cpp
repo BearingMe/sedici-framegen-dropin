@@ -4,6 +4,7 @@
 #include "limiter.h"
 #include "log.h"
 #include "stats.h"
+#include "timing.h"
 
 #include "ffx_framegeneration.h"
 #include "ffx_api_framegeneration_dx12.h"
@@ -80,6 +81,7 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval,
     if (is_target(self)) {
         const uint64_t now = qpc_now();
         stats_on_present(now);
+        sedici::timing_on_real_present(now);
         if ((flags & DXGI_PRESENT_TEST) == 0) limiter_before_present(now);
     }
     return original(self, sync_interval, flags);
@@ -104,6 +106,7 @@ HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval
     if (is_target(self)) {
         const uint64_t now = qpc_now();
         stats_on_present(now);
+        sedici::timing_on_real_present(now);
         if ((flags & DXGI_PRESENT_TEST) == 0) limiter_before_present(now);
     }
     return original(self, sync_interval, flags, parameters);

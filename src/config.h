@@ -91,6 +91,31 @@ struct LimiterSettings {
     Source spin_us_source = Source::Default;
 };
 
+// `[ui]`
+enum class UiMode {
+    Off,
+    Mini,
+    Full,
+};
+
+enum class UiScaleMode {
+    Auto,
+    Fixed,
+};
+
+struct UiSettings {
+    UiMode mode = UiMode::Off;
+    UiScaleMode scale_mode = UiScaleMode::Auto;
+    float scale = 1.0f;
+
+    // Modifier+key, lowercase, for example "alt+f10".
+    std::string hotkey = "alt+f10";
+
+    Source mode_source = Source::Default;
+    Source scale_source = Source::Default;
+    Source hotkey_source = Source::Default;
+};
+
 struct LogSettings {
     // 0 = errors only, 1 = normal, 2 = verbose. The legacy `MFSRFG_LOG`
     // environment variable still overrides this.
@@ -103,6 +128,7 @@ struct Settings {
     AsyncSettings async;
     LimiterSettings limiter;
     LogSettings log;
+    UiSettings ui;
 
     // Absolute path of the config file that was consulted, or empty when the
     // DLL directory could not be resolved.

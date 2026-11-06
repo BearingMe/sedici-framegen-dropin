@@ -1,6 +1,6 @@
 #include "log.h"
 
-#include "config.h"
+#include "live.h"
 
 #include <windows.h>
 
@@ -80,11 +80,9 @@ std::filesystem::path dll_directory()
 
 int log_level() noexcept
 {
-    // The level comes from `[log] level`, with MFSRFG_LOG overriding it; both
-    // are resolved once inside settings(). This is deliberately not a direct
-    // read of the environment any more, so the file can set it.
-    static const int level = sedici::settings().log.level;
-    return level;
+    // Initialized from `[log] level`/MFSRFG_LOG by settings(), then updated
+    // live by the overlay. Reading an atomic keeps the hot path allocation-free.
+    return sedici::live_log_level();
 }
 
 void log_error(std::string_view message) noexcept

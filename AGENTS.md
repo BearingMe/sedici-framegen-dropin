@@ -24,9 +24,9 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   errors, a rejected tuning and logging failures are all non-fatal.
 - Do not touch `amd_fidelityfx_loader_dx12.dll` or
   `amd_fidelityfx_upscaler_dx12.dll`; the upscaler is owned by m-fsr.
-- Keep `third_party/ffx/` and `third_party/tomlplusplus/` unmodified. Do not move
-  individual headers without fixing their relative includes, and do not invent
-  provenance.
+- Keep `third_party/ffx/`, `third_party/tomlplusplus/` and
+  `third_party/imgui/` unmodified. Do not move individual headers without
+  fixing their relative includes, and do not invent provenance.
 - Never download SDKs or runtime DLLs as part of a build or test.
 - Do not launch the game. Deployment is not launch authorization.
 - Use Conventional Commits for every commit, for example
@@ -46,6 +46,14 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   cadence and performs AMD's back-buffer copy when no separate UI is registered.
 - `src/overlay_compose.*` — the DX12 copy and resource-state restoration used by
   that callback.
+- `src/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live
+  controls, snapshot/cancel.
+- `src/ui_input.*` — Full-menu cursor ownership: executable import interception
+  for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
+- `src/live.*` — mutable live values shared by the overlay, limiter, pacing,
+  async and logging.
+- `src/timing.*` — 360-sample real/output interval rings and percentiles.
+- `src/config_patch.*` — comment-preserving `sedici.toml` value patcher.
 - `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
   plus QPC spin, scheduling, and per-300-frame accuracy stats.
 - `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
@@ -58,6 +66,7 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
 - `tools/` — deploy/restore with `.orig` safety rules, `games.json`.
 - `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.
 - `third_party/tomlplusplus/` — unmodified toml++ v3.4.0 single header.
+- `third_party/imgui/` — unmodified Dear ImGui v1.93.0 plus DX12/Win32 backends.
 
 ## Build and verify
 

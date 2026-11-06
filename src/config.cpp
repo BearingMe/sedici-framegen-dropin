@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include "live.h"
 #include "log.h"
 
 #include <windows.h>
@@ -238,6 +239,7 @@ void read_async(const toml::table& root, AsyncSettings& async,
 void read_limiter(const toml::table& root, LimiterSettings& limiter,
                   std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems);
+void read_ui(const toml::table& root, UiSettings& ui, std::vector<std::string>& problems);
 
 // Reads `sedici.toml` and applies every key it contains.
 //
@@ -288,6 +290,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
     read_async(root, config.async, problems);
     read_limiter(root, config.limiter, problems, notes);
     read_log(root, config.log, problems);
+    read_ui(root, config.ui, problems);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,10 +555,152 @@ void read_log(const toml::table& root, LogSettings& log, std::vector<std::string
     }
 }
 
+bool valid_hotkey(std::string_view text) noexcept
+{
+    if (text.empty() || text.size() > 32) return false;
+
+    int modifiers = 0;
+    bool has_key = false;
+    size_t start = 0;
+    for (;;) {
+        const size_t plus = text.find('+', start);
+        const size_t end = plus == std::string_view::npos ? text.size() : plus;
+        const std::string_view part = text.substr(start, end - start);
+        if (part.empty()) return false;
+
+        if (iequals(part, "alt") || iequals(part, "ctrl") || iequals(part, "shift")) {
+            ++modifiers;
+        } else if (!has_key) {
+            if (part.size() >= 2 && ascii_lower(part[0]) == 'f') {
+                int number = 0;
+                for (size_t i = 1; i < part.size(); ++i) {
+                    if (part[i] < '0' || part[i] > '9') return false;
+                    number = number * 10 + (part[i] - '0');
+                }
+                if (number < 1 || number > 12) return false;
+            } else if (part.size() != 1 ||
+                       !((part[0] >= 'a' && part[0] <= 'z') ||
+                         (part[0] >= '0' && part[0] <= '9'))) {
+                return false;
+            }
+            has_key = true;
+        } else {
+            return false;
+        }
+
+        if (plus == std::string_view::npos) break;
+        start = plus + 1;
+    }
+    return modifiers > 0 && has_key;
+}
+
+void read_ui(const toml::table& root, UiSettings& ui, std::vector<std::string>& problems)
+{
+    check_section(root, "ui", problems);
+
+    // mode ---------------------------------------------------------------
+    {
+        std::string value;
+        const node* entry = section_key(root, "ui", "mode");
+        switch (read_string(entry, value)) {
+        case Read::Missing:
+            break;
+        case Read::WrongType:
+            problem_at(problems, *entry, "ui.mode",
+                       std::string("expected a string, got ") + type_name(entry->type()) +
+                           " - using default \"off\"");
+            break;
+        case Read::Ok:
+            if (iequals(value, "off")) {
+                ui.mode = UiMode::Off;
+                ui.mode_source = Source::File;
+            } else if (iequals(value, "mini")) {
+                ui.mode = UiMode::Mini;
+                ui.mode_source = Source::File;
+            } else if (iequals(value, "full")) {
+                ui.mode = UiMode::Full;
+                ui.mode_source = Source::File;
+            } else {
+                problem_at(problems, *entry, "ui.mode",
+                           "unknown value \"" + value +
+                               "\" (expected \"off\", \"mini\" or \"full\") - using default \"off\"");
+            }
+            break;
+        }
+    }
+
+    // scale --------------------------------------------------------------
+    {
+        const node* entry = section_key(root, "ui", "scale");
+        if (entry) {
+            if (const auto text = entry->value<std::string>()) {
+                if (iequals(*text, "auto")) {
+                    ui.scale_mode = UiScaleMode::Auto;
+                    ui.scale_source = Source::File;
+                } else {
+                    problem_at(problems, *entry, "ui.scale",
+                               "unknown value \"" + *text +
+                                   "\" (expected \"auto\" or a number in [0.5, 2.0]) - using "
+                                   "default \"auto\"");
+                }
+            } else {
+                double value = 0.0;
+                bool has_number = false;
+                if (const auto number = entry->value<double>()) {
+                    value = *number;
+                    has_number = true;
+                } else if (const auto integer = entry->value<int64_t>()) {
+                    value = static_cast<double>(*integer);
+                    has_number = true;
+                }
+
+                if (has_number) {
+                    if (!std::isfinite(value) || value < 0.5 || value > 2.0) {
+                        problem_at(problems, *entry, "ui.scale",
+                                   "must be within [0.5, 2.0] - using default \"auto\"");
+                    } else {
+                        ui.scale = static_cast<float>(value);
+                        ui.scale_mode = UiScaleMode::Fixed;
+                        ui.scale_source = Source::File;
+                    }
+                } else {
+                    problem_at(problems, *entry, "ui.scale",
+                               std::string("expected \"auto\" or a number, got ") +
+                                   type_name(entry->type()) + " - using default \"auto\"");
+                }
+            }
+        }
+    }
+
+    // hotkey -------------------------------------------------------------
+    {
+        std::string value;
+        const node* entry = section_key(root, "ui", "hotkey");
+        switch (read_string(entry, value)) {
+        case Read::Missing:
+            break;
+        case Read::WrongType:
+            problem_at(problems, *entry, "ui.hotkey",
+                       std::string("expected a string, got ") + type_name(entry->type()) +
+                           " - using default \"alt+f10\"");
+            break;
+        case Read::Ok:
+            if (valid_hotkey(value)) {
+                for (char& c : value) c = ascii_lower(c);
+                ui.hotkey = value;
+                ui.hotkey_source = Source::File;
+            } else {
+                problem_at(problems, *entry, "ui.hotkey",
+                           "expected modifier+key such as \"alt+f10\" - using default \"alt+f10\"");
+            }
+            break;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Environment overrides
 // ---------------------------------------------------------------------------
-
 // Environment variables win over the file. An unrecognised value is reported
 // and then ignored, so the file (or the default) stays in effect rather than
 // silently falling back to a default the user did not ask for.
@@ -669,6 +814,15 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
         {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},
+        {"ui.mode",
+         config.ui.mode == UiMode::Mini ? "\"mini\""
+         : config.ui.mode == UiMode::Full ? "\"full\""
+                                          : "\"off\"",
+         config.ui.mode_source},
+        {"ui.scale",
+         config.ui.scale_mode == UiScaleMode::Auto ? "\"auto\"" : format_number(config.ui.scale),
+         config.ui.scale_source},
+        {"ui.hotkey", "\"" + config.ui.hotkey + "\"", config.ui.hotkey_source},
         {"log.level", std::to_string(config.log.level), config.log.level_source},
     };
 
@@ -732,6 +886,8 @@ const Settings& settings() noexcept
 
         // log_raw() bypasses the level filter and, crucially, cannot call back
         // into settings(), so it is safe during this initialisation.
+        live_initialize(config);
+
         try {
             log_settings(config, problems, notes);
         } catch (...) {

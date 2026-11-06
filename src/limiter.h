@@ -15,3 +15,8 @@
 // Inert unless `[limiter] fps` (or SEDICI_LIMIT_FPS) is greater than zero. When
 // inert it does no work at all: no timer, no wait, no allocation, no log.
 void limiter_before_present(uint64_t now_qpc) noexcept;
+
+// Rebuilds the limiter schedule after the live target changes. Safe to call
+// from the overlay thread; no timer is created here, the next real Present
+// initializes with the new target.
+void limiter_on_config_changed() noexcept;

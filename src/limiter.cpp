@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "limiter_schedule.h"
+#include "live.h"
 #include "log.h"
 #include "toggles.h"
 
@@ -121,7 +122,8 @@ bool initialize_locked() noexcept
     g_state.initialized = true;
 
     const sedici::LimiterSettings& limiter = sedici::settings().limiter;
-    if (limiter.fps <= 0) {
+    const double fps = sedici::live_limiter_fps();
+    if (fps <= 0.0) {
         g_state.disabled = true;
         return false;
     }
@@ -132,7 +134,7 @@ bool initialize_locked() noexcept
     }
 
     g_state.interval = static_cast<uint64_t>(
-        std::llround(static_cast<double>(g_frequency) / static_cast<double>(limiter.fps)));
+        std::llround(static_cast<double>(g_frequency) / fps));
     if (g_state.interval == 0) g_state.interval = 1;
 
     g_state.spin = static_cast<uint64_t>(
@@ -196,9 +198,10 @@ void spin_until(uint64_t deadline) noexcept
 std::string activation_line_locked(bool fg_active) noexcept
 {
     const sedici::LimiterSettings& limiter = sedici::settings().limiter;
+    const double fps = sedici::live_limiter_fps();
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);
-    out << "sedici: limiter active target=" << format_fps(limiter.fps)
+    out << "sedici: limiter active target=" << format_fps(fps)
         << " fps interval=" << ticks_to_ms(g_state.interval)
         << " ms spin=" << limiter.spin_us << " us"
         << " fg=" << (fg_active ? "on" : "off");
@@ -207,12 +210,12 @@ std::string activation_line_locked(bool fg_active) noexcept
 
 std::string stats_line_locked(bool fg_active) noexcept
 {
-    const sedici::LimiterSettings& limiter = sedici::settings().limiter;
+    const double fps = sedici::live_limiter_fps();
 
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);
     out << "sedici: limiter stats frames=" << g_state.window.intervals.size()
-        << " target_ms=" << (limiter.fps > 0 ? 1000.0 / static_cast<double>(limiter.fps) : 0.0);
+        << " target_ms=" << (fps > 0.0 ? 1000.0 / fps : 0.0);
 
     out << " interval_ms{avg=" << average(g_state.window.intervals)
         << " p50=" << percentile(g_state.window.intervals, 0.50)
@@ -238,10 +241,9 @@ std::string stats_line_locked(bool fg_active) noexcept
 } // namespace
 
 void limiter_before_present(uint64_t now_qpc) noexcept
-{
-    // The overwhelmingly common case is the limiter being off. Keep it to one
+{    // The overwhelmingly common case is the limiter being off. Keep it to one
     // immutable read so milestone-1 behaviour is untouched.
-    if (sedici::settings().limiter.fps <= 0) return;
+    if (sedici::live_limiter_fps() <= 0.0) return;
 
     try {
         std::string activation;
@@ -310,5 +312,16 @@ void limiter_before_present(uint64_t now_qpc) noexcept
         if (!stats.empty()) log_event(1, stats);
     } catch (...) {
         log_error("sedici: limiter failed; the game continues uncapped");
+    }
+}
+
+void limiter_on_config_changed() noexcept
+{
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_state.timer) CloseHandle(g_state.timer);
+        g_state = State{};
+    } catch (...) {
+        log_error("sedici: failed to reset the limiter after a configuration change");
     }
 }

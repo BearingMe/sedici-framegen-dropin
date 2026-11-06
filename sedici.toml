@@ -79,3 +79,17 @@ spin_us = 1000
 #     detected prepare stall
 # 2 = verbose: every call
 level = 1
+
+[ui]
+# Overlay menu, drawn on the final output image after frame generation.
+# "off"  - nothing until the hotkey is pressed.
+# "mini" - one line at startup.
+# "full" - full menu at startup.
+mode = "off"
+
+# "auto" scales from the output height (1080p = 1.0, clamped to 0.5-2.0), or a
+# fixed number in [0.5, 2.0].
+scale = "auto"
+
+# Modifier+key. Alt+F10 cycles Off -> Mini -> Full -> Off.
+hotkey = "alt+f10"

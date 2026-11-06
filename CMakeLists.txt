@@ -28,6 +28,22 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${SEDICI_TOML_HEADER}")
         "https://github.com/marzer/tomlplusplus/releases/tag/v3.4.0 and place it there unmodified.")
 endif()
 
+# Vendored, unmodified Dear ImGui v1.93.0. See third_party/imgui/README.md.
+set(SEDICI_IMGUI_DIR third_party/imgui)
+set(SEDICI_IMGUI_SOURCES
+    ${SEDICI_IMGUI_DIR}/imgui.cpp
+    ${SEDICI_IMGUI_DIR}/imgui_draw.cpp
+    ${SEDICI_IMGUI_DIR}/imgui_tables.cpp
+    ${SEDICI_IMGUI_DIR}/imgui_widgets.cpp
+    ${SEDICI_IMGUI_DIR}/backends/imgui_impl_dx12.cpp
+    ${SEDICI_IMGUI_DIR}/backends/imgui_impl_win32.cpp
+)
+foreach(source IN LISTS SEDICI_IMGUI_SOURCES)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
+        message(FATAL_ERROR "Missing vendored Dear ImGui source: ${source}")
+    endif()
+endforeach()
+
 add_library(sedici SHARED
     src/dllmain.cpp
     src/forward.cpp
@@ -37,9 +53,15 @@ add_library(sedici SHARED
     src/limiter.cpp
     src/overlay.cpp
     src/overlay_compose.cpp
+    src/timing.cpp
+    src/live.cpp
+    src/ui.cpp
+    src/ui_input.cpp
+    src/config_patch.cpp
     src/toggles.cpp
     src/config.cpp
     src/log.cpp
+    ${SEDICI_IMGUI_SOURCES}
     exports.def
 )
 
@@ -50,6 +72,8 @@ target_include_directories(sedici PRIVATE
     third_party/ffx/framegeneration/include
     third_party/ffx/framegeneration/include/dx12
     third_party/tomlplusplus
+    ${SEDICI_IMGUI_DIR}
+    ${SEDICI_IMGUI_DIR}/backends
 )
 
 target_compile_definitions(sedici PRIVATE

@@ -8,16 +8,23 @@
 //   pacing.mode = "hybrid"   After the frame generation swapchain context is
 //                            created, sends the swapchain frame pacing tuning
 //                            configure with allowHybridSpin=true.
-//   async.mode  = "off"      Clears FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT
-//                            from the frame generation create flags and forces
-//                            allowAsyncWorkloads=false in every frame generation
-//                            configure desc.
+//   async.mode  = "off"      Forces allowAsyncWorkloads=false in every frame
+//                            generation configure desc. The create flags are
+//                            left as the game set them.
 //
 // Both default to the milestone-1 behaviour (pacing hybrid, async untouched).
 // Setting pacing.mode="off" and async.mode="game" makes Sedici forward exactly
 // what it did in milestone 0.
 bool toggles_async_disable() noexcept;
 bool toggles_pacing_hybrid() noexcept;
+
+// Re-sends the pacing tuning to every tracked swapchain context after the
+// overlay changes the live mode. `hybrid` selects the configured hybrid values;
+// otherwise the SDK defaults are sent. Safe to call from the overlay thread.
+void toggles_apply_pacing_live() noexcept;
+
+// The return code of the most recent pacing tuning send, or INT_MIN before one.
+int toggles_last_pacing_result() noexcept;
 
 // True while a frame generation context exists and the last frame generation
 // configure told the runtime that generation is enabled. Used only to label the

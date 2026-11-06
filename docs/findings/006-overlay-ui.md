@@ -67,3 +67,86 @@ than silently dropping UI composition.
 Until the visual check passes, retain the working DLL and leave the overlay
 renderer disabled. Dear ImGui remains vendored but is not compiled or used.
 
+## Milestone 3 implementation
+
+- Dear ImGui v1.93.0 with the DX12 and Win32 backends. Rendering happens on the
+  FFX present callback's command list after Sedici's composition copy, so it
+  covers both real and generated output frames.
+- `Alt+F10` cycles `Off -> Mini -> Full -> Off`. The input hook is installed with
+  the game window even while the menu is off; ImGui itself is not initialized
+  until a visible mode is requested.
+- Mini is one line. Full contains status, real/output graphs, the live FPS limit,
+  pacing, async, log level, menu scale, and Save/Cancel/Close.
+- Live values live in `src/live.*`; the limiter resets its schedule on change,
+  pacing re-sends to tracked swapchain contexts, async changes future configure
+  descs, and logging reads the new level immediately.
+- Save uses `src/config_patch.*`, a line-oriented patcher that preserves
+  comments, unrelated keys and line endings and appends missing keys/sections.
+  It does not rewrite `[ui] mode`; that remains a startup preference.
+- Controls overridden by `SEDICI_*`/`MFSRFG_LOG` are disabled in the menu.
+
+## Offline verification
+
+- A direct DX12 test renders Mini and Full over a copied 1280x720 image and
+  reads the output back. Both pass; the background copy remains intact outside
+  the menu. The Mini frame changed 3,515 pixels in the sampled region; Full
+  changed 52,220.
+- A synthetic `Alt+F10` WndProc test cycles `Off -> Mini -> Full -> Off`.
+- The config-patch test verifies comments, CRLF, sibling keys, an existing key
+  with a trailing comment, and a missing `[log]` section.
+- The existing 56-check harness passes; exactly five exports.
+- 32-bit output is not exercised by these tests; the game test covers the real
+  swapchain and the actual input path.
+
+## In-game verification pending
+
+- `Alt+F10` cycling with the game focused.
+- Cursor and mouse/keyboard capture in Full; game input must not leak through.
+- Live limit `36.5 -> 37 -> off`, pacing on/off, async, log level, scale.
+- Save/Cancel/Close and restart persistence.
+- No ghosting of the menu, and no frozen output.
+- One PresentMon capture with Mini and the limiter at 37, compared with the
+  same build at UI Off and with historical run G.
+
+## Cursor capture follow-up
+
+The user reported that the Full menu cursor remained at screen center while the
+game kept recentering it. `dumpbin /imports` shows `SetCursorPos`, `ClipCursor`
+and `GetCursorPos` in `Cyberpunk2077.exe`, so the imports are an available call
+path. Sedici now intercepts those two slots in the executable's import table:
+
+- Only while Full is requested, the game window is foreground, and the overlay
+  has not failed. Off and Mini pass every call through untouched.
+- `SetCursorPos` is acknowledged and dropped, so a recenter cannot move the
+  cursor. `ClipCursor` is recorded instead of applied, so confinement cannot
+  trap the cursor in the middle.
+- On entry the current clip rectangle is saved; `ClipCursor(nullptr)` releases
+  confinement for the desktop. On exit the last rectangle the game requested
+  during capture is restored, so normal mouse look returns.
+- Focus loss, window destruction, window replacement, overlay failure and mode
+  changes all release capture. `ShowCursor` adjustments are counted so the
+  original visibility is restored exactly.
+- If the import slots cannot be patched (different module, dynamically resolved
+  API), Full falls back to Mini with a log line rather than consuming input.
+
+Caveat: only the executable's import slots are patched. Calls made by another
+loaded module through its own thunk, or resolved with `GetProcAddress`, bypass
+interception and are not covered. If the in-game report persists after this
+change, the next step is to identify the module that owns the call rather than
+broadening interception blindly.
+
+### Cursor test results
+
+`cursor_test.cpp` builds as its own executable so the interception targets its
+own imports, exactly as it targets the game's. All 16 checks pass:
+
+- mapping a 640x360 client point to a 1280x720 output, clamping, and the
+  no-size fallback;
+- pass-through of `SetCursorPos` and `ClipCursor` before capture;
+- suppression of both while capturing;
+- restoration of the last requested clip on exit, and cursor movement again;
+- double leave, re-entry, and focus-loss release.
+
+The DX12 Mini/Full rendering tests, the synthetic hotkey cycle, the 56-check
+harness and the five-export check still pass.
+

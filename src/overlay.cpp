@@ -2,6 +2,8 @@
 
 #include "log.h"
 #include "overlay_compose.h"
+#include "timing.h"
+#include "ui.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 
@@ -143,6 +145,7 @@ std::string stats_line_locked()
 void record_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
 {
     const uint64_t now = qpc_now();
+    sedici::timing_on_output_present(now);
 
     std::string active;
     std::string stats;
@@ -214,10 +217,15 @@ ffxReturnCode_t overlay_trampoline(ffxCallbackDescFrameGenerationPresent* params
         params->currentBackBuffer.state,
         reinterpret_cast<ID3D12Resource*>(params->outputSwapChainBuffer.resource),
         params->outputSwapChainBuffer.state);
-    if (!copied && !g_composition_failed.exchange(true, std::memory_order_relaxed)) {
-        log_error("sedici: overlay callback could not copy the output image; composition "
-                  "is handed back to FFX");
+    if (!copied) {
+        if (!g_composition_failed.exchange(true, std::memory_order_relaxed)) {
+            log_error("sedici: overlay callback could not copy the output image; composition "
+                      "is handed back to FFX");
+        }
+        return FFX_API_RETURN_OK;
     }
+
+    sedici::ui_on_present(params);
     return FFX_API_RETURN_OK;
 }
 

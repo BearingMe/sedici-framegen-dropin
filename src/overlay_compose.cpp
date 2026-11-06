@@ -45,6 +45,11 @@ void add_transition(D3D12_RESOURCE_BARRIER* barriers, UINT& count, ID3D12Resourc
 
 } // namespace
 
+uint32_t dx12_state_from_ffx(uint32_t ffx_state) noexcept
+{
+    return static_cast<uint32_t>(to_dx12(ffx_state));
+}
+
 bool copy_back_buffer(ID3D12GraphicsCommandList* command_list,
                       ID3D12Resource* source,
                       uint32_t source_state,
