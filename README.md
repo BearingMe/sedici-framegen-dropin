@@ -197,6 +197,21 @@ The rewrite is scoped: Sedici changes the caller's desc in place for the duratio
 of one call and restores every byte before returning, so the game never observes
 a modified desc.
 
+### `[fg]`
+
+| Key | Type | Default | Valid values | Effect |
+|---|---|---|---|---|
+| `mode` | string | `"amd"` | `"amd"`, `"sedici"` | `amd` forwards every frame generation call to the original DLL, exactly as before. `sedici` uses Sedici's own generator and swapchain wrapper for the whole process |
+
+The choice is made once, from the first create call, and cannot change mid-process:
+a frame generation context cannot be handed to AMD after Sedici has owned it.
+Under `sedici`, an unsupported call on a Sedici-owned context is refused and logged
+rather than forwarded, and output pacing belongs to Sedici's wrapper alone.
+
+`sedici` is experimental and has not yet been through a game session. Any context
+AMD still owns keeps working normally even in that mode, because only handles
+Sedici created are routed to Sedici.
+
 ### `[limiter]`
 
 | Key | Type | Default | Valid values | Effect |

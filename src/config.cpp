@@ -236,6 +236,8 @@ void read_pacing(const toml::table& root, PacingSettings& pacing,
                  std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_async(const toml::table& root, AsyncSettings& async,
                 std::vector<std::string>& problems);
+void read_fg(const toml::table& root, FrameGenerationSettings& fg,
+             std::vector<std::string>& problems);
 void read_limiter(const toml::table& root, LimiterSettings& limiter,
                   std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems);
@@ -288,6 +290,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
 
     read_pacing(root, config.pacing, problems, notes);
     read_async(root, config.async, problems);
+    read_fg(root, config.fg, problems);
     read_limiter(root, config.limiter, problems, notes);
     read_log(root, config.log, problems);
     read_ui(root, config.ui, problems);
@@ -464,11 +467,41 @@ void read_async(const toml::table& root, AsyncSettings& async,
     }
 }
 
+void read_fg(const toml::table& root, FrameGenerationSettings& fg,
+             std::vector<std::string>& problems)
+{
+    check_section(root, "fg", problems);
+
+    std::string value;
+    const node* entry = section_key(root, "fg", "mode");
+    switch (read_string(entry, value)) {
+    case Read::Missing:
+        break;
+    case Read::WrongType:
+        problem_at(problems, *entry, "fg.mode",
+                   std::string("expected a string, got ") + type_name(entry->type()) +
+                       " - using default \"amd\"");
+        break;
+    case Read::Ok:
+        if (iequals(value, "amd")) {
+            fg.mode = FrameGenerationMode::Amd;
+            fg.mode_source = Source::File;
+        } else if (iequals(value, "sedici")) {
+            fg.mode = FrameGenerationMode::Sedici;
+            fg.mode_source = Source::File;
+        } else {
+            problem_at(problems, *entry, "fg.mode",
+                       "unknown value \"" + value +
+                           "\" (expected \"amd\" or \"sedici\") - using default \"amd\"");
+        }
+        break;
+    }
+}
+
 void read_limiter(const toml::table& root, LimiterSettings& limiter,
                   std::vector<std::string>& problems, std::vector<std::string>& notes)
 {
     check_section(root, "limiter", problems);
-
     // fps ---------------------------------------------------------------
     {
         double value = 0.0;
@@ -811,6 +844,8 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.pacing.wait_for_single_object_on_fence_source},
         {"async.mode", config.async.mode == AsyncMode::Game ? "\"game\"" : "\"off\"",
          config.async.mode_source},
+        {"fg.mode", config.fg.mode == FrameGenerationMode::Sedici ? "\"sedici\"" : "\"amd\"",
+         config.fg.mode_source},
         {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},

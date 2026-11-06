@@ -82,18 +82,20 @@ note's ~0.15–0.30 ms analytical budget is an estimate, not an existing result.
 
 ### P1.3 — Integrate FFX and Sedici's custom schedule
 
-**Mostly done offline; exports not routed.** `src/fg_context.*` is a
+**Done offline; exports routed but unverified in a game.** `src/fg_context.*` is a
 supported-subset desc adapter with queue-signalled retirement, abandoned-snapshot
 recovery and a bounded retirement wait before slot reuse. `src/fg_pacing.*` owns
 the output decision: midpoint first, real frame half an interval later, waits
 capped at half an interval, and a missed midpoint is dropped rather than queued.
 `src/fg_swapchain.*` presents private game-facing backbuffers, one generated frame
 per cycle with a one-cycle pipeline, and `src/fg_integration.*` binds an FFX
-session to that wrapper. The offline host runs the whole path.
+session to that wrapper. `src/fg_route.*` routes the five exports, selected by
+`fg.mode`, and the offline host runs the whole path.
 
-Remaining: route the five exports through `fg::WrapHandle`/`fg::Session` behind a
-configuration switch, define query/version answers, and decide what an unsupported
-call does once Sedici owns the context. Until then the DLL forwards to AMD.
+Open before this can be called verified: which queries Cyberpunk issues (the route
+currently refuses all queries on a Sedici-owned context and logs them), and
+whether the game accepts the wrapped swapchain in every path it uses. Until a game
+session exercises it, `fg.mode` stays `"amd"` and the DLL forwards to AMD.
 
 - Implement the supported game's create/configure/prepare/dispatch/query/destroy
   contract and Sedici's swapchain wrapper, retaining the five-export interface.

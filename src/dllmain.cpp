@@ -1,5 +1,6 @@
 #include "describe.h"
 #include "config.h"
+#include "fg_route.h"
 #include "forward.h"
 #include "log.h"
 #include "overlay.h"
@@ -29,6 +30,11 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     (void)sedici::settings();
     ScopedDescOverride desc_override(desc);
 
+    if (ffxReturnCode_t routed{}; sedici::fg::route_create(context, desc, &routed)) {
+        describe_call(FfxExportKind::Create, desc, routed, context ? *context : nullptr);
+        return routed;
+    }
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxCreateContext
         ? g_ffxCreateContext(context, desc, callbacks)
@@ -52,6 +58,12 @@ extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
     (void)sedici::settings();
     std::lock_guard<std::recursive_mutex> lifetime(toggles_context_lifetime_mutex());
     void* existing = context ? *context : nullptr;
+
+    if (ffxReturnCode_t routed{}; sedici::fg::route_destroy(context, &routed)) {
+        describe_call(FfxExportKind::Destroy, nullptr, routed, existing);
+        return routed;
+    }
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxDestroyContext
         ? g_ffxDestroyContext(context, callbacks)
@@ -76,6 +88,11 @@ extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
     ScopedOverlayCallback overlay_callback(desc, context ? *context : nullptr);
 
     void* existing = context ? *context : nullptr;
+    if (ffxReturnCode_t routed{}; sedici::fg::route_configure(context, desc, &routed)) {
+        describe_call(FfxExportKind::Configure, desc, routed, existing);
+        return routed;
+    }
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxConfigure
         ? g_ffxConfigure(context, desc)
@@ -92,6 +109,11 @@ extern "C" ffxReturnCode_t ffxQuery(ffxContext* context, ffxQueryDescHeader* des
 {
     (void)sedici::settings();
     void* existing = context ? *context : nullptr;
+    if (ffxReturnCode_t routed{}; sedici::fg::route_query(context, desc, &routed)) {
+        describe_call(FfxExportKind::Query, desc, routed, existing);
+        return routed;
+    }
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxQuery
         ? g_ffxQuery(context, desc)
@@ -106,6 +128,11 @@ extern "C" ffxReturnCode_t ffxDispatch(ffxContext* context,
 {
     (void)sedici::settings();
     void* existing = context ? *context : nullptr;
+    if (ffxReturnCode_t routed{}; sedici::fg::route_dispatch(context, desc, &routed)) {
+        describe_call(FfxExportKind::Dispatch, desc, routed, existing);
+        return routed;
+    }
+
     const bool loaded = ensure_original_loaded();
     const ffxReturnCode_t result = loaded && g_ffxDispatch
         ? g_ffxDispatch(context, desc)

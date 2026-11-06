@@ -56,6 +56,16 @@ wait_for_single_object_on_fence = false
 # default. Kept for A/B testing.
 mode = "game"
 
+[fg]
+# "amd"    - forward every frame generation call to the original DLL. AMD owns
+#            the generator and the swapchain. This is the default and the
+#            behaviour every earlier release had.
+# "sedici" - use Sedici's own generator and swapchain wrapper. Sedici then owns
+#            frame generation for the whole process; there is no per-call
+#            fallback, because a context cannot be handed to AMD mid-life.
+#            Experimental: not yet verified in a game session.
+mode = "amd"
+
 [limiter]
 # Cap the game's real frames inside Sedici's Present hook, before the original
 # Present is called. The generated frames are presented inside AMD's swapchain

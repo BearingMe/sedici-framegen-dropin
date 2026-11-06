@@ -123,12 +123,31 @@ struct LogSettings {
     Source level_source = Source::Default;
 };
 
+// `[fg]`
+enum class FrameGenerationMode {
+    // Forward every frame generation call to the original DLL. AMD owns the
+    // generator and the swapchain. This is the default and the shipped
+    // behaviour until the Sedici path has seen a game session.
+    Amd,
+
+    // Use Sedici's own generator and swapchain wrapper. Sedici then owns frame
+    // generation for the whole process: there is no per-call fallback to AMD,
+    // because a context cannot be handed over mid-life.
+    Sedici,
+};
+
+struct FrameGenerationSettings {
+    FrameGenerationMode mode = FrameGenerationMode::Amd;
+    Source mode_source = Source::Default;
+};
+
 struct Settings {
     PacingSettings pacing;
     AsyncSettings async;
     LimiterSettings limiter;
     LogSettings log;
     UiSettings ui;
+    FrameGenerationSettings fg;
 
     // Absolute path of the config file that was consulted, or empty when the
     // DLL directory could not be resolved.
