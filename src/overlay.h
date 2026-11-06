@@ -1,9 +1,5 @@
 #pragma once
 
-// INACTIVE PROTOTYPE: Do not install this callback. It replaces FFX's default
-// composition without writing the output buffer and freezes the displayed
-// image. It is excluded from the build until composition is implemented.
-
 #include "ffx_framegeneration.h"
 
 #include <cstddef>
@@ -16,9 +12,12 @@
 // makes it the only place that sees the final output rate, and the only place
 // that can draw on the final image without the UI being interpolated.
 //
-// Step 0 is measurement only: the callback records a QPC timestamp and which
-// kind of frame it saw, and logs the output rate every 300 calls. The drawing
-// path is added in milestone 3.
+// A non-null presentCallback *replaces* FFX's default composition callback.
+// Sedici therefore only takes over in the configuration Cyberpunk uses: no
+// separate UI resource is registered, so the required operation is exactly the
+// back-buffer copy AMD's default performs. If a UI resource is registered, or
+// the copy cannot be performed, Sedici leaves the callback null and lets FFX
+// keep its own composition path.
 
 // Scoped: rewrites the frame generation configure desc in the caller's chain so
 // its `presentCallback` is Sedici's trampoline for the duration of the call,

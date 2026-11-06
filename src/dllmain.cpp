@@ -1,6 +1,7 @@
 #include "describe.h"
 #include "forward.h"
 #include "log.h"
+#include "overlay.h"
 #include "present_hook.h"
 #include "stats.h"
 #include "toggles.h"
@@ -63,6 +64,7 @@ extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
                                         const ffxConfigureDescHeader* desc)
 {
     ScopedDescOverride desc_override(desc);
+    ScopedOverlayCallback overlay_callback(desc);
 
     void* existing = context ? *context : nullptr;
     const bool loaded = ensure_original_loaded();

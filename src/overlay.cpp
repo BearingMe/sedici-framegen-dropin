@@ -1,6 +1,9 @@
 #include "overlay.h"
 
 #include "log.h"
+#include "overlay_compose.h"
+
+#include "ffx_api_framegeneration_dx12.h"
 
 #include <windows.h>
 
@@ -26,6 +29,19 @@ constexpr uint64_t kReportEvery = 300;
 std::atomic<FfxApiPresentCallbackFunc> g_game_callback{nullptr};
 std::atomic<void*> g_game_context{nullptr};
 
+// True while the application has registered a non-empty UI resource. In that
+// configuration FFX's default callback performs a shader-based composition
+// that Sedici does not reproduce; Sedici then leaves the callback null so FFX
+// keeps its own path.
+std::atomic<bool> g_ui_registered{false};
+
+// Set when a callback Sedici installed could not compose safely. The next
+// configure then leaves the callback null and FFX's default takes over.
+std::atomic<bool> g_composition_failed{false};
+
+// Mode already reported in the log: 1 copy, 2 FFX default, 3 chained.
+std::atomic<int> g_logged_mode{0};
+
 // Opaque, non-null context for Sedici's own callback. FFX only passes it back,
 // but a non-null value avoids any implementation that treats a null user
 // context as "no callback". The game's own context is kept separately above.
@@ -34,6 +50,18 @@ int g_callback_token = 0;
 void* callback_token() noexcept
 {
     return static_cast<void*>(&g_callback_token);
+}
+
+void log_mode_once(int mode, const char* message) noexcept
+{
+    if (g_logged_mode.exchange(mode, std::memory_order_relaxed) == mode) return;
+    log_event(1, message);
+}
+
+bool can_compose_here() noexcept
+{
+    return !g_ui_registered.load(std::memory_order_relaxed) &&
+           !g_composition_failed.load(std::memory_order_relaxed);
 }
 
 uint64_t qpc_now() noexcept
@@ -88,7 +116,8 @@ std::string active_line_locked(const ffxCallbackDescFrameGenerationPresent& para
         << " size=" << output.description.width << 'x' << output.description.height
         << " format=" << output.description.format
         << " state=" << output.state
-        << " ui=" << (params.currentUI.resource ? "yes" : "no");
+        << " ui=" << (params.currentUI.resource ? "yes" : "no")
+        << " composition=" << (g_game_callback.load(std::memory_order_relaxed) ? "chain" : "copy");
     return out.str();
 }
 
@@ -156,6 +185,7 @@ void record_present(const ffxCallbackDescFrameGenerationPresent* params) noexcep
 ffxReturnCode_t overlay_trampoline(ffxCallbackDescFrameGenerationPresent* params, void*) noexcept
 {
     overlay_on_present(params);
+    if (!params) return FFX_API_RETURN_OK;
 
     const FfxApiPresentCallbackFunc chained = g_game_callback.load(std::memory_order_acquire);
     if (chained && chained != &overlay_trampoline) {
@@ -165,6 +195,28 @@ ffxReturnCode_t overlay_trampoline(ffxCallbackDescFrameGenerationPresent* params
         } catch (...) {
             return FFX_API_RETURN_OK;
         }
+    }
+
+    // A separate UI resource needs FFX's composition shader. Taking over here
+    // would silently drop the UI, so fail closed and let the next configure
+    // restore FFX's own callback.
+    if (params->currentUI.resource != nullptr) {
+        if (!g_composition_failed.exchange(true, std::memory_order_relaxed)) {
+            log_error("sedici: overlay callback received a separate UI resource; composition "
+                      "is handed back to FFX and the overlay is disabled for this session");
+        }
+        return FFX_API_RETURN_OK;
+    }
+
+    const bool copied = sedici::copy_back_buffer(
+        reinterpret_cast<ID3D12GraphicsCommandList*>(params->commandList),
+        reinterpret_cast<ID3D12Resource*>(params->currentBackBuffer.resource),
+        params->currentBackBuffer.state,
+        reinterpret_cast<ID3D12Resource*>(params->outputSwapChainBuffer.resource),
+        params->outputSwapChainBuffer.state);
+    if (!copied && !g_composition_failed.exchange(true, std::memory_order_relaxed)) {
+        log_error("sedici: overlay callback could not copy the output image; composition "
+                  "is handed back to FFX");
     }
     return FFX_API_RETURN_OK;
 }
@@ -188,7 +240,21 @@ ScopedOverlayCallback::ScopedOverlayCallback(const ffxApiHeader* desc) noexcept
     if (!desc) return;
 
     try {
+        // A UI registration may appear anywhere in the chain, and the decision
+        // below must see it regardless of order.
         std::set<const ffxApiHeader*> seen;
+        for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+            if (!seen.insert(item).second) break;
+            if (item->type ==
+                FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12) {
+                const auto& d = reinterpret_cast<
+                    const ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12&>(*item);
+                g_ui_registered.store(d.uiResource.resource != nullptr, std::memory_order_relaxed);
+            }
+            if (seen.size() >= kMaxChainItems) break;
+        }
+
+        seen.clear();
         for (const ffxApiHeader* item = desc; item; item = item->pNext) {
             if (!seen.insert(item).second) break;
 
@@ -196,34 +262,55 @@ ScopedOverlayCallback::ScopedOverlayCallback(const ffxApiHeader* desc) noexcept
             case FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION: {
                 auto* d = const_cast<ffxConfigureDescFrameGeneration*>(
                     reinterpret_cast<const ffxConfigureDescFrameGeneration*>(item));
+                if (d->presentCallback == &overlay_trampoline) break;
 
-                // Remember what the game asked for. It is null in Cyberpunk;
-                // storing it unconditionally also handles a game that clears
-                // its callback again later.
-                if (d->presentCallback != &overlay_trampoline) {
-                    g_game_callback.store(d->presentCallback, std::memory_order_relaxed);
-                    g_game_context.store(d->presentCallbackUserContext, std::memory_order_relaxed);
+                const bool game_callback = d->presentCallback != nullptr;
+                g_game_callback.store(d->presentCallback, std::memory_order_relaxed);
+                g_game_context.store(d->presentCallbackUserContext, std::memory_order_relaxed);
 
-                    patch(&d->presentCallback, sizeof(d->presentCallback),
-                          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&overlay_trampoline)));
-                    patch(&d->presentCallbackUserContext, sizeof(d->presentCallbackUserContext),
-                          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(callback_token())));
+                if (!game_callback && !can_compose_here()) {
+                    log_mode_once(2, "sedici: overlay present callback left to FFX (separate UI "
+                                     "resource registered or composition unavailable)");
+                    break;
                 }
+
+                patch(&d->presentCallback, sizeof(d->presentCallback),
+                      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&overlay_trampoline)));
+                patch(&d->presentCallbackUserContext, sizeof(d->presentCallbackUserContext),
+                      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(callback_token())));
+                log_mode_once(game_callback ? 3 : 1,
+                              game_callback
+                                  ? "sedici: overlay present callback chaining to the game "
+                                    "callback; Sedici records timing only"
+                                  : "sedici: overlay present callback active; copying the current "
+                                    "back buffer to the output");
                 break;
             }
             case FFX_API_FRAME_GENERATION_CONFIG: {
                 auto* d = const_cast<FfxFrameGenerationConfig*>(
                     reinterpret_cast<const FfxFrameGenerationConfig*>(item));
+                if (d->presentCallback == &overlay_trampoline) break;
 
-                if (d->presentCallback != &overlay_trampoline) {
-                    g_game_callback.store(d->presentCallback, std::memory_order_relaxed);
-                    g_game_context.store(d->presentCallbackContext, std::memory_order_relaxed);
+                const bool game_callback = d->presentCallback != nullptr;
+                g_game_callback.store(d->presentCallback, std::memory_order_relaxed);
+                g_game_context.store(d->presentCallbackContext, std::memory_order_relaxed);
 
-                    patch(&d->presentCallback, sizeof(d->presentCallback),
-                          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&overlay_trampoline)));
-                    patch(&d->presentCallbackContext, sizeof(d->presentCallbackContext),
-                          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(callback_token())));
+                if (!game_callback && !can_compose_here()) {
+                    log_mode_once(2, "sedici: overlay present callback left to FFX (separate UI "
+                                     "resource registered or composition unavailable)");
+                    break;
                 }
+
+                patch(&d->presentCallback, sizeof(d->presentCallback),
+                      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&overlay_trampoline)));
+                patch(&d->presentCallbackContext, sizeof(d->presentCallbackContext),
+                      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(callback_token())));
+                log_mode_once(game_callback ? 3 : 1,
+                              game_callback
+                                  ? "sedici: overlay present callback chaining to the game "
+                                    "callback; Sedici records timing only"
+                                  : "sedici: overlay present callback active; copying the current "
+                                    "back buffer to the output");
                 break;
             }
             default:

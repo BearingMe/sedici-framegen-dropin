@@ -35,6 +35,8 @@ add_library(sedici SHARED
     src/present_hook.cpp
     src/stats.cpp
     src/limiter.cpp
+    src/overlay.cpp
+    src/overlay_compose.cpp
     src/toggles.cpp
     src/config.cpp
     src/log.cpp
