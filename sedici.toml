@@ -86,7 +86,9 @@ present = "vrr"
 # "1.5x"     - 3 frames for every 2 real ones, e.g. 48 real FPS -> 72.
 # "1.25x"    - 5 frames for every 4 real ones, e.g. 60 real FPS -> 75.
 # "adaptive" - aim for target_fps frames per second whatever the real rate,
-#              up to two generated frames per real one.
+#              up to two generated frames per real one. Latency is up to one
+#              real frame (25 ms at 40 FPS). Below 20 real FPS it shows only
+#              real frames.
 # Below 2x, frames stay evenly spaced, so most of what you see is generated:
 # 1.5x shows every second real frame on its own, 1.25x every fourth. It also
 # adds latency compared with 2x at the same real FPS: about a sixth of a real

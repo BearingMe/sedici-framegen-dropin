@@ -59,7 +59,7 @@ struct PacingState {
 //
 // Fixed ratio p/q (5/4, 3/2, 7/4, 2/1): grid points at m*q/p real frames, a
 // pattern that repeats every q real frames with p outputs.
-// Adaptive: grid points every 1/target seconds; a point within a quarter of an
+// Adaptive: grid points every 1/target seconds; a point within a tenth of an
 // output period of the real frame shows the real frame instead.
 //
 // Pure: no clocks, no D3D12, so it is checked offline.
@@ -88,7 +88,8 @@ public:
     void reset() noexcept;
 
     // `entry`: seconds at this real frame's Present. The first frame after a
-    // reset, or after a gap of more than 0.25 s, returns just the real frame.
+    // reset, after an interval over 50 ms (below 20 real fps) or over 2.5x the
+    // recent one, returns just the real frame.
     OutputPlan plan(double entry) noexcept;
 
     bool adaptive() const noexcept { return m_adaptive; }

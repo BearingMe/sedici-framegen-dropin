@@ -66,6 +66,8 @@ public:
 
     // True when "vrr" is active (presenter thread and queue in use).
     bool async_present() const noexcept { return m_presenter != nullptr; }
+    // "vrr": flips issued within 2 ms of the previous one (0 without a presenter).
+    uint64_t back_to_back_flips() const noexcept { return m_presenter ? m_presenter->back_to_back_flips() : 0; }
 
     // Without a sink the wrapper presents real frames only. Safe to change any
     // time; a pending midpoint is discarded when the sink is replaced or cleared.
@@ -147,8 +149,12 @@ private:
     void record_generated() noexcept;
     // "vrr": records `count` phases into `outputs`; false when nothing usable
     // was submitted (no sink, or the generator refused the frame).
-    bool record_phases(const GeneratePhase* phases, uint32_t count) noexcept;
+    bool record_phases(const GeneratePhase* phases, uint32_t count, uint32_t slot) noexcept;
+    // "vrr": waits until the frame that last used `slot` has finished on the GPU.
+    HRESULT wait_slot(uint32_t slot) noexcept;
     void configure_schedule(const PresentChoice& choice) noexcept;
+    // "vrr": copies the game's backbuffer into snapshot `slot` on the game queue.
+    HRESULT snapshot_real(uint32_t slot) noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
 
@@ -171,15 +177,31 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_generated;
     // "vrr" only: the presenter may still copy last cycle's midpoint while this
     // cycle's is generated, so the two alternate.
-    // "vrr" only: generated images, two sets so the presenter can still copy
-    // the previous frame's while this frame's are generated.
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_phase_outputs[2][kMaxPhases];
+    // "vrr" only. Up to kInFlight older frames may still be presenting while
+    // the game renders the next one, so everything a job reads comes from a
+    // ring of kInFlight + 1 slots that the game never touches: a snapshot of
+    // the real frame (copied on the game queue right after generation, which
+    // releases the game's own backbuffer in queue order) and the generated
+    // images. With one frame in flight the game blocked on the presenter on most
+    // frames at ~40 fps in adaptive (finding 009).
+    static constexpr uint32_t kInFlight = 2;
+    static constexpr uint32_t kSlots = kInFlight + 1;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_phase_outputs[kSlots][kMaxPhases];
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_snapshots[kSlots];
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_snapshot_allocators[kSlots];
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_snapshot_lists[kSlots];
+    // Generation lists per slot: with frames in flight the previous frame's
+    // generation may still be executing when the next one is recorded.
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_slot_generate_allocators[kSlots];
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_slot_generate_lists[kSlots];
+    uint64_t m_snapshot_fences[kSlots]{};
     uint32_t m_phase_set = 0;
     OutputSchedule m_schedule;
     // Per 300 game frames: when the window started and how many outputs were
     // planned, to report the real and output rates against the refresh rate.
     double m_rate_window_start = 0.0;
     uint32_t m_rate_window_outputs = 0;
+    uint32_t m_rate_window_generated = 0;
     std::unique_ptr<Presenter> m_presenter;
     // Game-thread time spent waiting for the presenter to catch up.
     uint32_t m_backpressure_samples = 0;

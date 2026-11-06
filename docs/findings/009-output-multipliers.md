@@ -102,15 +102,16 @@ lower it. An intermediate fix that applied the upper-bound rule to the whole
 latency starved it at 0 and dropped every generated frame offline; the split
 avoids both.
 
-Over the refresh rate the game is now held to the panel's pace (about 1.5
-refreshes per real frame at 1.5x), like vsync with frame generation, instead
-of collapsing. The game-thread log line reports `real_fps`,
+Over the refresh rate the presenter drops outputs it cannot show instead of
+collapsing. The game-thread log line reports `real_fps`,
 `planned_output_fps` and `refresh_hz`, and adds `OVER_REFRESH` with the
 `limiter.fps` to use when the plan exceeds the panel.
 
 Offline after the fix: 2x 79/79 and 1.5x 59/59 planned presents at ~35 real
-fps with ~20 ms latency; at ~160 requested real fps (1.5x overload) the test
-game ran at 15.8 ms per frame against a 20 ms panel pace, not slower.
+fps with ~20 ms latency. (An earlier version of this paragraph said the
+overload test game was "held to the panel's pace at 15.8 ms per frame"; that
+was Windows' 15.6 ms `Sleep` granularity, not Sedici. The check now measures
+time spent inside Sedici instead; see the adaptive section.)
 
 ## Second game session: steady at 72, two transient collapses
 
@@ -140,6 +141,49 @@ discontinuity and shows only that real frame; the structural part is the
 maximum of the last 8 frames (covers every fixed pattern) and the GPU part the
 second highest of the last 16 measurements (one spike is ignored). A hitch now
 clears within 8-16 frames instead of sustaining itself.
+
+## Adaptive sessions: stutter and input lag at low real fps
+
+`multiplier = "adaptive"`, target 72 on the 75 Hz panel, limiter off, three
+captures in one session (`2026-11-06-sedici-vrr-adaptive*`). The user saw
+stutter and input lag.
+
+| Run | Real fps | On screen 12.5-14.5 ms | < 2 ms (back-to-back) | > 20 ms | Latency | Game blocked on presenter |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| high input | 71-80 | 80.9% | 2.5% | 3.3% | 19-25 ms | 0-227/300, ~5 ms |
+| lower input | 34-44 | 49.5% | 6.3% | 9.9% | 42-60 ms | 205-269/300, 9-16 ms |
+| variable (car) | 37-47 | 61.5% | 4.6% | 12.2% | 38-58 ms | 152-249/300 |
+
+Causes and fixes:
+
+1. **Back-to-back flips.** Right after `Present` returns the flip has not
+   latched, so the scan line still reports the previous blank and the guard
+   opened for a second flip ~1 ms later. The scan-line guard now also holds
+   until just before the previous image's scan can have ended
+   (`last flip + refresh - lead`); the log adds `back_to_back`.
+2. **Game waiting on the presenter.** Jobs read the game's own backbuffers and
+   two generated sets, so only one older job could be outstanding; adaptive at
+   ~40 fps needs up to a real frame of latency, so the game blocked on most
+   frames. Each frame is now copied into a Sedici-owned snapshot right after
+   generation (one full-resolution copy on the game queue), generated images
+   and generation command lists use a ring of three slots fenced per slot, and
+   two older frames may be in flight.
+3. **Latency estimate.** The GPU part is now the median of the last 16
+   measurements + 1 ms instead of the second highest; a slow frame is late
+   rather than raising latency for 16 frames.
+4. **Adaptive snap.** A real frame replaces a grid point only within 1/10 of
+   an output period (was 1/4, i.e. 3.5 ms off the grid at 72).
+5. **Below 20 real fps** (intervals over 50 ms) the schedule shows real frames
+   only; latency reached 157 ms at 14 fps during transitions.
+6. `OVER_REFRESH` is no longer reported while frame generation is off and no
+   longer suggests "adaptive" when already adaptive.
+
+Offline (`sedici_fgcheck --present`, RTSS closed): no back-to-back flips in
+any variant; adaptive at ~32 real fps presents 87 outputs for 40 frames with
+the test game spending 0.5 ms per frame inside Sedici (latency waitable plus
+`Present`). The two-frames-in-flight change first reset the single generation
+allocator while the previous frame's generation was still executing; the debug
+layer reported it and generation now uses a per-slot list.
 
 Running with RTSS closed also exposed two checks that fail identically at
 `a87d145`, before this change: `generated presentation` on the `"vsync"` path

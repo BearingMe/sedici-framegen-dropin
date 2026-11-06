@@ -104,7 +104,10 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
     const bool hitch = m_interval > 0.0 && interval > 2.5 * m_interval;
     if (m_started && interval > 1e-4 && interval < 0.25)
         m_interval = m_interval > 0.0 ? 0.9 * m_interval + 0.1 * std::min(interval, 2.5 * m_interval) : interval;
-    const bool continuous = m_started && interval > 1e-4 && interval < 0.25 && !hitch;
+    // Below 20 real fps interpolation would need over 50 ms of extra latency
+    // and replays loading stutters (157 ms latency at 14 fps in finding 009):
+    // show real frames only until the rate recovers.
+    const bool continuous = m_started && interval > 1e-4 && interval <= 0.05 && !hitch;
     const double previous = m_previous;
     m_previous = entry;
     m_started = true;
@@ -141,7 +144,10 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
     }
 
     const double period = 1.0 / m_target;
-    const double snap = 0.25 * period;
+    // A real frame stands in for a grid point only when it is within a tenth
+    // of an output period; at a quarter (3.5 ms at 72) real frames visibly broke
+    // the even spacing when the real rate was close to the target.
+    const double snap = 0.1 * period;
     // After a hitch the grid may be behind the previous real frame; skip the
     // points that can no longer be shown rather than replaying them.
     if (m_next_slot <= previous) m_next_slot += std::ceil((previous - m_next_slot) / period + 1e-9) * period;

@@ -237,7 +237,8 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     D3D12_RESOURCE_DESC generated = texture;
     generated.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     Microsoft::WRL::ComPtr<ID3D12Resource> midpoint;
-    Microsoft::WRL::ComPtr<ID3D12Resource> phases[2][kMaxPhases];
+    Microsoft::WRL::ComPtr<ID3D12Resource> phases[kSlots][kMaxPhases];
+    Microsoft::WRL::ComPtr<ID3D12Resource> snapshots[kSlots];
     if (m_presenter) {
         for (auto& set : phases) {
             for (auto& output : set) {
@@ -245,6 +246,30 @@ HRESULT Swapchain::initialize_buffers() noexcept try
                     D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&output));
                 if (FAILED(hr)) return hr;
             }
+        }
+        // Copies of the game's frame for the presenter: copy source/dest only,
+        // kept in PRESENT like the game's buffers so the presenter treats both alike.
+        D3D12_RESOURCE_DESC snapshot = texture;
+        snapshot.Flags = D3D12_RESOURCE_FLAG_NONE;
+        for (auto& image : snapshots) {
+            hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &snapshot,
+                D3D12_RESOURCE_STATE_PRESENT, nullptr, IID_PPV_ARGS(&image));
+            if (FAILED(hr)) return hr;
+        }
+        const auto makeList = [&](Microsoft::WRL::ComPtr<ID3D12CommandAllocator>& allocator,
+                                  Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& list) {
+            if (list) return S_OK;
+            HRESULT result = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                              IID_PPV_ARGS(&allocator));
+            if (SUCCEEDED(result)) result = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                allocator.Get(), nullptr, IID_PPV_ARGS(&list));
+            if (SUCCEEDED(result)) result = list->Close();
+            return result;
+        };
+        for (uint32_t i = 0; i < kSlots; ++i) {
+            hr = makeList(m_snapshot_allocators[i], m_snapshot_lists[i]);
+            if (SUCCEEDED(hr)) hr = makeList(m_slot_generate_allocators[i], m_slot_generate_lists[i]);
+            if (FAILED(hr)) return hr;
         }
     } else {
         hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
@@ -254,8 +279,10 @@ HRESULT Swapchain::initialize_buffers() noexcept try
 
     m_buffers = std::move(buffers);
     m_generated = midpoint;
-    for (uint32_t set = 0; set < 2; ++set)
+    for (uint32_t set = 0; set < kSlots; ++set) {
         for (uint32_t i = 0; i < kMaxPhases; ++i) m_phase_outputs[set][i] = phases[set][i];
+        m_snapshots[set] = snapshots[set];
+    }
     m_phase_set = 0;
     m_schedule.reset();
     m_generated_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -419,11 +446,58 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
     } catch (...) {}
 }
 
-bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count) noexcept
+HRESULT Swapchain::wait_slot(uint32_t slot) noexcept
 {
-    if ((!m_sink.recordPhases && !m_sink.record) || count == 0) return false;
-    auto* allocator = m_generate_allocator.Get();
-    auto* list = m_generate_list.Get();
+    // The slot was last used kSlots frames ago; its lists and images are free
+    // once that frame's ready fence (signalled after its generation and
+    // snapshot) has completed. Normally it has, because the presenter finished
+    // that frame before this one was allowed in.
+    if (m_snapshot_fences[slot] && m_fence->GetCompletedValue() < m_snapshot_fences[slot]) {
+        HRESULT hr = m_fence->SetEventOnCompletion(m_snapshot_fences[slot], m_event);
+        if (FAILED(hr)) return hr;
+        if (WaitForSingleObject(m_event, 5000) != WAIT_OBJECT_0) return DXGI_ERROR_DEVICE_HUNG;
+    }
+    return S_OK;
+}
+
+HRESULT Swapchain::snapshot_real(uint32_t slot) noexcept
+{
+    auto* allocator = m_snapshot_allocators[slot].Get();
+    auto* list = m_snapshot_lists[slot].Get();
+    HRESULT hr = allocator->Reset();
+    if (SUCCEEDED(hr)) hr = list->Reset(allocator, nullptr);
+    if (FAILED(hr)) return hr;
+    ID3D12Resource* source = m_buffers[m_game_index].Get();
+    ID3D12Resource* destination = m_snapshots[slot].Get();
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    const auto transition = [&](D3D12_RESOURCE_BARRIER& barrier, ID3D12Resource* resource,
+                                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.pResource = resource;
+        barrier.Transition.StateBefore = before;
+        barrier.Transition.StateAfter = after;
+    };
+    transition(barriers[0], source, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(barriers[1], destination, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+    list->ResourceBarrier(2, barriers);
+    list->CopyResource(destination, source);
+    transition(barriers[0], source, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+    transition(barriers[1], destination, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+    list->ResourceBarrier(2, barriers);
+    hr = list->Close();
+    if (FAILED(hr)) return hr;
+    ID3D12CommandList* lists[]{list};
+    m_queue->ExecuteCommandLists(1, lists);
+    return S_OK;
+}
+
+bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint32_t slot) noexcept
+{
+    if ((!m_sink.recordPhases && !m_sink.record) || count == 0 || slot >= kSlots) return false;
+    auto* allocator = m_slot_generate_allocators[slot].Get();
+    auto* list = m_slot_generate_lists[slot].Get();
+    if (!allocator || !list) return false;
     if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator, nullptr))) return false;
     auto* real = m_buffers[m_game_index].Get();
     bool recorded = true;
@@ -613,10 +687,10 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
 
 HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept try
 {
-    // The presenter may still be showing the previous frame. Generation writes
-    // the other midpoint slot and the game renders into a buffer the presenter
-    // finished with, as long as at most one older job is still outstanding.
-    const size_t allowed = m_buffers.size() > 2 ? 1 : 0;
+    // Up to kInFlight older frames may still be presenting. Each job reads only
+    // its own slot (real-frame snapshot and generated images), which a frame
+    // kSlots ago used and has finished with once at most kInFlight are left.
+    const size_t allowed = kInFlight;
     if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_presenter->outstanding() > allowed)
         return DXGI_ERROR_WAS_STILL_DRAWING;
     const double waitStart = now_seconds();
@@ -640,8 +714,10 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     // Generate every planned phase in one submission. The generator advances
     // its history once per real frame, so a frame with nothing generated to
     // show (adaptive target below the real rate) still runs one phase.
-    auto& set = m_phase_outputs[m_phase_set];
-    m_phase_set ^= 1u;
+    const uint32_t slot = m_phase_set;
+    m_phase_set = (m_phase_set + 1) % kSlots;
+    if (const HRESULT slotHr = wait_slot(slot); FAILED(slotHr)) return slotHr;
+    auto& set = m_phase_outputs[slot];
     GeneratePhase phases[kMaxPhases]{};
     uint32_t phaseCount = 0;
     for (uint32_t i = 0; i < plan.count && phaseCount < kMaxPhases; ++i) {
@@ -653,7 +729,7 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     const bool showGenerated = phaseCount > 0;
     if (!showGenerated)
         phases[phaseCount++] = GeneratePhase{set[0].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, kMidpointAlpha};
-    const bool generated = record_phases(phases, phaseCount);
+    const bool generated = record_phases(phases, phaseCount, slot);
     if (!generated) {
         // Nothing usable was generated: show the real frame on its own.
         if (showGenerated && m_sink.record) ++m_skipped_generates;
@@ -661,15 +737,22 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
         plan.outputs[0] = PlannedOutput{1.0f, true, now};
     }
 
-    // Everything the game and the generator queued for this frame.
-    HRESULT hr = m_queue->Signal(m_fence.Get(), ++m_fence_value);
+    // The presenter reads the snapshot, so the game's own buffer is free again
+    // once this copy has run, which queue order guarantees before its next use.
+    HRESULT hr = snapshot_real(slot);
     if (FAILED(hr)) return hr;
+
+    // Everything the game and the generator queued for this frame.
+    hr = m_queue->Signal(m_fence.Get(), ++m_fence_value);
+    if (FAILED(hr)) return hr;
+    m_snapshot_fences[slot] = m_fence_value;
 
     if (m_rate_window_start == 0.0) m_rate_window_start = now;
     m_rate_window_outputs += plan.count;
+    m_rate_window_generated += plan.generated();
 
     PresentJob job;
-    job.real = m_buffers[m_game_index];
+    job.real = m_snapshots[slot];
     uint32_t nextPhase = 0;
     for (uint32_t i = 0; i < plan.count; ++i) {
         JobOutput& output = job.outputs[job.count++];
@@ -701,12 +784,15 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
             const double refresh = m_presenter->refresh_hz();
             std::string rates = " real_fps=" + std::to_string(realFps) + " planned_output_fps=" +
                 std::to_string(outputFps) + " refresh_hz=" + std::to_string(refresh);
-            if (outputFps > refresh * 1.02 && m_rate_window_outputs > 0) {
+            // Only meaningful while frames are generated: with frame generation
+            // off (menus) every real frame is shown as is.
+            if (outputFps > refresh * 1.02 && m_rate_window_generated > 0) {
                 // The panel cannot show more than one frame per refresh; the
                 // presenter has to drop outputs and the game waits for it.
                 const double ratio = static_cast<double>(m_rate_window_outputs) / 300.0;
                 rates += " OVER_REFRESH: cap the real rate at " + std::to_string((refresh - 3.0) / ratio) +
-                         " fps ([limiter] fps) or use multiplier = \"adaptive\"";
+                         " fps ([limiter] fps)";
+                if (!m_schedule.adaptive()) rates += " or use multiplier = \"adaptive\"";
             }
             log_event(1, "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +
                 " skipped=" + std::to_string(m_skipped_generates) +
@@ -719,6 +805,7 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
         m_backpressure_sum = m_backpressure_max = 0.0;
         m_rate_window_start = now;
         m_rate_window_outputs = 0;
+        m_rate_window_generated = 0;
     }
     return previous;
 }

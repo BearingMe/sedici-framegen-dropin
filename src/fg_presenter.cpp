@@ -417,9 +417,19 @@ void Presenter::hold(double notBefore) noexcept
     // another flip before that, plus a small margin for flip-time jitter. It is
     // also the fallback when scan lines cannot be read.
     const bool timerGuard = m_guard == TearGuard::Timer || (m_guard == TearGuard::Scanline && !m_scanline_ok);
-    const double floor = timerGuard && m_last_flip > 0.0 ? m_last_flip + m_period + 0.0002 : 0.0;
-    const double scheduled = std::max(notBefore, now_seconds());
     const bool scanGuard = m_guard == TearGuard::Scanline && m_scanline_ok;
+    // The scan-line guard needs a floor too. Right after Present returns the
+    // flip has not latched yet, so the scan line still reports the previous
+    // blank and the gate would open for a second flip ~1 ms later: that frame
+    // then shows for a millisecond and the next for ~20 (finding 009, adaptive
+    // runs). Hold until just before the previous image's scan can have ended;
+    // the scan line then decides the exact moment.
+    double floor = 0.0;
+    if (m_last_flip > 0.0) {
+        if (timerGuard) floor = m_last_flip + m_period + 0.0002;
+        else if (scanGuard) floor = m_last_flip + m_period - m_lead_seconds - 0.0005;
+    }
+    const double scheduled = std::max(notBefore, now_seconds());
     // On a fixed-refresh panel the scan-line guard can only flip at a blank. A
     // target just after one would otherwise wait a whole refresh, and at ~36 fps
     // on 75 Hz that is every real frame: the pair then needs more time than the
@@ -510,6 +520,7 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
     if (m_last_flip > 0.0) {
         const double gap = before - m_last_flip;
         if (gap < m_period - 0.0001) ++m_window.shortGaps;
+        if (gap < 0.002) { ++m_window.backToBack; ++m_back_to_back; }
         if (!m_window.flips || gap < m_window.gapMin) m_window.gapMin = gap;
     }
     ++m_window.flips;
@@ -617,24 +628,25 @@ void Presenter::track_latency(double structural, double gpu, bool measured) noex
         m_structural_next = (m_structural_next + 1) % kStructuralWindow;
         m_structural = *std::max_element(std::begin(m_structural_ring), std::end(m_structural_ring));
     }
-    // GPU: the second highest of the last 16 measurements, so one spike is
-    // ignored. A frame that was already finished when the presenter got to it
-    // only bounds the GPU time from above: it is recorded only when it lowers
-    // the estimate, never to raise it, which would count queueing as latency.
+    // GPU: the median of the last 16 measurements. A slower-than-usual frame is
+    // then simply late (flipped as soon as it is ready) instead of raising the
+    // latency of the next 16; the second-highest estimate stacked with the
+    // structural maximum reached 45-60 ms at 40 real fps (finding 009, adaptive).
+    // A frame that was already finished when the presenter got to it only
+    // bounds the GPU time from above: it is recorded only when it lowers the
+    // estimate, never to raise it, which would count queueing as latency.
     if (std::isfinite(gpu)) {
         gpu = std::clamp(gpu, 0.0, 0.1);
         if (measured || gpu < m_gpu_latency) {
             m_gpu_ring[m_gpu_next] = gpu;
             m_gpu_next = (m_gpu_next + 1) % kGpuWindow;
-            double highest = 0.0, second = 0.0;
-            for (const double value : m_gpu_ring) {
-                if (value > highest) { second = highest; highest = value; }
-                else if (value > second) second = value;
-            }
-            m_gpu_latency = second;
+            double sorted[kGpuWindow];
+            std::copy(std::begin(m_gpu_ring), std::end(m_gpu_ring), sorted);
+            std::nth_element(sorted, sorted + kGpuWindow / 2, sorted + kGpuWindow);
+            m_gpu_latency = sorted[kGpuWindow / 2];
         }
     }
-    m_latency = m_structural + m_gpu_latency + 0.0005;
+    m_latency = m_structural + m_gpu_latency + 0.001;
     m_window.latencySum += m_latency;
     ++m_window.latencySamples;
 }
@@ -686,6 +698,7 @@ void Presenter::log_window() noexcept try
         " late=" + std::to_string(w.late) +
         " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
         " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
+        " back_to_back=" + std::to_string(w.backToBack) +
         " gap_min_ms=" + ms(w.gapMin) +
         " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
         " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +

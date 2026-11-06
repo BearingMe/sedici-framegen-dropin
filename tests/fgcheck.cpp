@@ -1140,12 +1140,16 @@ bool check_pacing()
                 previousContent = step.outputs[i].content;
             }
         }
-        expect(produced >= 7190 && produced <= 7210 && maxGenerated <= 2 && maxGapError <= 0.25 / 72.0 + 1e-9,
-               "adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a quarter slot of the grid");
+        expect(produced >= 7190 && produced <= 7210 && maxGenerated <= 2 && maxGapError <= 0.1 / 72.0 + 1e-9,
+               "adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a tenth of a slot of the grid");
         // A pause resets to the real frame alone, and a slower real rate than the
         // target still never asks for more than two generated frames.
         const auto paused = schedule.plan(20.0);
         expect(paused.count == 1 && paused.outputs[0].real, "adaptive schedule: a 0.25 s gap shows only the real frame");
+        // Below 20 real fps the schedule stops generating.
+        uint32_t slowGenerated = 0;
+        for (uint32_t frame = 0; frame < 40; ++frame) slowGenerated += schedule.plan(21.0 + frame * 0.055).generated();
+        expect(slowGenerated == 0, "adaptive schedule: below 20 real fps shows only real frames");
         schedule.set_target(144.0);
         uint32_t worst = 0;
         for (uint32_t frame = 0; frame < 200; ++frame) worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
@@ -1261,6 +1265,7 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
         uint64_t skippedAtTen = 0;
         HANDLE latency = wrapped->GetFrameLatencyWaitableObject();
         LARGE_INTEGER loopStart{}, loopEnd{}, frequency{};
+        LONGLONG waitableTicks = 0, presentTicks = 0;
         QueryPerformanceFrequency(&frequency);
         QueryPerformanceCounter(&loopStart);
         for (UINT cycle = 0; cycle < cycles; ++cycle) {
@@ -1269,7 +1274,11 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            LARGE_INTEGER waitStart{}, waitEnd{};
+            QueryPerformanceCounter(&waitStart);
             if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
+            QueryPerformanceCounter(&waitEnd);
+            waitableTicks += waitEnd.QuadPart - waitStart.QuadPart;
             Sleep(frameMs); // 27 ms: ~35 fps real rate, under half of a 75 Hz refresh like the game cap
             ComPtr<ID3D12Resource> buffer;
             if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
@@ -1279,7 +1288,12 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                        D3D12_RESOURCE_STATE_PRESENT);
             if (!state.submit()) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-            if (const HRESULT hr = wrapped->Present(0, presentFlags); FAILED(hr)) {
+            LARGE_INTEGER presentStart{}, presentEnd{};
+            QueryPerformanceCounter(&presentStart);
+            const HRESULT presentResult = wrapped->Present(0, presentFlags);
+            QueryPerformanceCounter(&presentEnd);
+            presentTicks += presentEnd.QuadPart - presentStart.QuadPart;
+            if (const HRESULT hr = presentResult; FAILED(hr)) {
                 std::printf("vrr: Present failed at cycle %u hr=0x%08lx\n", cycle, static_cast<unsigned long>(hr));
                 return false;
             }
@@ -1301,21 +1315,28 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
         std::printf("vrr presentation %s: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n", label,
                     calls, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(skipped),
                     presented, canTear ? "yes" : "no");
-        std::printf("vrr: skipped in the first 10 cycles: %llu, game loop %.2f ms per frame (sleep %lu)\n",
-                    static_cast<unsigned long long>(skippedAtTen), perFrameMs, frameMs);
+        const double toMs = 1000.0 / static_cast<double>(frequency.QuadPart) / cycles;
+        std::printf("vrr: skipped in the first 10 cycles: %llu, game loop %.2f ms per frame (sleep %lu, "
+                    "latency waitable %.2f ms, Present %.2f ms)\n",
+                    static_cast<unsigned long long>(skippedAtTen), perFrameMs, frameMs,
+                    waitableTicks * toMs, presentTicks * toMs);
+        // Time the test game spent inside Sedici per frame. The loop time itself is
+        // dominated by Sleep's 15.6 ms granularity (Sleep(21) and Sleep(27) both
+        // take ~31 ms), so it says nothing about blocking.
+        const double sediciMs = (waitableTicks + presentTicks) * toMs;
         if (overload) {
-            // The game keeps its own pace (a bounded wait for the presenter is
-            // allowed, not being throttled to the panel), and nothing beyond the
-            // plan is presented.
+            // More frames are planned than the panel can show: the presenter
+            // drops outputs and the game waits at most about one panel pace per
+            // frame, and nothing beyond the plan is presented.
             const UINT planned = 1 + (cycles - 1) * 3 / 2;
             DEVMODEW mode{};
             mode.dmSize = sizeof(mode);
             const double refreshMs = EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) &&
                 mode.dmDisplayFrequency > 1 ? 1000.0 / mode.dmDisplayFrequency : 1000.0 / 60.0;
             const double panelPace = 1.5 * refreshMs; // 1.5 flips per real frame
-            if (perFrameMs > std::max<double>(frameMs, panelPace) + 6.0) {
-                std::printf("vrr: game slower than the panel allows (%.2f ms, panel pace %.2f ms)\n",
-                            perFrameMs, panelPace);
+            if (sediciMs > panelPace) {
+                std::printf("vrr: game waited %.2f ms per frame in Sedici (panel pace %.2f ms)\n",
+                            sediciMs, panelPace);
                 return false;
             }
             if (presented > planned) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
@@ -1323,6 +1344,18 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             if (calls != cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
             if (shown + skipped != cycles - 1) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
             if (presented != cycles + shown) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        } else if (multiplier == sedici::FrameGenerationSettings::Multiplier::Adaptive) {
+            // ~40 real fps towards 72: about 1.8 outputs per real frame, and the
+            // game is not held back by the presenter (two frames may be in flight).
+            const double expected = cycles * 72.0 * perFrameMs / 1000.0;
+            if (sediciMs > 2.0) {
+                std::printf("vrr: adaptive game waited %.2f ms per frame in Sedici\n", sediciMs);
+                return false;
+            }
+            if (presented < 0.8 * expected || presented > expected + 4.0) {
+                std::printf("vrr: adaptive presented %u, expected about %.0f\n", presented, expected);
+                return false;
+            }
         } else {
             // 1.5x: 3 outputs per 2 real frames after the first, two of them
             // generated. Allow a few start-up drops, never more than planned.
@@ -1333,6 +1366,12 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
                 return false;
             }
             if (shown + 4 < (planned - 1) * 2 / 3) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        }
+        // No flip may follow the previous one within 2 ms (finding 009: the
+        // scan-line guard opened before the previous flip had latched).
+        if (const uint64_t backToBack = wrapped->back_to_back_flips(); backToBack != 0) {
+            std::printf("vrr: %llu back-to-back flips\n", static_cast<unsigned long long>(backToBack));
+            return false;
         }
         // Presentation continues after the resize, still from the presenter.
         for (UINT cycle = 0; cycle < 3; ++cycle) {
@@ -1967,6 +2006,7 @@ int main(int argc, char** argv)
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x") && ok;
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x") && ok;
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x overload", 6) && ok;
+    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::Adaptive, "adaptive at ~40 fps", 21) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

@@ -122,6 +122,8 @@ public:
     // output was already due.
     uint64_t midpoints_shown() const noexcept { return m_generated_shown; }
     uint64_t midpoints_dropped() const noexcept { return m_generated_dropped; }
+    // Flips issued within 2 ms of the previous one since the presenter started.
+    uint64_t back_to_back_flips() const noexcept { return m_back_to_back; }
     // The output's refresh rate when the chain was adopted or last resized.
     double refresh_hz() const noexcept { return m_period > 0.0 ? 1.0 / m_period : 60.0; }
 
@@ -185,6 +187,7 @@ private:
 
     uint64_t m_generated_shown = 0;
     uint64_t m_generated_dropped = 0;
+    uint64_t m_back_to_back = 0;
     double m_latency = 0.0;    // seconds from content time to flip
     double m_structural = 0.0; // schedule part of the latency
     double m_gpu_latency = 0.0; // Present-to-ready part of the latency
@@ -208,6 +211,7 @@ private:
         uint32_t gpuWaits = 0;
         uint32_t flips = 0;
         uint32_t shortGaps = 0;    // flip sooner than one refresh after the previous
+        uint32_t backToBack = 0;   // flip within 2 ms of the previous
         double gapMin = 0.0;
         double gpuWaitSum = 0.0;   // waiting for the image to finish on the GPU
         double gpuWaitMax = 0.0;
