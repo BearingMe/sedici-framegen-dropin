@@ -53,9 +53,10 @@ numbers are not universal acceptance thresholds.
 
 ### P1.2 — Implement the DX12 first-layer generator
 
-**In progress.** Landed: `src/fg_params.*` (constant block), `src/fg_packing.h`
-(11/11/10 reprojection mirror), `src/fg_shaders.h` (dilate, clear, reproject,
-fill, warp) and `src/fg_stage1.*` (DX12 targets, history, dispatch chain).
+**Done.** `src/fg_params.*` (constants), `src/fg_packing.h` (11/11/10 mirror),
+`src/fg_shaders.h` (dilate, clear, reproject, fill, warp) and `src/fg_stage1.*`
+(DX12 targets, history, dispatch chain). Not yet called from the DLL; FFX
+integration is P1.3.
 
 - Normalize depth, motion vectors, jitter and render/output coordinates; keep
   two-frame history with discontinuity, resize and FG-toggle resets.
@@ -102,6 +103,22 @@ reviewed revision when implementing against them.
 limiter, pacing controls and overlay remain coherent with that ownership.
 
 ### P1.4 — One small offline acceptance run
+
+**Host ready, real-frame scoring pending.** `tests/fgcheck.cpp` (built with
+`-DSEDICI_BUILD_FGCHECK=ON`) runs the production stage 1 over three synthetic
+scenes at 480x270 display / 320x180 render and prints PSNR, SSIM and GPU time:
+
+| Scene | PSNR | SSIM | stage 1 |
+| --- | --- | --- | --- |
+| rightward pan | 61.98 dB | 1.0000 | 0.035 ms |
+| leftward pan | 43.13 dB | 0.9990 | 0.035 ms |
+| diagonal thin bar | 49.05 dB | 0.9990 | 0.035 ms |
+
+These numbers validate the implementation (trajectory, sign, splat, fill, fusion,
+resource states) on synthetic motion. They say nothing about image quality on a
+rendered frame, they are not the 1080p budget, and the rescaled cost is a rough
+estimate, not a measurement. Still to do: score real captured frames and read
+the 1080p cost from the overlay/stats once P1.3 exists.
 
 - One DX12 executable exercises the production generator and scheduler. Use a
   few short sequences covering camera motion, moving/thin geometry, disocclusion

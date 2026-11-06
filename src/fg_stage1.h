@@ -80,6 +80,9 @@ private:
                              D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) noexcept;
     void uav_barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource) noexcept;
 
+    // Descriptor blocks: each pass owns one, because a table points at mutable
+    // heap memory that the GPU reads when it executes, not when it records.
+    void begin_block(uint32_t index) noexcept;
     void write_srv(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept;
     void write_uav(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept;
     void copy_target(ID3D12GraphicsCommandList* list, Target& source, Target& destination) noexcept;
@@ -97,6 +100,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_root_signature;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_heap;
     uint32_t m_increment = 0;
+    uint32_t m_block = 0;
 
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_dilate;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_clear;

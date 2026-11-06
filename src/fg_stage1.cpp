@@ -15,7 +15,9 @@ namespace {
 constexpr uint32_t kRootConstants = sizeof(Constants) / sizeof(uint32_t);
 constexpr uint32_t kSrvSlots = 8;
 constexpr uint32_t kUavSlots = 4;
-constexpr uint32_t kHeapSlots = 16;
+constexpr uint32_t kBlocks = 5;
+constexpr uint32_t kBlockSlots = kSrvSlots + kUavSlots;
+constexpr uint32_t kHeapSlots = kBlocks * kBlockSlots;
 constexpr uint32_t kGroupSize = 8;
 
 uint32_t groups(uint32_t size) noexcept
@@ -276,6 +278,11 @@ void Stage1::uav_barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resour
     list->ResourceBarrier(1, &barrier);
 }
 
+void Stage1::begin_block(uint32_t index) noexcept
+{
+    m_block = index;
+}
+
 void Stage1::write_srv(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC description{};
@@ -285,8 +292,9 @@ void Stage1::write_srv(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT form
     description.Texture2D.MipLevels = 1;
 
     const auto handle = m_heap->GetCPUDescriptorHandleForHeapStart();
+    const SIZE_T index = static_cast<SIZE_T>(m_block) * kBlockSlots + slot;
     m_device->CreateShaderResourceView(resource, &description,
-                                       {handle.ptr + static_cast<SIZE_T>(slot) * m_increment});
+                                       {handle.ptr + index * m_increment});
 }
 
 void Stage1::write_uav(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept
@@ -296,8 +304,9 @@ void Stage1::write_uav(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT form
     description.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 
     const auto base = m_heap->GetCPUDescriptorHandleForHeapStart();
-    const auto handle = base.ptr + static_cast<SIZE_T>(kSrvSlots + slot) * m_increment;
-    m_device->CreateUnorderedAccessView(resource, nullptr, &description, {handle});
+    const SIZE_T index = static_cast<SIZE_T>(m_block) * kBlockSlots + kSrvSlots + slot;
+    m_device->CreateUnorderedAccessView(resource, nullptr, &description,
+                                        {base.ptr + index * m_increment});
 }
 
 void Stage1::copy_target(ID3D12GraphicsCommandList* list, Target& source,
@@ -316,10 +325,13 @@ bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipe
 
     const Constants constants = make_constants(m_params);
 
+    ID3D12DescriptorHeap* heaps[] = {m_heap.Get()};
+    list->SetDescriptorHeaps(1, heaps);
     list->SetComputeRootSignature(m_root_signature.Get());
     list->SetPipelineState(pipeline);
 
     D3D12_GPU_DESCRIPTOR_HANDLE srv = m_heap->GetGPUDescriptorHandleForHeapStart();
+    srv.ptr += static_cast<UINT64>(m_block) * kBlockSlots * m_increment;
     D3D12_GPU_DESCRIPTOR_HANDLE uav = srv;
     uav.ptr += static_cast<UINT64>(kSrvSlots) * m_increment;
 
@@ -336,7 +348,8 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
 {
     if (!m_configured || !m_pipelines_ready || !list) return false;
     if (!output || !frame.color || !frame.depth || !frame.motion) return false;
-    if (!(frame.colorState == D3D12_RESOURCE_STATE_COPY_SOURCE ||
+    if (!(frame.colorState == D3D12_RESOURCE_STATE_COMMON ||
+          frame.colorState == D3D12_RESOURCE_STATE_COPY_SOURCE ||
           frame.colorState == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)) {
         return false;
     }
@@ -358,6 +371,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     transition(list, m_depth[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     transition(list, m_motion[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
+    begin_block(0);
     write_srv(0, frame.depth, DXGI_FORMAT_R32_FLOAT);
     write_srv(1, frame.motion, DXGI_FORMAT_R16G16_FLOAT);
     write_uav(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
@@ -380,10 +394,12 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
 
     // 3. Clear, splat, fill.
     transition(list, m_reprojection, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    begin_block(1);
     write_uav(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
     dispatch(list, m_clear.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
     uav_barrier(list, m_reprojection.get());
 
+    begin_block(2);
     write_srv(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
     write_srv(1, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
     write_srv(2, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
@@ -393,14 +409,17 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     transition(list, m_reprojection, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
     transition(list, m_filled, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    begin_block(3);
     write_srv(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
     write_uav(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
     dispatch(list, m_fill.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
     uav_barrier(list, m_filled.get());
+    transition(list, m_filled, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
     // 4. Warp both real frames to the midpoint and fuse.
     transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
+    begin_block(4);
     write_srv(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
     write_srv(1, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(2, m_color[previous].get(), DXGI_FORMAT_R8G8B8A8_UNORM);

@@ -108,7 +108,7 @@ if(SEDICI_BUILD_TESTS)
     target_include_directories(sedici_regression PRIVATE ${SEDICI_TEST_INCLUDES})
     target_compile_definitions(sedici_regression PRIVATE ${SEDICI_TEST_DEFINES})
     target_compile_options(sedici_regression PRIVATE /utf-8 /W4 /permissive-)
-    target_link_libraries(sedici_regression PRIVATE dxgi d3d12)
+    target_link_libraries(sedici_regression PRIVATE dxgi d3d12 d3dcompiler)
     set_target_properties(sedici_regression PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     add_test(NAME sedici_regression COMMAND sedici_regression)
@@ -117,4 +117,25 @@ if(SEDICI_BUILD_TESTS)
     # Each process owns the same isolated test config beside its executable.
     set_tests_properties(sedici_regression sedici_gpu_mini sedici_gpu_full
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
+endif()
+
+# Offline acceptance host for the frame generator (see MILESTONES.md, P1.4).
+# It runs the production stage 1 on a synthetic scene and prints PSNR, SSIM and
+# GPU time; --images also writes the two frames as PPM.
+option(SEDICI_BUILD_FGCHECK "Build the offline frame generation acceptance host" OFF)
+if(SEDICI_BUILD_FGCHECK)
+    add_executable(sedici_fgcheck
+        tests/fgcheck.cpp
+        src/fg_params.cpp
+        src/fg_stage1.cpp
+        src/live.cpp
+        src/config.cpp
+        src/log.cpp
+    )
+    target_include_directories(sedici_fgcheck PRIVATE src third_party/tomlplusplus)
+    target_compile_definitions(sedici_fgcheck PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_compile_options(sedici_fgcheck PRIVATE /utf-8 /W4 /permissive-)
+    target_link_libraries(sedici_fgcheck PRIVATE dxgi d3d12 d3dcompiler)
+    set_target_properties(sedici_fgcheck PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 endif()
