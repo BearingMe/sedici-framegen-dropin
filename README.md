@@ -57,6 +57,39 @@ enabled together, however. The limiter moves that cap into Sedici, so the game
 can keep Anti-Lag 2 on and run uncapped while the real presents are paced to
 `limiter.fps`.
 
+## Experiment: two-stage frame generation
+
+On branch `experiment/cobalt-otter` the goal changes: replace AMD's FSR 3.1 frame
+generation with Sedici's own generator, as a **drop-in replacement** for
+`amd_fidelityfx_framegeneration_dx12.dll`. Same DLL name, same five exports, same
+desc types and the same swapchain behaviour, so a game built against FSR 3.1 FG
+cannot tell the difference; only the frames come from a different pipeline.
+
+The design is in [`references/papers/realtime-fg.md`](references/papers/realtime-fg.md),
+with the two source papers transcribed beside it.
+
+| Stage | Source | Resolution | What it does | Budget |
+|---|---|---|---|---|
+| 1. Analytical | Mob-FGSR | 1080p | quadratic trajectory from two motion-vector frames, depth-atomic splat, thin-object hole fill, threshold fusion, LUT (32×32×16) backward warping → `I_base`, `M_input` | ~0.15–0.30 ms |
+| 2. Residual | GFFE SCN / STSSNet backbone | 540p | 8 conv layers, 92,992 params (~90.8 KB INT8), predicts `ΔI` and `M̂`; final `clamp(I_base + M̂ · ΔI)` | ~1.10–1.35 ms |
+
+Inputs are only what an FFX FG hook already receives: HUD-less color, depth,
+motion vectors and camera matrices. No engine G-buffers, no engine patches.
+
+Budget target: **≤ 2.0 ms at 1080p** on a Radeon RX 7700 XT — 1.30–1.67 ms in FP16
+WMMA, 0.95–1.20 ms in INT8 dp4a. These are design estimates from the papers, not
+measurements.
+
+Status: **design only.** Nothing on this branch generates a frame yet. The pacing
+fix, limiter and overlay described above still work and stay in scope; the new
+path falls back to forwarding to the `.orig` DLL whenever it is disabled,
+unsupported or fails to initialize. Milestones, constraints and open questions
+are in [`AGENTS.md`](AGENTS.md).
+
+Reference code lives in `references/sources/` as shallow, blobless, sparsely
+checked-out submodules (`mobfgsr`, `stssnet`, `tbfe`, `lmv`, `moflow`). They are
+never compiled into the DLL.
+
 ## How it works
 
 ```
@@ -552,6 +585,9 @@ relative proxies, not click-to-photon measurements:
   confirmation pending.
 - **M4 - further tuning.** Only if M3's runs point somewhere: correcting
   `frameTimeDelta`, or extending the tuning to latency-driven cases.
+- **M5 - own frame generation (branch `experiment/cobalt-otter`).** Replace AMD's
+  FSR 3.1 frame generation with a two-stage generator built from Mob-FGSR and
+  GFFE. Design only; see the experiment section above.
 
 ## Present-hook risk
 
@@ -573,6 +609,10 @@ The limiter's timer is created lazily on the first capped present, never in
 - Forward everything. Only the documented pacing send, the opt-in async
   rewrite and the opt-in real-frame limiter may change behavior, and all three
   are inert when configured off.
+- Exception, branch `experiment/cobalt-otter`: the frame-generation path itself
+  becomes Sedici's, and must reproduce AMD's observable contract exactly. All
+  other calls are still forwarded byte-for-byte, and a game call must never fail
+  because the new path is unavailable.
 - Never fail a game call because of Sedici's own bookkeeping.
 - Do not modify the loader or the upscaler DLL.
 - Keep `third_party/ffx/` and `third_party/tomlplusplus/` unmodified.
