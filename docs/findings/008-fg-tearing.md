@@ -133,3 +133,59 @@ Costs, measured:
 
 Open, unrelated to tearing: artifacts during initial game boot, the in-game
 shutdown retirement error, and UI composited at half the output rate.
+
+## Cause 3: tearing with VRR on, inside the VRR range
+
+The test display supports VRR and tore with it enabled, at 72-73 output fps on
+a 75 Hz panel. Re-reading the existing captures (`CPUStartTime + DisplayLatency`
+as the on-screen time) shows why:
+
+| Capture | CPU gap between presents | On-screen gap mid / real | Flips < 13.2 ms | GPU latency of the mid present |
+| --- | --- | --- | ---: | ---: |
+| limiter 36.5, RT off | 13.7 / 13.7 ms | 10.55 / 16.86 ms | 50% | 3.3 ms |
+| limiter 36.5, RT on | 13.7 / 13.7 ms | 6.43 / 20.96 ms | 50% | 7.4 ms |
+| limiter 30 | 16.7 / 16.7 ms | 16.1 / 17.2 ms | 0.7% | 0.7 ms |
+
+The two `Present` calls are evenly spaced in CPU time, but a flip happens when
+the GPU work queued before it finishes. The midpoint's work sits behind the
+game's frame, so its flip lands 3-7 ms late and the real frame's flip, already
+GPU-ready, follows half an interval after the *call*. The predicted midpoint
+duration, 13.7 - 3.3 = 10.4 ms and 13.7 - 7.4 = 6.3 ms, matches the measured
+10.55 and 6.43 ms.
+
+A VRR panel still needs one full refresh (13.33 ms at 75 Hz) to scan an image
+out. Every second flip arrived sooner than that, and with `ALLOW_TEARING` it was
+applied mid-scan: at 10.5 ms that is ~79% down the screen, at 6.4 ms ~48%, which
+is the reported "random middle/bottom" tear. At 60 output fps every gap exceeds
+13.33 ms, which is why the limiter-30 capture had no short frames.
+
+Root cause: **flips were paced in CPU time while their timing is set by GPU
+completion.** Cause 1 made the midpoint ready by the real Present; this is the
+same anchor error, still visible once VRR stops hiding it behind vsync.
+
+### `fg.present = "vrr"` and `fg.tear_guard`
+
+- A presenter thread on a dedicated present queue receives each application
+  frame. It waits until the midpoint is finished on the GPU, flips it, then
+  flips the real frame half an interval after the midpoint's *actual* flip. The
+  game thread returns from `Present` immediately; at most one older frame may
+  still be presenting.
+- The native chain is recreated on the present queue, as AMD's swapchain does
+  (the wrap desc hands the game's reference over). Moving it with
+  `ResizeBuffers1` instead made RTSS draw its OSD into the chain from the game
+  queue, and D3D12 removed the device.
+- `tear_guard = "scanline"` reads `D3DKMTGetScanLine` and holds a flip until the
+  panel is in its blank or within ~0.25 ms of it; `"timer"` holds it until one
+  refresh after the previous flip; `"off"` does neither.
+- Logged every 300 frames: `short_gaps` (flips sooner than one refresh),
+  `scan_at_flip`, guard holds, GPU wait, and `idle_in_blank` (how often the panel
+  was in blank after more than one refresh without a flip: high on VRR, ~5% on a
+  fixed refresh).
+- **RTSS:** even with the chain created on the present queue, RTSS wrote it from
+  another queue in the offline check (device removed, intermittently). `"vrr"`
+  therefore falls back to `"vsync"` while `RTSSHooks64.dll` is loaded, unless
+  `SEDICI_FG_ALLOW_RTSS=1`.
+
+Offline only so far: `sedici_fgcheck --present` (RTSS closed or allowed) runs 40
+frames through the presenter at ~35 fps with tearing flags, a resize and
+teardown. Nothing on this path has run in the game.

@@ -65,6 +65,7 @@ add_library(sedici SHARED
     src/fg_stage1.cpp
     src/fg_context.cpp
     src/fg_swapchain.cpp
+    src/fg_presenter.cpp
     src/fg_pacing.cpp
     src/fg_integration.cpp
     src/fg_route.cpp
@@ -135,6 +136,7 @@ if(SEDICI_BUILD_FGCHECK)
         src/fg_stage1.cpp
         src/fg_context.cpp
         src/fg_swapchain.cpp
+        src/fg_presenter.cpp
         src/fg_pacing.cpp
         src/fg_integration.cpp
         src/fg_route.cpp

@@ -52,12 +52,12 @@ Swapchain* find_wrapper(IDXGISwapChain4* pointer) noexcept
 
 WrapHandle::~WrapHandle() { destroy(); }
 
-bool WrapHandle::create(IDXGISwapChain4* native, ID3D12CommandQueue* queue) noexcept
+bool WrapHandle::create(IDXGISwapChain4* native, ID3D12CommandQueue* queue, ULONG handedRefs) noexcept
 {
     if (m_wrapper) return false;
     Microsoft::WRL::ComPtr<Swapchain> wrapper;
     Swapchain* created = nullptr;
-    if (FAILED(Swapchain::wrap(native, queue, &created)) || !created) return false;
+    if (FAILED(Swapchain::wrap(native, queue, &created, nullptr, handedRefs)) || !created) return false;
     wrapper.Attach(created);
     register_wrapper(created);
     m_wrapper = std::move(wrapper);

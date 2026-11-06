@@ -66,6 +66,27 @@ mode = "game"
 #            Experimental: not yet verified in a game session.
 mode = "amd"
 
+# How Sedici shows its frames when mode = "sedici". Ignored with "amd".
+# "vsync" - wait for the screen's refresh before each frame. No tearing, but
+#           up to one refresh of extra latency, and the game's own FPS cap must
+#           be at or below half the refresh rate (e.g. 37 FPS on a 75 Hz
+#           screen). Do not combine with [limiter]. ("vblank" means the same.)
+# "vrr"   - for FreeSync/G-Sync screens. Frames are timed from when they are
+#           actually finished on the GPU and shown from Sedici's own thread,
+#           so the screen gets evenly spaced frames. Lower latency than vsync,
+#           works with [limiter]. Keep the real FPS under half the refresh.
+# "game"  - use the game's own settings and timing. Lowest latency, but tears.
+present = "vsync"
+
+# Only used with present = "vrr". Stops a frame from being shown while the
+# screen is still drawing the previous one, which is what a tear is.
+# "scanline" - ask the GPU where the screen is in its refresh and wait for the
+#              gap between refreshes. Works with or without FreeSync/G-Sync.
+# "timer"    - wait at least one refresh since the previous frame. Only
+#              prevents tearing on FreeSync/G-Sync screens.
+# "off"      - no protection; show each frame as soon as it is due.
+tear_guard = "scanline"
+
 [limiter]
 # Cap the game's real frames inside Sedici's Present hook, before the original
 # Present is called. The generated frames are presented inside AMD's swapchain

@@ -104,7 +104,10 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         }
         auto owned = std::make_unique<WrapHandle>();
         IDXGISwapChain4* native = wrap->swapchain[0];
-        if (!owned->create(native, wrap->gameQueue)) {
+        // The wrap desc replaces the game's pointer with the wrapper, so the
+        // game's reference to the native chain is handed over (AMD destroys
+        // that chain and presents from its own). Only "vrr" makes use of it.
+        if (!owned->create(native, wrap->gameQueue, 1)) {
             // Nothing was replaced: the game keeps its own swapchain pointer.
             *result = failure("swapchain wrap failed");
             return true;

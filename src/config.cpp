@@ -238,6 +238,28 @@ void read_async(const toml::table& root, AsyncSettings& async,
                 std::vector<std::string>& problems);
 void read_fg(const toml::table& root, FrameGenerationSettings& fg,
              std::vector<std::string>& problems);
+
+// "vblank" is the name finding 008 shipped with; it still selects vsync.
+bool parse_present(std::string_view text, FrameGenerationSettings::Present& out) noexcept
+{
+    using Present = FrameGenerationSettings::Present;
+    if (iequals(text, "vsync") || iequals(text, "vblank")) out = Present::Vsync;
+    else if (iequals(text, "vrr")) out = Present::Vrr;
+    else if (iequals(text, "game")) out = Present::Game;
+    else return false;
+    return true;
+}
+
+bool parse_tear_guard(std::string_view text, FrameGenerationSettings::TearGuard& out) noexcept
+{
+    using TearGuard = FrameGenerationSettings::TearGuard;
+    if (iequals(text, "scanline")) out = TearGuard::Scanline;
+    else if (iequals(text, "timer")) out = TearGuard::Timer;
+    else if (iequals(text, "off")) out = TearGuard::Off;
+    else return false;
+    return true;
+}
+
 void read_limiter(const toml::table& root, LimiterSettings& limiter,
                   std::vector<std::string>& problems, std::vector<std::string>& notes);
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems);
@@ -504,19 +526,37 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     case Read::WrongType:
         problem_at(problems, *entry, "fg.present",
                    std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"vblank\"");
+                       " - using default \"vsync\"");
         break;
     case Read::Ok:
-        if (iequals(value, "game")) {
-            fg.present = FrameGenerationSettings::Present::Game;
-            fg.present_source = Source::File;
-        } else if (iequals(value, "vblank")) {
-            fg.present = FrameGenerationSettings::Present::Vblank;
+        if (FrameGenerationSettings::Present parsed{}; parse_present(value, parsed)) {
+            fg.present = parsed;
             fg.present_source = Source::File;
         } else {
             problem_at(problems, *entry, "fg.present",
                        "unknown value \"" + value +
-                           "\" (expected \"game\" or \"vblank\") - using default \"vblank\"");
+                           "\" (expected \"vsync\", \"vrr\" or \"game\") - using default \"vsync\"");
+        }
+        break;
+    }
+
+    entry = section_key(root, "fg", "tear_guard");
+    switch (read_string(entry, value)) {
+    case Read::Missing:
+        break;
+    case Read::WrongType:
+        problem_at(problems, *entry, "fg.tear_guard",
+                   std::string("expected a string, got ") + type_name(entry->type()) +
+                       " - using default \"scanline\"");
+        break;
+    case Read::Ok:
+        if (FrameGenerationSettings::TearGuard parsed{}; parse_tear_guard(value, parsed)) {
+            fg.tear_guard = parsed;
+            fg.tear_guard_source = Source::File;
+        } else {
+            problem_at(problems, *entry, "fg.tear_guard",
+                       "unknown value \"" + value +
+                           "\" (expected \"scanline\", \"timer\" or \"off\") - using default \"scanline\"");
         }
         break;
     }
@@ -805,6 +845,28 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
         }
     }
 
+    if (env_string("SEDICI_FG_PRESENT", value)) {
+        if (FrameGenerationSettings::Present parsed{}; parse_present(value, parsed)) {
+            config.fg.present = parsed;
+            config.fg.present_source = Source::Env;
+        } else {
+            problems.push_back("SEDICI_FG_PRESENT=\"" + value +
+                               "\": unknown value (expected \"vsync\", \"vrr\" or \"game\") - "
+                               "override ignored");
+        }
+    }
+
+    if (env_string("SEDICI_FG_TEAR_GUARD", value)) {
+        if (FrameGenerationSettings::TearGuard parsed{}; parse_tear_guard(value, parsed)) {
+            config.fg.tear_guard = parsed;
+            config.fg.tear_guard_source = Source::Env;
+        } else {
+            problems.push_back("SEDICI_FG_TEAR_GUARD=\"" + value +
+                               "\": unknown value (expected \"scanline\", \"timer\" or \"off\") - "
+                               "override ignored");
+        }
+    }
+
     // Legacy variable, kept working unchanged: one digit, 0 to 2.
     if (env_string("MFSRFG_LOG", value)) {
         if (value.size() == 1 && value[0] >= '0' && value[0] <= '2') {
@@ -870,9 +932,10 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.async.mode_source},
         {"fg.mode", config.fg.mode == FrameGenerationMode::Sedici ? "\"sedici\"" : "\"amd\"",
          config.fg.mode_source},
-        {"fg.present",
-         config.fg.present == FrameGenerationSettings::Present::Vblank ? "\"vblank\"" : "\"game\"",
+        {"fg.present", std::string("\"") + present_name(config.fg.present) + "\"",
          config.fg.present_source},
+        {"fg.tear_guard", std::string("\"") + tear_guard_name(config.fg.tear_guard) + "\"",
+         config.fg.tear_guard_source},
         {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},
@@ -917,6 +980,26 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
 }
 
 } // namespace
+
+const char* present_name(FrameGenerationSettings::Present present) noexcept
+{
+    switch (present) {
+    case FrameGenerationSettings::Present::Game: return "game";
+    case FrameGenerationSettings::Present::Vrr: return "vrr";
+    case FrameGenerationSettings::Present::Vsync: break;
+    }
+    return "vsync";
+}
+
+const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept
+{
+    switch (guard) {
+    case FrameGenerationSettings::TearGuard::Timer: return "timer";
+    case FrameGenerationSettings::TearGuard::Off: return "off";
+    case FrameGenerationSettings::TearGuard::Scanline: break;
+    }
+    return "scanline";
+}
 
 const char* source_name(Source source) noexcept
 {

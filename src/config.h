@@ -139,21 +139,47 @@ enum class FrameGenerationMode {
 struct FrameGenerationSettings {
     // How the wrapper presents its two outputs per cycle.
     enum class Present {
-        // Use the game's own SyncInterval and flags, including ALLOW_TEARING.
-        // Lowest latency, but a flip can land mid-scan and tear.
+        // "game": use the game's own SyncInterval and flags, including
+        // ALLOW_TEARING, from the game's thread. Lowest latency, but flips are
+        // paced in CPU time and can land mid-scan and tear (finding 008).
         Game,
-        // Present with SyncInterval=1 and without ALLOW_TEARING, so each output
-        // takes its own vertical blank. Tear-free in game sessions; costs up to
-        // one refresh of latency and expects a real rate at or below half the
-        // panel refresh.
-        Vblank,
+        // "vsync" (alias "vblank"): present with SyncInterval=1 and without
+        // ALLOW_TEARING, so each output takes its own vertical blank. Tear-free
+        // in game sessions; costs up to one refresh of latency and expects a real
+        // rate at or below half the panel refresh.
+        Vsync,
+        // "vrr": present from a dedicated thread and queue with the game's own
+        // flags, timing each flip from when its image is finished on the GPU, so
+        // a variable-refresh display receives evenly spaced flips. Combined with
+        // `tear_guard`. Falls back to "vsync" if the native chain cannot be
+        // moved to Sedici's present queue.
+        Vrr,
+    };
+
+    // What "vrr" does to keep a flip from landing while the panel is still
+    // drawing the previous image. Ignored by the other present modes.
+    enum class TearGuard {
+        // "scanline": read the panel's current scan line and hold the flip until
+        // the panel is in its vertical blank (or about to be).
+        Scanline,
+        // "timer": hold the flip until at least one refresh period has passed
+        // since the previous flip. No hardware query; VRR displays only.
+        Timer,
+        // "off": flip as soon as the pacing schedule says so.
+        Off,
     };
 
     FrameGenerationMode mode = FrameGenerationMode::Amd;
     Source mode_source = Source::Default;
-    Present present = Present::Vblank;
+    Present present = Present::Vsync;
     Source present_source = Source::Default;
+    TearGuard tear_guard = TearGuard::Scanline;
+    Source tear_guard_source = Source::Default;
 };
+
+// Config/report spelling of the enums above.
+const char* present_name(FrameGenerationSettings::Present present) noexcept;
+const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept;
 
 struct Settings {
     PacingSettings pacing;

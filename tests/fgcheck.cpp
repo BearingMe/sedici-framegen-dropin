@@ -1023,6 +1023,135 @@ bool record_solid(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* r
     return true;
 }
 
+bool record_counted(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
+                    ID3D12Resource* output, D3D12_RESOURCE_STATES)
+{
+    auto* calls = static_cast<uint32_t*>(user);
+    if (!calls || !list || !output || !real) return false;
+    ++*calls;
+    return true;
+}
+
+// `[fg] present = "vrr"`: the native chain moves to Sedici's present queue and
+// both outputs come from the presenter thread with the game's tearing flags.
+// Every midpoint is either shown or dropped as stale, never lost; resize keeps
+// the chain on the present queue; teardown drains the thread.
+bool check_vrr_window(Device& state)
+{
+    if (GetModuleHandleW(L"RTSSHooks64.dll") && GetEnvironmentVariableW(L"SEDICI_FG_ALLOW_RTSS", nullptr, 0) == 0) {
+        // The wrapper refuses "vrr" under RTSS (see Swapchain::wrap); not a pass.
+        std::printf("SKIP vrr presentation: RTSS is injected; close it or set SEDICI_FG_ALLOW_RTSS=1\n");
+        return true;
+    }
+    const wchar_t* className = L"SediciFgVrr";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+    HWND window = CreateWindowW(className, L"Sedici vrr presentation", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+
+    bool ok = [&] {
+        ComPtr<IDXGIFactory5> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        BOOL tearing = FALSE;
+        const bool canTear = SUCCEEDED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &tearing, sizeof(tearing))) && tearing;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 320;
+        desc.Height = 180;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        // Shaped like the game's chain: tearing allowed, latency waitable.
+        desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
+            (canTear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u);
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(native->SetMaximumFrameLatency(1))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+
+        sedici::fg::PresentChoice choice;
+        choice.present = sedici::FrameGenerationSettings::Present::Vrr;
+        choice.guard = sedici::FrameGenerationSettings::TearGuard::Scanline;
+        ComPtr<sedici::fg::Swapchain> wrapped;
+        // Hand the only reference over, as the FFX wrap desc does for the game:
+        // "vrr" destroys this chain and recreates it on the present queue.
+        created.Reset();
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped, &choice, 1))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        native.Detach();
+        if (!wrapped->async_present()) {
+            std::printf("vrr: presenter did not start\n");
+            return false;
+        }
+        uint32_t calls = 0;
+        wrapped->set_generator(sedici::fg::GenerateSink{&calls, &record_counted, nullptr});
+
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        const UINT presentFlags = canTear ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+        const UINT cycles = 40;
+        uint64_t skippedAtTen = 0;
+        HANDLE latency = wrapped->GetFrameLatencyWaitableObject();
+        for (UINT cycle = 0; cycle < cycles; ++cycle) {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
+            Sleep(27); // ~35 fps real rate: under half of a 75 Hz refresh, like the game cap
+            ComPtr<ID3D12Resource> buffer;
+            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
+                       D3D12_RESOURCE_STATE_COPY_DEST);
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_PRESENT);
+            if (!state.submit()) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (const HRESULT hr = wrapped->Present(0, presentFlags); FAILED(hr)) {
+                std::printf("vrr: Present failed at cycle %u hr=0x%08lx\n", cycle, static_cast<unsigned long>(hr));
+                return false;
+            }
+            if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) { std::printf("vrr: index\n"); return false; }
+            if (cycle == 9) skippedAtTen = wrapped->skipped_generates();
+        }
+        // Resize drains the presenter, so every output has been issued after it.
+        if (const HRESULT hr = wrapped->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, desc.Flags); FAILED(hr)) {
+            std::printf("vrr: resize failed hr=0x%08lx\n", static_cast<unsigned long>(hr));
+            return false;
+        }
+        UINT presented = 0;
+        if (FAILED(wrapped->GetLastPresentCount(&presented))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        const uint64_t shown = wrapped->generated_presents();
+        const uint64_t skipped = wrapped->skipped_generates();
+        std::printf("vrr presentation: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n",
+                    calls, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(skipped),
+                    presented, canTear ? "yes" : "no");
+        std::printf("vrr: skipped in the first 10 cycles: %llu\n", static_cast<unsigned long long>(skippedAtTen));
+        if (calls != cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (shown + skipped != cycles - 1) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (presented != cycles + shown) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        // Presentation continues after the resize, still from the presenter.
+        for (UINT cycle = 0; cycle < 3; ++cycle) {
+            if (FAILED(wrapped->Present(0, presentFlags))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        }
+        wrapped->set_generator(sedici::fg::GenerateSink{});
+        return true;
+    }();
+
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s vrr presentation: presenter thread, present queue, resize, teardown\n",
+                ok ? "PASS" : "FAIL");
+    return ok;
+}
+
 // One generated frame is shown per cycle starting with the second: the midpoint
 // for a pair cannot be shown before the pair exists.
 bool check_generated_window(Device& state)
@@ -1556,6 +1685,7 @@ bool check_window(Device& state)
 
 } // namespace
 
+
 int main(int argc, char** argv)
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -1635,6 +1765,9 @@ int main(int argc, char** argv)
     if (present) ok = check_generated_window(state) && ok;
     if (present) ok = check_session_window(state) && ok;
     if (routing) ok = check_routing(state) && ok;
+    // Last: overlays that hook Present (RTSS) keep using the queue of the most
+    // recent swapchain, so the present queue would leak into later checks.
+    if (present) ok = check_vrr_window(state) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

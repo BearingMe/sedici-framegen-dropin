@@ -34,7 +34,8 @@ public:
 
     // On success `*out` receives the game-facing wrapper and `swapchain()`
     // returns it. On failure nothing is registered and `*out` is untouched.
-    bool create(IDXGISwapChain4* native, ID3D12CommandQueue* queue) noexcept;
+    // `handedRefs`: references to `native` the caller gives up (see Swapchain::wrap).
+    bool create(IDXGISwapChain4* native, ID3D12CommandQueue* queue, ULONG handedRefs = 0) noexcept;
     void destroy() noexcept;
 
     IDXGISwapChain4* swapchain() const noexcept;

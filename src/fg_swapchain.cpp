@@ -39,7 +39,7 @@ uint64_t now_ticks() noexcept
 } // namespace
 
 HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
-                        Swapchain** result) noexcept
+                        Swapchain** result, const PresentChoice* choice, ULONG handedRefs) noexcept
 {
     if (!result) return E_POINTER;
     *result = nullptr;
@@ -75,17 +75,68 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
         object->m_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!object->m_event) hr = HRESULT_FROM_WIN32(GetLastError());
     }
-    if (SUCCEEDED(hr)) hr = object->initialize_buffers();
     if (FAILED(hr)) { delete object; return hr; }
-    // Test-only: allow a vsync-locked A/B without touching the game's config.
-    // Present mode: `[fg] present = "vblank"` (default) takes one vertical blank
-    // per output, which is what stopped mid-scan tearing in the game session.
-    // `SEDICI_FG_SYNC=0/1` overrides it for A/B runs.
-    object->m_force_sync = sedici::settings().fg.present ==
-        sedici::FrameGenerationSettings::Present::Vblank;
+
+    using Present = sedici::FrameGenerationSettings::Present;
+    PresentChoice chosen;
+    if (choice) {
+        chosen = *choice;
+    } else {
+        chosen.present = sedici::settings().fg.present;
+        chosen.guard = sedici::settings().fg.tear_guard;
+    }
+    std::string why;
+    if (chosen.present == Present::Vrr && GetModuleHandleW(L"RTSSHooks64.dll") &&
+        GetEnvironmentVariableW(L"SEDICI_FG_ALLOW_RTSS", nullptr, 0) == 0) {
+        // RTSS draws its overlay into the back buffer from whichever queue it
+        // last saw, not the one the chain presents on. With a separate present
+        // queue that removed the device in the offline check. Do not risk it.
+        why = "RTSS is injected and would write the chain from the wrong queue; "
+              "close RTSS or set SEDICI_FG_ALLOW_RTSS=1";
+        chosen.present = Present::Vsync;
+    }
+    if (chosen.present == Present::Vrr) {
+        object->m_presenter = Presenter::create(object->m_device.Get(), chosen.guard, why);
+        if (!object->m_presenter) chosen.present = Present::Vsync;
+        else if (handedRefs == 0) {
+            why = "the caller keeps its swapchain reference, so the chain cannot be recreated";
+            object->m_presenter.reset();
+            chosen.present = Present::Vsync;
+        }
+    }
+    // Everything fallible happens before the chain is recreated. The buffers
+    // only depend on the description, which recreation keeps.
+    hr = object->initialize_buffers();
+    if (FAILED(hr)) { delete object; return hr; }
+    if (object->m_presenter) {
+        IDXGISwapChain4* const original = object->m_native.Get();
+        hr = object->m_presenter->adopt(object->m_native, handedRefs + 1, queue, why);
+        if (FAILED(hr)) {
+            object->m_presenter.reset();
+            object->m_generated_spare.Reset();
+            chosen.present = Present::Vsync;
+            if (!object->m_native) {
+                // The original chain is gone and nothing could replace it.
+                log_error("fg: \"vrr\" swapchain recreation failed (" + why + ")");
+                object->m_buffers.clear();
+                delete object;
+                return hr;
+            }
+            if (object->m_native.Get() != original)
+                log_error("fg: \"vrr\" chain recreated on the game queue instead (" + why + ")");
+        }
+    }
+    if (chosen.present == Present::Vsync && !why.empty()) {
+        // Never fail the game's wrap over this: present the safe way.
+        log_error("fg: \"vrr\" present unavailable (" + why + "); falling back to \"vsync\"");
+    }
+    // `[fg] present = "vsync"` (default) takes one vertical blank per output,
+    // which is what stopped mid-scan tearing in the game session (finding 008).
+    // Legacy A/B switch: `SEDICI_FG_SYNC=0/1` overrides "vsync"/"game".
+    object->m_force_sync = chosen.present == Present::Vsync;
     {
         wchar_t syncEnv[8]{};
-        if (GetEnvironmentVariableW(L"SEDICI_FG_SYNC", syncEnv, 8) > 0)
+        if (!object->m_presenter && GetEnvironmentVariableW(L"SEDICI_FG_SYNC", syncEnv, 8) > 0)
             object->m_force_sync = syncEnv[0] == L'1';
         wchar_t alignEnv[8]{};
         if (GetEnvironmentVariableW(L"SEDICI_FG_ALIGN", alignEnv, 8) > 0 && alignEnv[0] == L'1')
@@ -105,7 +156,7 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
                 " flags=" + std::to_string(desc.Flags) +
                 " max_latency=" + std::to_string(latency) +
                 " waitable=" + (waitable ? "yes" : "no") +
-                " force_sync=" + (object->m_force_sync ? "yes" : "no") +
+                " present=" + (object->m_presenter ? "vrr" : object->m_force_sync ? "vsync" : "game") +
                 " align_vblank=" + (object->m_align_vblank ? "yes" : "no"));
         }
     } catch (...) {}
@@ -121,6 +172,7 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
 Swapchain::~Swapchain()
 {
     (void)drain();
+    m_presenter.reset();
     if (m_event) CloseHandle(m_event);
     if (m_pacing_timer) CloseHandle(m_pacing_timer);
 }
@@ -173,13 +225,19 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     // backbuffer, so it needs UAV access and never needs to be a render target.
     D3D12_RESOURCE_DESC generated = texture;
     generated.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    Microsoft::WRL::ComPtr<ID3D12Resource> midpoint;
+    Microsoft::WRL::ComPtr<ID3D12Resource> midpoint, spare;
     hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
         D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&midpoint));
     if (FAILED(hr)) return hr;
+    if (m_presenter) {
+        hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&spare));
+        if (FAILED(hr)) return hr;
+    }
 
     m_buffers = std::move(buffers);
     m_generated = midpoint;
+    m_generated_spare = spare;
     m_generated_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
     m_generated_ready = false;
     m_game_index = 0;
@@ -189,6 +247,11 @@ catch (...) { return E_OUTOFMEMORY; }
 
 HRESULT Swapchain::drain() noexcept
 {
+    if (m_presenter) {
+        if (!m_presenter->wait_outstanding(0, 5000)) return DXGI_ERROR_DEVICE_HUNG;
+        const HRESULT hr = m_presenter->drain_gpu();
+        if (FAILED(hr)) return hr;
+    }
     if (!m_fence || m_fence_value == 0) return S_OK;
     const UINT64 completed = m_fence->GetCompletedValue();
     if (completed == UINT64_MAX) return m_device->GetDeviceRemovedReason();
@@ -341,6 +404,7 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     std::lock_guard lock(m_mutex);
     if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
     if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
+    if (m_presenter) return present_async(sync, flags, params);
     if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_fence->GetCompletedValue() < m_fence_value)
         return DXGI_ERROR_WAS_STILL_DRAWING;
     const double drainStart = now_seconds();
@@ -469,6 +533,83 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     return hr;
 }
 
+HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept try
+{
+    // The presenter may still be showing the previous frame. Generation writes
+    // the other midpoint slot and the game renders into a buffer the presenter
+    // finished with, as long as at most one older job is still outstanding.
+    const size_t allowed = m_buffers.size() > 2 ? 1 : 0;
+    if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_presenter->outstanding() > allowed)
+        return DXGI_ERROR_WAS_STILL_DRAWING;
+    const double waitStart = now_seconds();
+    if (!m_presenter->wait_outstanding(allowed, 5000)) return DXGI_ERROR_DEVICE_HUNG;
+    const double waited = (now_seconds() - waitStart) * 1000.0;
+    ++m_backpressure_samples;
+    if (waited > 0.25) {
+        ++m_backpressure_waits;
+        m_backpressure_sum += waited;
+        m_backpressure_max = std::max(m_backpressure_max, waited);
+    }
+    // Presentation is asynchronous, so the game sees the outcome one frame
+    // later: device loss, occlusion and other status codes all surface here.
+    const HRESULT previous = m_presenter->last_result();
+    if (FAILED(previous)) return previous;
+
+    if (m_present_hook) m_present_hook(now_ticks());
+
+    const double now = now_seconds();
+    std::swap(m_generated, m_generated_spare);
+    m_generated_ready = false;
+    record_generated();
+    const bool hadHistory = m_pacing.cycleStarted;
+    const PacingOutput plan = m_pacing.plan(now, m_generated_ready);
+    const bool showMidpoint = m_generated_ready && plan.presentGenerated;
+    if (m_generated_ready && !showMidpoint && hadHistory) ++m_skipped_generates;
+    m_generated_ready = false;
+
+    // Everything the game and the generator queued for this frame.
+    HRESULT hr = m_queue->Signal(m_fence.Get(), ++m_fence_value);
+    if (FAILED(hr)) return hr;
+
+    PresentJob job;
+    job.real = m_buffers[m_game_index];
+    if (showMidpoint) {
+        job.midpoint = m_generated;
+        job.midpointState = m_generated_state;
+    }
+    job.ready = m_fence;
+    job.readyValue = m_fence_value;
+    job.half = 0.5 * m_pacing.interval;
+    job.sync = sync;
+    // DO_NOT_WAIT was answered above; the presenter itself must be allowed to wait.
+    job.flags = flags & ~static_cast<UINT>(DXGI_PRESENT_DO_NOT_WAIT);
+    if (params) {
+        job.hasParams = true;
+        if (params->DirtyRectsCount && params->pDirtyRects)
+            job.dirty.assign(params->pDirtyRects, params->pDirtyRects + params->DirtyRectsCount);
+        if (params->pScrollRect) { job.hasScroll = true; job.scroll = *params->pScrollRect; }
+        if (params->pScrollOffset) { job.hasOffset = true; job.offset = *params->pScrollOffset; }
+    }
+    m_presenter->submit(std::move(job));
+    m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
+
+    if (++m_present_cycles % 300 == 0) {
+        try {
+            log_event(1, "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) +
+                " interval_ms=" + std::to_string(m_pacing.interval * 1000.0) +
+                " skipped=" + std::to_string(m_skipped_generates) +
+                " backpressure_waits=" + std::to_string(m_backpressure_waits) + "/" +
+                std::to_string(m_backpressure_samples) +
+                " backpressure_ms{avg=" + std::to_string(m_backpressure_waits ? m_backpressure_sum / m_backpressure_waits : 0.0) +
+                " max=" + std::to_string(m_backpressure_max) + "}");
+        } catch (...) {}
+        m_backpressure_samples = m_backpressure_waits = 0;
+        m_backpressure_sum = m_backpressure_max = 0.0;
+    }
+    return previous;
+}
+catch (...) { return E_OUTOFMEMORY; }
+
 HRESULT STDMETHODCALLTYPE Swapchain::QueryInterface(REFIID iid, void** result)
 {
     if (!result) return E_POINTER;
@@ -519,6 +660,9 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
             if (masks[i] > 1 || queues[i] != m_queue.Get()) return DXGI_ERROR_UNSUPPORTED;
         }
     }
+    // A job still on the presenter holds its own buffer reference; let it finish
+    // so only the application's references are counted below.
+    if (m_presenter && !m_presenter->wait_outstanding(0, 5000)) return DXGI_ERROR_DEVICE_HUNG;
     // Resize must fail while the application owns a backbuffer reference, just
     // as native DXGI does. Do not destroy buffers behind the application's back.
     for (auto& buffer : m_buffers) {
@@ -527,8 +671,13 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
     }
     HRESULT hr = drain();
     if (FAILED(hr)) return hr;
-    hr = version1 ? m_native->ResizeBuffers1(count, width, height, format, flags, masks, queues)
-                  : m_native->ResizeBuffers(count, width, height, format, flags);
+    if (m_presenter) {
+        // The game names its own queue; the chain stays on Sedici's present queue.
+        hr = m_presenter->resize_native(count, width, height, format, flags);
+    } else {
+        hr = version1 ? m_native->ResizeBuffers1(count, width, height, format, flags, masks, queues)
+                      : m_native->ResizeBuffers(count, width, height, format, flags);
+    }
     if (FAILED(hr)) return hr;
     m_generated_ready = false;
     m_pacing = {};
@@ -545,7 +694,6 @@ FORWARD_HR(SetPrivateDataInterface, (REFGUID n, const IUnknown* v), (n, v))
 FORWARD_HR(GetPrivateData, (REFGUID n, UINT* s, void* d), (n, s, d))
 FORWARD_HR(GetParent, (REFIID i, void** r), (i, r))
 FORWARD_HR(GetDevice, (REFIID i, void** r), (i, r))
-FORWARD_HR(SetFullscreenState, (BOOL f, IDXGIOutput* t), (f, t))
 FORWARD_HR(GetFullscreenState, (BOOL* f, IDXGIOutput** t), (f, t))
 FORWARD_HR(GetDesc, (DXGI_SWAP_CHAIN_DESC* d), (d))
 FORWARD_HR(ResizeTarget, (const DXGI_MODE_DESC* d), (d))
@@ -571,6 +719,13 @@ FORWARD_HR(CheckColorSpaceSupport, (DXGI_COLOR_SPACE_TYPE c, UINT* s), (c, s))
 FORWARD_HR(SetColorSpace1, (DXGI_COLOR_SPACE_TYPE c), (c))
 FORWARD_HR(SetHDRMetaData, (DXGI_HDR_METADATA_TYPE t, UINT s, void* d), (t, s, d))
 #undef FORWARD_HR
+HRESULT STDMETHODCALLTYPE Swapchain::SetFullscreenState(BOOL fullscreen, IDXGIOutput* target)
+{
+    // A mode change must not race a flip issued from the presenter thread.
+    std::lock_guard lock(m_mutex);
+    if (m_presenter) (void)drain();
+    return m_native->SetFullscreenState(fullscreen, target);
+}
 BOOL STDMETHODCALLTYPE Swapchain::IsTemporaryMonoSupported() { return m_native->IsTemporaryMonoSupported(); }
 HANDLE STDMETHODCALLTYPE Swapchain::GetFrameLatencyWaitableObject() { return m_native->GetFrameLatencyWaitableObject(); }
 

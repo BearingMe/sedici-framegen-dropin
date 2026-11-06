@@ -9,7 +9,9 @@
 #include <mutex>
 #include <vector>
 
+#include "config.h"
 #include "fg_pacing.h"
+#include "fg_presenter.h"
 
 namespace sedici::fg {
 
@@ -34,12 +36,28 @@ struct GenerateSink {
 // buffer count. The game renders into private backbuffers and only this object
 // copies into native presentation buffers, presenting a generated midpoint
 // before the current real frame when a temporal pair is available.
+// How the wrapper presents. `wrap` reads it from settings unless one is given.
+struct PresentChoice {
+    FrameGenerationSettings::Present present = FrameGenerationSettings::Present::Vsync;
+    FrameGenerationSettings::TearGuard guard = FrameGenerationSettings::TearGuard::Scanline;
+};
+
 class Swapchain final : public IDXGISwapChain4 {
 public:
     // All allocation happens before success. Neither the caller's pointer nor
     // the underlying swapchain is mutated on allocation failure.
+    //
+    // `handedRefs` is how many references to `native` the caller gives up to
+    // the wrapper (the FFX wrap desc hands over the game's one). With "vrr" and
+    // a handed-over reference, the native chain is recreated on Sedici's present
+    // queue and the old one is destroyed, as AMD's swapchain does; if that is
+    // not possible the wrapper falls back to "vsync" and still succeeds.
     static HRESULT wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
-                        Swapchain** result) noexcept;
+                        Swapchain** result, const PresentChoice* choice = nullptr,
+                        ULONG handedRefs = 0) noexcept;
+
+    // True when "vrr" is active (presenter thread and queue in use).
+    bool async_present() const noexcept { return m_presenter != nullptr; }
 
     // Without a sink the wrapper presents real frames only. Safe to change any
     // time; a pending midpoint is discarded when the sink is replaced or cleared.
@@ -53,8 +71,10 @@ public:
 
     // Generated midpoints presented since wrap, and midpoint deadline misses
     // that fell back to real-frame-only presentation.
-    uint64_t generated_presents() const noexcept { return m_generated_presents; }
-    uint64_t skipped_generates() const noexcept { return m_skipped_generates; }
+    uint64_t generated_presents() const noexcept
+    { return m_generated_presents + (m_presenter ? m_presenter->midpoints_shown() : 0); }
+    uint64_t skipped_generates() const noexcept
+    { return m_skipped_generates + (m_presenter ? m_presenter->midpoints_dropped() : 0); }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** result) override;
     ULONG STDMETHODCALLTYPE AddRef() override;
@@ -111,6 +131,8 @@ private:
     // blank. Returns `now` when frame statistics are unavailable.
     double vblank_deadline(double now) noexcept;
     HRESULT present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
+    // "vrr": generate on the game thread, hand both outputs to the presenter.
+    HRESULT present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
     void record_generated() noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
@@ -132,6 +154,15 @@ private:
 
     // One in-flight midpoint, consumed or discarded in its own cycle.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_generated;
+    // "vrr" only: the presenter may still copy last cycle's midpoint while this
+    // cycle's is generated, so the two alternate.
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_generated_spare;
+    std::unique_ptr<Presenter> m_presenter;
+    // Game-thread time spent waiting for the presenter to catch up.
+    uint32_t m_backpressure_samples = 0;
+    uint32_t m_backpressure_waits = 0;
+    double m_backpressure_sum = 0.0;
+    double m_backpressure_max = 0.0;
     D3D12_RESOURCE_STATES m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     GenerateSink m_sink{};
     void (*m_present_hook)(uint64_t) = nullptr;
