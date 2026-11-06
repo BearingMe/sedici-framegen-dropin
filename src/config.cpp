@@ -250,6 +250,18 @@ bool parse_present(std::string_view text, FrameGenerationSettings::Present& out)
     return true;
 }
 
+bool parse_multiplier(std::string_view text, FrameGenerationSettings::Multiplier& out) noexcept
+{
+    using Multiplier = FrameGenerationSettings::Multiplier;
+    if (iequals(text, "2x") || iequals(text, "2")) out = Multiplier::X2;
+    else if (iequals(text, "1.75x") || iequals(text, "1.75")) out = Multiplier::X1_75;
+    else if (iequals(text, "1.5x") || iequals(text, "1.5")) out = Multiplier::X1_5;
+    else if (iequals(text, "1.25x") || iequals(text, "1.25")) out = Multiplier::X1_25;
+    else if (iequals(text, "adaptive")) out = Multiplier::Adaptive;
+    else return false;
+    return true;
+}
+
 bool parse_tear_guard(std::string_view text, FrameGenerationSettings::TearGuard& out) noexcept
 {
     using TearGuard = FrameGenerationSettings::TearGuard;
@@ -538,6 +550,51 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
                            "\" (expected \"vsync\", \"vrr\" or \"game\") - using default \"vrr\"");
         }
         break;
+    }
+
+    entry = section_key(root, "fg", "multiplier");
+    switch (read_string(entry, value)) {
+    case Read::Missing:
+        break;
+    case Read::WrongType:
+        problem_at(problems, *entry, "fg.multiplier",
+                   std::string("expected a string, got ") + type_name(entry->type()) +
+                       " - using default \"2x\"");
+        break;
+    case Read::Ok:
+        if (FrameGenerationSettings::Multiplier parsed{}; parse_multiplier(value, parsed)) {
+            fg.multiplier = parsed;
+            fg.multiplier_source = Source::File;
+        } else {
+            problem_at(problems, *entry, "fg.multiplier",
+                       "unknown value \"" + value +
+                           "\" (expected \"2x\", \"1.75x\", \"1.5x\", \"1.25x\" or \"adaptive\")"
+                           " - using default \"2x\"");
+        }
+        break;
+    }
+
+    {
+        double number = 0.0;
+        entry = section_key(root, "fg", "target_fps");
+        switch (read_number(entry, number)) {
+        case Read::Missing:
+            break;
+        case Read::WrongType:
+            problem_at(problems, *entry, "fg.target_fps",
+                       std::string("expected a number, got ") + type_name(entry->type()) +
+                           " - using default 0 (three below the refresh rate)");
+            break;
+        case Read::Ok:
+            if (!std::isfinite(number) || number < 0.0 || number > 1000.0) {
+                problem_at(problems, *entry, "fg.target_fps",
+                           "must be within [0, 1000] (0 = three below the refresh rate) - using default 0");
+            } else {
+                fg.target_fps = number;
+                fg.target_fps_source = Source::File;
+            }
+            break;
+        }
     }
 
     entry = section_key(root, "fg", "tear_guard");
@@ -856,6 +913,28 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
         }
     }
 
+    if (env_string("SEDICI_FG_MULTIPLIER", value)) {
+        if (FrameGenerationSettings::Multiplier parsed{}; parse_multiplier(value, parsed)) {
+            config.fg.multiplier = parsed;
+            config.fg.multiplier_source = Source::Env;
+        } else {
+            problems.push_back("SEDICI_FG_MULTIPLIER=\"" + value +
+                               "\": unknown value (expected \"2x\", \"1.75x\", \"1.5x\", \"1.25x\" or "
+                               "\"adaptive\") - override ignored");
+        }
+    }
+
+    if (env_string("SEDICI_FG_TARGET_FPS", value)) {
+        double parsed = 0.0;
+        if (parse_decimal(value, parsed) && parsed <= 1000.0) {
+            config.fg.target_fps = parsed;
+            config.fg.target_fps_source = Source::Env;
+        } else {
+            problems.push_back("SEDICI_FG_TARGET_FPS=\"" + value +
+                               "\": expected a number within [0, 1000] - override ignored");
+        }
+    }
+
     if (env_string("SEDICI_FG_TEAR_GUARD", value)) {
         if (FrameGenerationSettings::TearGuard parsed{}; parse_tear_guard(value, parsed)) {
             config.fg.tear_guard = parsed;
@@ -936,6 +1015,9 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.fg.present_source},
         {"fg.tear_guard", std::string("\"") + tear_guard_name(config.fg.tear_guard) + "\"",
          config.fg.tear_guard_source},
+        {"fg.multiplier", std::string("\"") + multiplier_name(config.fg.multiplier) + "\"",
+         config.fg.multiplier_source},
+        {"fg.target_fps", format_number(config.fg.target_fps), config.fg.target_fps_source},
         {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},
@@ -999,6 +1081,18 @@ const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept
     case FrameGenerationSettings::TearGuard::Scanline: break;
     }
     return "scanline";
+}
+
+const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noexcept
+{
+    switch (multiplier) {
+    case FrameGenerationSettings::Multiplier::X1_75: return "1.75x";
+    case FrameGenerationSettings::Multiplier::X1_5: return "1.5x";
+    case FrameGenerationSettings::Multiplier::X1_25: return "1.25x";
+    case FrameGenerationSettings::Multiplier::Adaptive: return "adaptive";
+    case FrameGenerationSettings::Multiplier::X2: break;
+    }
+    return "2x";
 }
 
 const char* source_name(Source source) noexcept

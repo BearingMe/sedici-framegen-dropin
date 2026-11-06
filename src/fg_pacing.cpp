@@ -1,6 +1,7 @@
 #include "fg_pacing.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace sedici::fg {
 
@@ -53,6 +54,107 @@ PacingOutput plan_present(const PacingInput& input) noexcept
     output.secondWait = output.presentGenerated ? half : 0.0;
     output.realDeadline = input.now + output.secondWait;
     return output;
+}
+
+uint32_t OutputPlan::generated() const noexcept
+{
+    uint32_t total = 0;
+    for (uint32_t i = 0; i < count; ++i) total += outputs[i].real ? 0u : 1u;
+    return total;
+}
+
+void OutputSchedule::set_ratio(uint32_t numerator, uint32_t denominator) noexcept
+{
+    if (denominator == 0 || numerator < denominator || numerator > 2 * denominator) {
+        numerator = 2;
+        denominator = 1;
+    }
+    m_adaptive = false;
+    m_numerator = numerator;
+    m_denominator = denominator;
+    reset();
+}
+
+void OutputSchedule::set_target(double fps) noexcept
+{
+    m_adaptive = true;
+    m_target = std::isfinite(fps) ? std::clamp(fps, 1.0, 1000.0) : 60.0;
+    reset();
+}
+
+void OutputSchedule::reset() noexcept
+{
+    m_started = false;
+    m_interval = 0.0;
+    m_index = 0;
+}
+
+OutputPlan OutputSchedule::plan(double entry) noexcept
+{
+    OutputPlan plan;
+    const auto realOnly = [&] {
+        plan.count = 1;
+        plan.outputs[0] = PlannedOutput{1.0f, true, entry};
+    };
+    const double interval = entry - m_previous;
+    // A hitch (more than 2.5x the recent interval) is a discontinuity too:
+    // spreading generated frames across it would replay the stall in slow
+    // motion and hold the presenter for its whole length. The recent interval
+    // still follows a genuine slowdown, by at most 2.5x per frame.
+    const bool hitch = m_interval > 0.0 && interval > 2.5 * m_interval;
+    if (m_started && interval > 1e-4 && interval < 0.25)
+        m_interval = m_interval > 0.0 ? 0.9 * m_interval + 0.1 * std::min(interval, 2.5 * m_interval) : interval;
+    const bool continuous = m_started && interval > 1e-4 && interval < 0.25 && !hitch;
+    const double previous = m_previous;
+    m_previous = entry;
+    m_started = true;
+    if (!continuous) {
+        m_index = 0;
+        m_next_slot = entry + (m_adaptive ? 1.0 / m_target : 0.0);
+        realOnly();
+        return plan;
+    }
+
+    const auto addGenerated = [&](double alpha) {
+        if (plan.count >= kMaxPlannedOutputs || plan.generated() >= 2) return;
+        alpha = std::clamp(alpha, 0.02, 0.98);
+        plan.outputs[plan.count++] =
+            PlannedOutput{static_cast<float>(alpha), false, previous + alpha * interval};
+    };
+
+    if (!m_adaptive) {
+        // Grid points m with m*q/p in (n-1, n]: alpha = (m*q - (n-1)*p) / p.
+        const uint64_t p = m_numerator, q = m_denominator;
+        m_index = m_index % m_denominator + 1;
+        const uint64_t n = m_index;
+        const uint64_t first = ((n - 1) * p) / q + 1;
+        const uint64_t last = (n * p) / q;
+        for (uint64_t m = first; m <= last; ++m) {
+            const uint64_t numerator = m * q - (n - 1) * p;
+            if (numerator >= p) {
+                if (plan.count < kMaxPlannedOutputs) plan.outputs[plan.count++] = PlannedOutput{1.0f, true, entry};
+            } else {
+                addGenerated(static_cast<double>(numerator) / static_cast<double>(p));
+            }
+        }
+        return plan;
+    }
+
+    const double period = 1.0 / m_target;
+    const double snap = 0.25 * period;
+    // After a hitch the grid may be behind the previous real frame; skip the
+    // points that can no longer be shown rather than replaying them.
+    if (m_next_slot <= previous) m_next_slot += std::ceil((previous - m_next_slot) / period + 1e-9) * period;
+    for (int guard = 0; guard < 64 && m_next_slot <= entry + snap; ++guard) {
+        if (std::abs(entry - m_next_slot) <= snap) {
+            if (plan.count < kMaxPlannedOutputs) plan.outputs[plan.count++] = PlannedOutput{1.0f, true, entry};
+            m_next_slot += period;
+            break; // the real frame closes this interval
+        }
+        addGenerated((m_next_slot - previous) / interval);
+        m_next_slot += period;
+    }
+    return plan;
 }
 
 PacingOutput PacingState::plan(double entry, bool generatedReady) noexcept

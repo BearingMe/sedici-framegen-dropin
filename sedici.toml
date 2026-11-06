@@ -79,6 +79,25 @@ mode = "amd"
 # "game"  - use the game's own settings and timing. Lowest latency, but tears.
 present = "vrr"
 
+# How many frames to show per real frame. Only used with present = "vrr";
+# "vsync" and "game" always show 2x.
+# "2x"       - one generated frame between every two real frames.
+# "1.75x"    - 7 frames for every 4 real ones.
+# "1.5x"     - 3 frames for every 2 real ones, e.g. 48 real FPS -> 72.
+# "1.25x"    - 5 frames for every 4 real ones, e.g. 60 real FPS -> 75.
+# "adaptive" - aim for target_fps frames per second whatever the real rate,
+#              up to two generated frames per real one.
+# Below 2x, frames stay evenly spaced, so most of what you see is generated:
+# 1.5x shows every second real frame on its own, 1.25x every fourth. It also
+# adds latency compared with 2x at the same real FPS: about a sixth of a real
+# frame at 1.5x, a third at 1.25x, up to half with "adaptive".
+# Keep real FPS x multiplier under the refresh rate.
+multiplier = "2x"
+
+# Only used with multiplier = "adaptive": output frames per second to aim for.
+# 0 = three below the screen's refresh rate (72 on a 75 Hz screen).
+target_fps = 0
+
 # Only used with present = "vrr". Stops a frame from being shown while the
 # screen is still drawing the previous one, which is what a tear is.
 # "scanline" - ask the GPU where the screen is in its refresh and wait for the

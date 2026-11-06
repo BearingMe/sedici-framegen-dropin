@@ -67,6 +67,8 @@ public:
 private:
     static bool record(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
                        ID3D12Resource* output, D3D12_RESOURCE_STATES state) noexcept;
+    static bool record_phases(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
+                              const GeneratePhase* phases, uint32_t count) noexcept;
     static void submitted(void* user, ID3D12Fence* fence, uint64_t value) noexcept;
     void detach() noexcept;
 

@@ -17,7 +17,12 @@ namespace {
 constexpr uint32_t kRootConstants = sizeof(Constants) / sizeof(uint32_t);
 constexpr uint32_t kSrvSlots = 8;
 constexpr uint32_t kUavSlots = 4;
-constexpr uint32_t kBlocks = 7;
+// Blocks 0-1: prepare. Then five blocks (splat clear, splat, fill, warp,
+// composite) per generated phase, so several phases can be recorded into one
+// command list without overwriting each other's descriptors.
+constexpr uint32_t kPrepareBlocks = 2;
+constexpr uint32_t kPhaseBlocks = 5;
+constexpr uint32_t kBlocks = kPrepareBlocks + kPhaseBlocks * kMaxPhases;
 constexpr uint32_t kBlockSlots = kSrvSlots + kUavSlots;
 constexpr uint32_t kHeapSlots = kBlocks * kBlockSlots;
 constexpr uint32_t kGroupSize = 8;
@@ -364,7 +369,9 @@ bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipe
 {
     if (!pipeline) return false;
 
-    const Constants constants = make_constants(m_params);
+    FrameParams params = m_params;
+    params.alpha = m_alpha;
+    const Constants constants = make_constants(params);
 
     ID3D12DescriptorHeap* heaps[] = {m_heap.Get()};
     list->SetDescriptorHeaps(1, heaps);
@@ -438,21 +445,37 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                       ID3D12Resource* output, bool resetHistory,
                       D3D12_RESOURCE_STATES outputState, const HudSource* hud) noexcept
 {
-    if (!m_configured || !m_pipelines_ready || !list || !output || !frame.color) return false;
+    const GeneratePhase phase{output, outputState, m_params.alpha};
+    return generate(list, frame, &phase, 1, resetHistory, hud);
+}
+
+bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
+                      const GeneratePhase* phases, uint32_t count, bool resetHistory,
+                      const HudSource* hud) noexcept
+{
+    if (!m_configured || !m_pipelines_ready || !list || !frame.color) return false;
+    if (!phases || count == 0 || count > kMaxPhases) return false;
     const auto matches = [](ID3D12Resource* resource, uint32_t width, uint32_t height) {
         const auto desc = resource->GetDesc();
         return desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
                desc.Width == width && desc.Height == height &&
                desc.DepthOrArraySize == 1 && desc.MipLevels == 1 && desc.SampleDesc.Count == 1;
     };
-    if (!matches(frame.color, m_params.displayWidth, m_params.displayHeight) ||
-        !matches(output, m_params.displayWidth, m_params.displayHeight)) return false;
-    if (frame.color->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
-        output->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
-        !(output->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) return false;
-    if (output == frame.color || output == frame.depth || output == frame.motion) return false;
+    if (!matches(frame.color, m_params.displayWidth, m_params.displayHeight)) return false;
+    if (frame.color->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM) return false;
+    for (uint32_t i = 0; i < count; ++i) {
+        ID3D12Resource* output = phases[i].output;
+        if (!output || !matches(output, m_params.displayWidth, m_params.displayHeight)) return false;
+        if (output->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+            !(output->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) return false;
+        if (output == frame.color || output == frame.depth || output == frame.motion) return false;
+        if (hud && hud->real == output) return false;
+        if (!(phases[i].alpha > 0.0f && phases[i].alpha < 1.0f)) return false;
+        for (uint32_t j = 0; j < i; ++j) {
+            if (phases[j].output == output) return false;
+        }
+    }
     if (hud && hud->real) {
-        if (hud->real == output) return false;
         const auto desc = hud->real->GetDesc();
         if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
             desc.Width != m_params.displayWidth || desc.Height != m_params.displayHeight ||
@@ -481,15 +504,18 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
         // HUD source the game's own frame is the exact frame to show, so the
         // seed is not HUD-less.
         transition(list, m_color[current], D3D12_RESOURCE_STATE_COPY_SOURCE);
-        transition_external(list, output, outputState, D3D12_RESOURCE_STATE_COPY_DEST);
-        if (hud && hud->real) {
-            transition_external(list, hud->real, hud->realState, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            list->CopyResource(output, hud->real);
-            transition_external(list, hud->real, D3D12_RESOURCE_STATE_COPY_SOURCE, hud->realState);
-        } else {
-            list->CopyResource(output, m_color[current].get());
+        for (uint32_t i = 0; i < count; ++i) {
+            ID3D12Resource* output = phases[i].output;
+            transition_external(list, output, phases[i].outputState, D3D12_RESOURCE_STATE_COPY_DEST);
+            if (hud && hud->real) {
+                transition_external(list, hud->real, hud->realState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                list->CopyResource(output, hud->real);
+                transition_external(list, hud->real, D3D12_RESOURCE_STATE_COPY_SOURCE, hud->realState);
+            } else {
+                list->CopyResource(output, m_color[current].get());
+            }
+            transition_external(list, output, D3D12_RESOURCE_STATE_COPY_DEST, phases[i].outputState);
         }
-        transition_external(list, output, D3D12_RESOURCE_STATE_COPY_DEST, outputState);
         transition(list, m_color[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_current = previous;
         m_history_valid = true;
@@ -497,14 +523,36 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
         return true;
     }
 
+    // 2. One synthesis per phase. Each owns its descriptor blocks and its alpha
+    //    in the root constants; the scratch targets are reused in order, which
+    //    the transitions inside serialise on the GPU.
+    for (uint32_t i = 0; i < count; ++i) {
+        synthesize(list, current, previous, phases[i], hud, kPrepareBlocks + kPhaseBlocks * i);
+    }
+    m_alpha = m_params.alpha;
+    m_current = previous;
+    m_history_valid = true;
+    m_prepared = false;
+    return true;
+}
+
+// Splat, fill, warp and HUD-composite one phase between the two most recent
+// real frames into `phase.output`, using descriptor blocks `block`..`block + 4`.
+void Stage1::synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous,
+                        const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept
+{
+    m_alpha = phase.alpha;
+    ID3D12Resource* const output = phase.output;
+    const D3D12_RESOURCE_STATES outputState = phase.outputState;
+
     // 3. Clear, splat, fill.
     transition(list, m_reprojection, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    begin_block(2);
+    begin_block(block);
     write_uav(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
     dispatch(list, m_clear.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
     uav_barrier(list, m_reprojection.get());
 
-    begin_block(3);
+    begin_block(block + 1);
     write_srv(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
     write_srv(1, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
     write_srv(2, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
@@ -514,7 +562,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     transition(list, m_reprojection, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
     transition(list, m_filled, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    begin_block(4);
+    begin_block(block + 2);
     write_srv(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
     write_uav(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
     dispatch(list, m_fill.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
@@ -524,7 +572,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     // 4. Warp both real frames to the midpoint and fuse into a private target.
     transition(list, m_midpoint, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-    begin_block(5);
+    begin_block(block + 3);
     D3D12_SHADER_RESOURCE_VIEW_DESC lutView{};
     lutView.Format = DXGI_FORMAT_R32_FLOAT;
     lutView.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -532,7 +580,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     lutView.Buffer.NumElements = 128 * 128;
     const auto lutHandle = m_heap->GetCPUDescriptorHandleForHeapStart();
     m_device->CreateShaderResourceView(m_lut.Get(), &lutView,
-        {lutHandle.ptr + static_cast<SIZE_T>(5 * kBlockSlots + 7) * m_increment});
+        {lutHandle.ptr + static_cast<SIZE_T>((block + 3) * kBlockSlots + 7) * m_increment});
     write_srv(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
     write_srv(1, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(2, m_color[previous].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -555,7 +603,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
     transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    begin_block(6);
+    begin_block(block + 4);
     write_srv(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(1, hasHud ? hud->real : m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(2, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
@@ -567,11 +615,6 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                             hud->realState);
     }
     m_composite_weight = 0.0f;
-
-    m_current = previous;
-    m_history_valid = true;
-    m_prepared = false;
-    return true;
 }
 
 } // namespace sedici::fg

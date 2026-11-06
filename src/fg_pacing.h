@@ -46,4 +46,66 @@ struct PacingState {
     PacingOutput plan(double entry, bool generatedReady) noexcept;
 };
 
+// Output schedule for `[fg] present = "vrr"`: which frames to show for each
+// real frame, and at what content time, for a fixed output/real ratio or an
+// adaptive output-rate target.
+//
+// Outputs sit on an even grid in content time (the game's Present clock), so
+// on-screen pacing is even. A grid point between real frames N-1 and N becomes
+// a generated frame at alpha = (t - t[N-1]) / (t[N] - t[N-1]); a point on N is
+// the real frame. At ratios below 2 most grid points miss the real frames, so
+// some real frames are never shown on their own: 1.5x shows every
+// second real frame, 1.25x every fourth.
+//
+// Fixed ratio p/q (5/4, 3/2, 7/4, 2/1): grid points at m*q/p real frames, a
+// pattern that repeats every q real frames with p outputs.
+// Adaptive: grid points every 1/target seconds; a point within a quarter of an
+// output period of the real frame shows the real frame instead.
+//
+// Pure: no clocks, no D3D12, so it is checked offline.
+
+constexpr uint32_t kMaxPlannedOutputs = 3; // at most 2 generated + the real frame
+
+struct PlannedOutput {
+    float alpha = 1.0f;   // (0, 1); 1 means the real frame itself
+    bool real = true;
+    double content = 0.0; // seconds on the entry clock
+};
+
+struct OutputPlan {
+    uint32_t count = 0;
+    PlannedOutput outputs[kMaxPlannedOutputs];
+    uint32_t generated() const noexcept;
+};
+
+class OutputSchedule {
+public:
+    // `numerator/denominator` within [1, 2], e.g. 3/2. Resets the pattern.
+    void set_ratio(uint32_t numerator, uint32_t denominator) noexcept;
+    // Output frames per second to aim for. Resets the grid.
+    void set_target(double fps) noexcept;
+    // Forget history: the next plan shows only its real frame.
+    void reset() noexcept;
+
+    // `entry`: seconds at this real frame's Present. The first frame after a
+    // reset, or after a gap of more than 0.25 s, returns just the real frame.
+    OutputPlan plan(double entry) noexcept;
+
+    bool adaptive() const noexcept { return m_adaptive; }
+    double target() const noexcept { return m_target; }
+    uint32_t numerator() const noexcept { return m_numerator; }
+    uint32_t denominator() const noexcept { return m_denominator; }
+
+private:
+    bool m_adaptive = false;
+    uint32_t m_numerator = 2;
+    uint32_t m_denominator = 1;
+    double m_target = 0.0;
+    bool m_started = false;
+    double m_previous = 0.0;
+    uint32_t m_index = 0;      // fixed: real frames into the current pattern, 1..denominator
+    double m_next_slot = 0.0;  // adaptive: content time of the next grid point
+    double m_interval = 0.0;   // recent real-frame interval, for hitch detection
+};
+
 } // namespace sedici::fg

@@ -1,6 +1,7 @@
 #include "fg_presenter.h"
 
 #include <algorithm>
+#include <iterator>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -285,6 +286,12 @@ void Presenter::submit(PresentJob&& job) noexcept try
 }
 catch (...) {}
 
+void Presenter::set_output_hooks(const OutputHooks& hooks) noexcept
+{
+    std::lock_guard lock(m_mutex);
+    m_hooks = hooks;
+}
+
 HRESULT Presenter::last_result() const noexcept
 {
     std::lock_guard lock(m_mutex);
@@ -447,7 +454,7 @@ void Presenter::hold(double notBefore) noexcept
     record(now_seconds() - holdStart);
 }
 
-HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES state) noexcept
+HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES state, bool generated) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12Resource> destination;
     HRESULT hr = m_native->GetBuffer(m_native->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&destination));
@@ -478,6 +485,8 @@ HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES 
     add(destination.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
     add(source, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     if (count) list->ResourceBarrier(count, barriers);
+    // The overlay draws on the final image, as it does from AMD's callback.
+    if (m_job_hooks.draw) m_job_hooks.draw(m_device.Get(), list, destination.Get(), generated);
     hr = list->Close();
     if (FAILED(hr)) return hr;
     ID3D12CommandList* lists[]{list};
@@ -485,7 +494,7 @@ HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES 
     return m_queue->Signal(m_fence.Get(), ++m_fence_value);
 }
 
-HRESULT Presenter::native_present(const PresentJob& job) noexcept
+HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcept
 {
     const double before = now_seconds();
     {
@@ -517,6 +526,7 @@ HRESULT Presenter::native_present(const PresentJob& job) noexcept
         hr = m_native->Present(job.sync, job.flags);
     }
     m_last_flip = before;
+    if (SUCCEEDED(hr) && m_job_hooks.presented) m_job_hooks.presented(generated);
     const double call = now_seconds() - before;
     m_window.callSum += call;
     m_window.callMax = std::max(m_window.callMax, call);
@@ -525,6 +535,12 @@ HRESULT Presenter::native_present(const PresentJob& job) noexcept
 
 HRESULT Presenter::present_job(PresentJob& job) noexcept
 {
+    // Whether the frame was already finished on the GPU before the presenter got
+    // to it. Then its readiness time is unknown (only that it was earlier), and
+    // using the time we got here would count queueing behind earlier frames as
+    // GPU latency, which feeds back into later flips and a longer queue.
+    const bool alreadyReady = job.ready->GetCompletedValue() >= job.readyValue;
+    const double dequeued = now_seconds();
     // Nothing for this frame may start on the present queue before the game's
     // frame and its generation work are done.
     HRESULT hr = m_queue->Wait(job.ready.Get(), job.readyValue);
@@ -541,46 +557,94 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         }
     }
 
-    double midFlip = 0.0;
-    if (job.midpoint) {
+    for (uint32_t i = 0; i < job.count; ++i) {
+        const JobOutput& output = job.outputs[i];
+        ID3D12Resource* source = output.real ? job.real.Get() : output.image.Get();
+        const D3D12_RESOURCE_STATES state = output.real ? D3D12_RESOURCE_STATE_PRESENT
+                                                        : D3D12_RESOURCE_STATE_COPY_SOURCE;
         const double gpuStart = now_seconds();
-        hr = copy_to_native(job.midpoint.Get(), job.midpointState);
+        hr = copy_to_native(source, state, !output.real);
         if (SUCCEEDED(hr)) hr = wait_fence(m_fence_value);
         if (FAILED(hr)) return hr;
-        const double gpuWait = now_seconds() - gpuStart;
-        m_window.gpuWaitSum += gpuWait;
-        m_window.gpuWaitMax = std::max(m_window.gpuWaitMax, gpuWait);
+        const double ready = now_seconds();
+        if (i == 0) {
+            const double gpuWait = ready - gpuStart;
+            ++m_window.gpuWaits;
+            m_window.gpuWaitSum += gpuWait;
+            m_window.gpuWaitMax = std::max(m_window.gpuWaitMax, gpuWait);
+            // The earliest output of a frame is the one that bounds latency: it
+            // can only be shown once the frame after it has been rendered.
+            if (alreadyReady) track_latency(job.entry - output.content, dequeued - job.entry, false);
+            else track_latency(job.entry - output.content, ready - job.entry, true);
+        }
 
-        bool newer = false;
-        {
-            std::lock_guard lock(m_mutex);
-            newer = !m_jobs.empty();
+        // Each output keeps its place on the content clock, so on-screen
+        // spacing follows the game's frame times and the schedule's grid.
+        const double target = output.content + m_latency;
+        if (later_output_due(job, i, ready)) {
+            // A later output is already due: showing this one now would put the
+            // whole schedule behind. Its copy is overwritten by the next one.
+            if (output.real) ++m_window.realsDropped;
+            else { ++m_generated_dropped; ++m_window.generatedDropped; }
+            continue;
         }
-        if (newer) {
-            // A newer frame is already waiting: a midpoint shown now would be
-            // stale backlog. Overwrite the copy with the real frame instead.
-            ++m_midpoints_dropped;
-            ++m_window.dropped;
-        } else {
-            hold(0.0);
-            midFlip = now_seconds();
-            hr = native_present(job);
-            if (FAILED(hr)) return hr;
-            ++m_midpoints_shown;
-            ++m_window.mids;
-        }
+        hold(target);
+        const double flip = now_seconds();
+        if (flip > target + 0.001) ++m_window.late;
+        hr = native_present(job, !output.real);
+        if (FAILED(hr)) return hr;
+        if (output.real) ++m_window.realsShown;
+        else { ++m_generated_shown; ++m_window.generatedShown; }
     }
 
-    hr = copy_to_native(job.real.Get(), D3D12_RESOURCE_STATE_PRESENT);
-    if (SUCCEEDED(hr)) hr = wait_fence(m_fence_value);
-    if (FAILED(hr)) return hr;
-    // Anchor on the midpoint's actual flip, not on when the game called Present.
-    hold(midFlip > 0.0 ? midFlip + job.half : 0.0);
-    hr = native_present(job);
     // Retirement point for drain_gpu; also covers DXGI's own present work.
     const HRESULT signaled = m_queue->Signal(m_fence.Get(), ++m_fence_value);
-    if (SUCCEEDED(hr) && FAILED(signaled)) hr = signaled;
+    if (FAILED(signaled)) return signaled;
     return hr;
+}
+
+void Presenter::track_latency(double structural, double gpu, bool measured) noexcept
+{
+    // Both parts are short windows rather than slow-decay averages: a single
+    // hitch must not hold the latency up for long, or each frame's flips take
+    // longer, the game blocks on the presenter, its frames get longer and the
+    // latency stays up (finding 009, second session).
+    //
+    // Structural: the schedule's own offset, the largest of the last 8 frames,
+    // which covers the alternating pattern of every fixed ratio.
+    if (std::isfinite(structural)) {
+        m_structural_ring[m_structural_next] = std::clamp(structural, 0.0, 0.25);
+        m_structural_next = (m_structural_next + 1) % kStructuralWindow;
+        m_structural = *std::max_element(std::begin(m_structural_ring), std::end(m_structural_ring));
+    }
+    // GPU: the second highest of the last 16 measurements, so one spike is
+    // ignored. A frame that was already finished when the presenter got to it
+    // only bounds the GPU time from above: it is recorded only when it lowers
+    // the estimate, never to raise it, which would count queueing as latency.
+    if (std::isfinite(gpu)) {
+        gpu = std::clamp(gpu, 0.0, 0.1);
+        if (measured || gpu < m_gpu_latency) {
+            m_gpu_ring[m_gpu_next] = gpu;
+            m_gpu_next = (m_gpu_next + 1) % kGpuWindow;
+            double highest = 0.0, second = 0.0;
+            for (const double value : m_gpu_ring) {
+                if (value > highest) { second = highest; highest = value; }
+                else if (value > second) second = value;
+            }
+            m_gpu_latency = second;
+        }
+    }
+    m_latency = m_structural + m_gpu_latency + 0.0005;
+    m_window.latencySum += m_latency;
+    ++m_window.latencySamples;
+}
+
+bool Presenter::later_output_due(const PresentJob& job, uint32_t index, double now) noexcept
+{
+    if (index + 1 < job.count) return job.outputs[index + 1].content + m_latency <= now;
+    std::lock_guard lock(m_mutex);
+    if (m_jobs.empty() || m_jobs.front().count == 0) return false;
+    return m_jobs.front().outputs[0].content + m_latency <= now;
 }
 
 void Presenter::run() noexcept
@@ -595,6 +659,7 @@ void Presenter::run() noexcept
             if (m_jobs.empty()) return; // stop requested and nothing left
             job = std::move(m_jobs.front());
             m_jobs.pop_front();
+            m_job_hooks = m_hooks;
         }
         HRESULT hr = E_FAIL;
         try { hr = present_job(job); } catch (...) { hr = E_FAIL; }
@@ -616,10 +681,13 @@ void Presenter::log_window() noexcept try
     auto& w = m_window;
     const auto avg = [](double sum, uint32_t n) { return n ? sum / n : 0.0; };
     log_event(1, "fg: vrr present jobs=" + std::to_string(w.jobs) +
-        " mids=" + std::to_string(w.mids) + " dropped=" + std::to_string(w.dropped) +
+        " generated{shown=" + std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
+        " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) + "}" +
+        " late=" + std::to_string(w.late) +
+        " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
         " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
         " gap_min_ms=" + ms(w.gapMin) +
-        " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.mids + w.dropped)) + " max=" + ms(w.gpuWaitMax) + "}" +
+        " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
         " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +
         " max_ms=" + ms(w.guardMax) + " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
         " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +

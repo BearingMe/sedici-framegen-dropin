@@ -23,9 +23,12 @@
 // flips arrived sooner than one refresh after the previous one and tore even on
 // a VRR display.
 //
-// The presenter fixes the anchor. For each application frame it waits until the
-// image to show is finished on the GPU, then flips, and spaces the real frame
-// half an interval after the midpoint's actual flip. A tear guard can hold any
+// The presenter fixes the anchor. Every output carries a content time on the
+// game's Present clock (OutputSchedule). It is flipped at content + latency,
+// where latency is learned from how long after its content time the first image
+// of each frame is actually finished on the GPU. At 2x that is the midpoint as
+// soon as it is ready and the real frame half an interval later; at other
+// ratios it keeps the schedule's even grid on screen. A tear guard can hold any
 // flip until the panel is not scanning out. Because the game's queue already
 // holds the next frame's work while this happens, the native chain is moved to a
 // dedicated present queue with ResizeBuffers1; a flip on the game queue would
@@ -33,17 +36,35 @@
 
 namespace sedici::fg {
 
-// One application frame's worth of output.
+// What AMD's present callback gives the overlay, for Sedici's own swapchain:
+// `draw` records onto a native backbuffer (PRESENT state, returned to it) on
+// the list that is executed right before that buffer is presented; `presented`
+// follows each successful native Present. Both are optional and may be called
+// from the presenter thread.
+struct OutputHooks {
+    void (*draw)(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer,
+                 bool generated) = nullptr;
+    void (*presented)(bool generated) = nullptr;
+};
+
+// One image to show: the real frame or a generated one, in content-time order.
+struct JobOutput {
+    Microsoft::WRL::ComPtr<ID3D12Resource> image; // generated, COPY_SOURCE; null when real
+    bool real = true;
+    double content = 0.0; // seconds on the game's Present clock
+};
+
+// One application frame's worth of output. A frame may show nothing of its own
+// (adaptive target below the real rate), only generated frames, or both.
 struct PresentJob {
     // Private game backbuffer for this frame, in PRESENT state.
     Microsoft::WRL::ComPtr<ID3D12Resource> real;
-    // Generated midpoint to show first; null for a real-frame-only cycle.
-    Microsoft::WRL::ComPtr<ID3D12Resource> midpoint;
-    D3D12_RESOURCE_STATES midpointState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    JobOutput outputs[3];
+    uint32_t count = 0;
+    double entry = 0.0; // the game's Present for this frame, on the content clock
     // Signalled on the game queue after the frame and its generation work.
     Microsoft::WRL::ComPtr<ID3D12Fence> ready;
     uint64_t readyValue = 0;
-    double half = 0.0; // seconds from the midpoint flip to the real flip
     UINT sync = 0;
     UINT flags = 0;
     bool hasParams = false;
@@ -87,6 +108,7 @@ public:
     // Blocks until at most `max` jobs are outstanding. False on timeout.
     bool wait_outstanding(size_t max, DWORD timeoutMs) noexcept;
     void submit(PresentJob&& job) noexcept;
+    void set_output_hooks(const OutputHooks& hooks) noexcept;
     // Result of the most recent native Present, or the error that stopped a job.
     HRESULT last_result() const noexcept;
     // Waits for the GPU to retire everything the presenter queued. The caller
@@ -96,16 +118,26 @@ public:
     // Only call with zero outstanding jobs and a drained GPU.
     HRESULT resize_native(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) noexcept;
 
-    uint64_t midpoints_shown() const noexcept { return m_midpoints_shown; }
-    uint64_t midpoints_dropped() const noexcept { return m_midpoints_dropped; }
+    // Generated frames shown, and generated frames dropped because a later
+    // output was already due.
+    uint64_t midpoints_shown() const noexcept { return m_generated_shown; }
+    uint64_t midpoints_dropped() const noexcept { return m_generated_dropped; }
+    // The output's refresh rate when the chain was adopted or last resized.
+    double refresh_hz() const noexcept { return m_period > 0.0 ? 1.0 / m_period : 60.0; }
 
 private:
     Presenter() = default;
     void run() noexcept;
     HRESULT present_job(PresentJob& job) noexcept;
-    HRESULT copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES state) noexcept;
+    // Latency = structural + GPU. `structural`: how far before the game's
+    // Present the frame's earliest output sits on the content clock (exact).
+    // `gpu`: seconds from that Present to the image being ready; with
+    // `measured` false it is only an upper bound and can only lower the estimate.
+    void track_latency(double structural, double gpu, bool measured) noexcept;
+    bool later_output_due(const PresentJob& job, uint32_t index, double now) noexcept;
+    HRESULT copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES state, bool generated) noexcept;
     HRESULT wait_fence(uint64_t value) noexcept;
-    HRESULT native_present(const PresentJob& job) noexcept;
+    HRESULT native_present(const PresentJob& job, bool generated) noexcept;
     // Holds until `notBefore`, then applies the tear guard.
     void hold(double notBefore) noexcept;
     void wait_until(double deadline) noexcept;
@@ -133,6 +165,8 @@ private:
     std::condition_variable m_wake;
     std::condition_variable m_done;
     std::deque<PresentJob> m_jobs;
+    OutputHooks m_hooks{};        // guarded by m_mutex
+    OutputHooks m_job_hooks{};    // presenter thread's copy for the current job
     uint64_t m_submitted = 0;
     uint64_t m_completed = 0;
     HRESULT m_last = S_OK;
@@ -149,14 +183,29 @@ private:
     bool m_scanline_ok = false;
     double m_last_flip = 0.0;
 
-    uint64_t m_midpoints_shown = 0;
-    uint64_t m_midpoints_dropped = 0;
+    uint64_t m_generated_shown = 0;
+    uint64_t m_generated_dropped = 0;
+    double m_latency = 0.0;    // seconds from content time to flip
+    double m_structural = 0.0; // schedule part of the latency
+    double m_gpu_latency = 0.0; // Present-to-ready part of the latency
+    static constexpr uint32_t kStructuralWindow = 8;
+    static constexpr uint32_t kGpuWindow = 16;
+    double m_structural_ring[kStructuralWindow]{};
+    uint32_t m_structural_next = 0;
+    double m_gpu_ring[kGpuWindow]{};
+    uint32_t m_gpu_next = 0;
 
     // Diagnostics, reported every 300 jobs and then reset.
     struct Window {
         uint32_t jobs = 0;
-        uint32_t mids = 0;
-        uint32_t dropped = 0;
+        uint32_t generatedShown = 0;
+        uint32_t generatedDropped = 0;
+        uint32_t realsShown = 0;
+        uint32_t realsDropped = 0;
+        uint32_t late = 0;         // flipped more than 1 ms after its target
+        double latencySum = 0.0;
+        uint32_t latencySamples = 0;
+        uint32_t gpuWaits = 0;
         uint32_t flips = 0;
         uint32_t shortGaps = 0;    // flip sooner than one refresh after the previous
         double gapMin = 0.0;

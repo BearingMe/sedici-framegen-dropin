@@ -40,6 +40,12 @@ public:
                   D3D12_RESOURCE_STATES outputState,
                   const HudSource* hud = nullptr) noexcept;
 
+    // Generates `count` (1..kMaxPhases) frames between the same two real frames,
+    // each at its own alpha, from one prepare. Counts as one generated frame
+    // pair for frames_generated().
+    bool generate(ID3D12GraphicsCommandList* list, const GeneratePhase* phases, uint32_t count,
+                  const HudSource* hud = nullptr) noexcept;
+
     // After ExecuteCommandLists, register a queue-signalled fence covering ALL
     // work recorded since the last registration. No CPU-signalled completion.
     // For split prepare/generate submissions, order generation with wait_prepare

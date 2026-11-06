@@ -170,8 +170,25 @@ struct FrameGenerationSettings {
         Off,
     };
 
+    // Output frames per real frame, `[fg] multiplier`. Only "vrr" schedules
+    // anything but 2x; "vsync" and "game" always present one midpoint per
+    // real frame. Below 2x outputs stay evenly paced, so some real frames are
+    // shown only as nearby generated frames.
+    enum class Multiplier {
+        X2,       // "2x": one generated frame between every two real frames
+        X1_75,    // "1.75x": 7 outputs per 4 real frames
+        X1_5,     // "1.5x": 3 outputs per 2 real frames
+        X1_25,    // "1.25x": 5 outputs per 4 real frames
+        Adaptive, // "adaptive": aim for `target_fps` outputs per second
+    };
+
     FrameGenerationMode mode = FrameGenerationMode::Amd;
     Source mode_source = Source::Default;
+    Multiplier multiplier = Multiplier::X2;
+    Source multiplier_source = Source::Default;
+    // "adaptive" only. 0 = three below the display's refresh rate.
+    double target_fps = 0.0;
+    Source target_fps_source = Source::Default;
     Present present = Present::Vrr;
     Source present_source = Source::Default;
     TearGuard tear_guard = TearGuard::Scanline;
@@ -181,6 +198,7 @@ struct FrameGenerationSettings {
 // Config/report spelling of the enums above.
 const char* present_name(FrameGenerationSettings::Present present) noexcept;
 const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept;
+const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noexcept;
 
 struct Settings {
     PacingSettings pacing;

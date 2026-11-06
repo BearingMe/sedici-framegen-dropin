@@ -614,6 +614,82 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         save_ppm(name, generated, kDisplayWidth, kDisplayHeight);
     }
 
+    // Phases: two generated frames from one prepare, at 1/3 and 2/3, into two
+    // outputs recorded in one command list (the "vrr" 1.5x/1.75x/adaptive path).
+    // Each must be closer to the true scene at its time than simply showing the
+    // nearer real frame, which a wrong or shared alpha would not be.
+    {
+        const auto second = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                           kDisplayWidth, kDisplayHeight,
+                                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        if (!second) return false;
+        D3D12_RESOURCE_STATES secondState = D3D12_RESOURCE_STATE_COMMON;
+        for (uint32_t step = 0; step < 2; ++step) {
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            ffxConfigureDescFrameGeneration configure{};
+            configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+            configure.frameGenerationEnabled = true;
+            configure.HUDLessColor = ffxApiGetResourceDX12(frames[step].color.Get(), FFX_API_RESOURCE_STATE_COMMON);
+            configure.frameID = 1000 + step;
+            ffxDispatchDescFrameGenerationPrepare prepare{};
+            prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+            prepare.frameID = 1000 + step;
+            prepare.commandList = state.list.Get();
+            prepare.renderSize = {kRenderWidth, kRenderHeight};
+            prepare.motionVectorScale = {static_cast<float>(kRenderWidth), static_cast<float>(kRenderHeight)};
+            prepare.depth = ffxApiGetResourceDX12(frames[step].depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+            prepare.motionVectors = ffxApiGetResourceDX12(frames[step].motion.Get(), FFX_API_RESOURCE_STATE_COMMON);
+            prepare.unused_reset = step == 0;
+            if (!context.configure(&configure.header) || !context.prepare(&prepare.header)) return false;
+            const sedici::fg::GeneratePhase phases[2]{{output.Get(), outputState, 1.0f / 3.0f},
+                                                     {second.Get(), secondState, 2.0f / 3.0f}};
+            if (!context.generate(state.list.Get(), phases, 2)) {
+                std::fprintf(stderr, "phases: stage 1 rejected the frame\n");
+                return false;
+            }
+            if (!state.submit() || !context.track_submission(state.fence.Get(), state.fenceValue)) return false;
+        }
+        const auto readTexture = [&](ID3D12Resource* texture, D3D12_RESOURCE_STATES& textureState,
+                                     std::vector<uint8_t>& pixels) {
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            transition(state.list.Get(), texture, textureState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            textureState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            D3D12_TEXTURE_COPY_LOCATION from{};
+            from.pResource = texture;
+            from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION to{};
+            to.pResource = readback.Get();
+            to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            to.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth, kDisplayHeight, 1, outputRowPitch};
+            state.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+            if (!state.submit()) return false;
+            void* data = nullptr;
+            if (FAILED(readback->Map(0, nullptr, &data))) return false;
+            pixels.resize(static_cast<size_t>(kDisplayWidth) * kDisplayHeight * 4);
+            for (uint32_t y = 0; y < kDisplayHeight; ++y) {
+                std::memcpy(pixels.data() + static_cast<size_t>(y) * kDisplayWidth * 4,
+                            static_cast<const uint8_t*>(data) + static_cast<size_t>(y) * outputRowPitch,
+                            static_cast<size_t>(kDisplayWidth) * 4);
+            }
+            readback->Unmap(0, nullptr);
+            return true;
+        };
+        std::vector<uint8_t> third, twoThirds;
+        if (!readTexture(output.Get(), outputState, third) || !readTexture(second.Get(), secondState, twoThirds)) return false;
+        const auto truthThird = quantise(make_scene(config, 1.0f / 3.0f, kDisplayWidth, kDisplayHeight).color);
+        const auto truthTwoThirds = quantise(make_scene(config, 2.0f / 3.0f, kDisplayWidth, kDisplayHeight).color);
+        const double generatedThird = psnr(truthThird, third);
+        const double generatedTwoThirds = psnr(truthTwoThirds, twoThirds);
+        const double nearestThird = psnr(truthThird, previousColor);
+        const double nearestTwoThirds = psnr(truthTwoThirds, currentColor);
+        const bool phasesOk = generatedThird > nearestThird && generatedTwoThirds > nearestTwoThirds;
+        std::printf("%s %-18s phases in one list: 1/3 psnr %6.2f dB (nearest real %6.2f), "
+                    "2/3 psnr %6.2f dB (nearest real %6.2f)\n",
+                    phasesOk ? "PASS" : "FAIL", config.name, generatedThird, nearestThird,
+                    generatedTwoThirds, nearestTwoThirds);
+        if (!phasesOk) return false;
+    }
+
     // HUD preservation: the game's backbuffer carries a HUD the HUD-less input
     // does not. A known white block over a background-only corner must survive
     // the composite; it is a corner the synthetic scenes never reach.
@@ -997,6 +1073,84 @@ bool check_pacing()
     }
     expect(bounded && recovered && std::abs(pacing.interval - period) < 1e-7 && outputs > 39800,
            "20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall");
+
+    // Output schedule: every output lands on an even grid in content time.
+    // For each ratio, count outputs over many real frames, check the pattern
+    // never needs more than two generated frames per real frame, and that the
+    // spacing between consecutive outputs is constant.
+    struct Ratio { uint32_t p, q; const char* name; };
+    for (const Ratio ratio : {Ratio{2, 1, "2x"}, Ratio{7, 4, "1.75x"}, Ratio{3, 2, "1.5x"}, Ratio{5, 4, "1.25x"}}) {
+        sedici::fg::OutputSchedule schedule;
+        schedule.set_ratio(ratio.p, ratio.q);
+        const double interval = 1.0 / 48.0;
+        double previousContent = -1.0, minGap = 1.0, maxGap = 0.0;
+        uint32_t produced = 0, reals = 0, maxGenerated = 0;
+        const uint32_t frames = 1 + 400 * ratio.q;
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            const auto step = schedule.plan(10.0 + frame * interval);
+            maxGenerated = std::max(maxGenerated, step.generated());
+            for (uint32_t i = 0; i < step.count; ++i) {
+                const auto& out = step.outputs[i];
+                if (frame > 0) {
+                    ++produced;
+                    reals += out.real ? 1u : 0u;
+                    const double gap = out.content - previousContent;
+                    minGap = std::min(minGap, gap);
+                    maxGap = std::max(maxGap, gap);
+                }
+                previousContent = out.content;
+            }
+        }
+        const double expectedGap = interval * ratio.q / ratio.p;
+        char what[160];
+        std::snprintf(what, sizeof(what),
+                      "%s schedule: %u outputs per %u real frames, %u real, <=2 generated, even %.3f ms grid",
+                      ratio.name, produced, frames - 1, reals, expectedGap * 1000.0);
+        expect(produced == 400 * ratio.p && reals == 400 && maxGenerated <= 2 &&
+               std::abs(minGap - expectedGap) < 1e-6 && std::abs(maxGap - expectedGap) < 1e-6, what);
+    }
+    {
+        // A hitch is a discontinuity: the frame after a 3x interval shows only
+        // itself, and the next normal frame resumes generating.
+        sedici::fg::OutputSchedule schedule;
+        schedule.set_ratio(3, 2);
+        double t = 10.0;
+        for (int frame = 0; frame < 20; ++frame) (void)schedule.plan(t += 1.0 / 48.0);
+        const auto afterHitch = schedule.plan(t += 3.0 / 48.0);
+        const auto resumed = schedule.plan(t += 1.0 / 48.0);
+        expect(afterHitch.count == 1 && afterHitch.outputs[0].real && resumed.generated() >= 1,
+               "1.5x schedule: a 3x hitch shows only the real frame, then generation resumes");
+    }
+    {
+        // Adaptive: 48 real fps towards 72 output fps averages 1.5 outputs per
+        // real frame on an even 1/72 s grid, snapping to real frames nearby.
+        sedici::fg::OutputSchedule schedule;
+        schedule.set_target(72.0);
+        const double interval = 1.0 / 48.0;
+        double previousContent = -1.0, maxGapError = 0.0;
+        uint32_t produced = 0, maxGenerated = 0;
+        for (uint32_t frame = 0; frame < 4801; ++frame) {
+            const auto step = schedule.plan(10.0 + frame * interval);
+            maxGenerated = std::max(maxGenerated, step.generated());
+            for (uint32_t i = 0; i < step.count; ++i) {
+                if (frame > 1) {
+                    ++produced;
+                    maxGapError = std::max(maxGapError, std::abs(step.outputs[i].content - previousContent - 1.0 / 72.0));
+                }
+                previousContent = step.outputs[i].content;
+            }
+        }
+        expect(produced >= 7190 && produced <= 7210 && maxGenerated <= 2 && maxGapError <= 0.25 / 72.0 + 1e-9,
+               "adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a quarter slot of the grid");
+        // A pause resets to the real frame alone, and a slower real rate than the
+        // target still never asks for more than two generated frames.
+        const auto paused = schedule.plan(20.0);
+        expect(paused.count == 1 && paused.outputs[0].real, "adaptive schedule: a 0.25 s gap shows only the real frame");
+        schedule.set_target(144.0);
+        uint32_t worst = 0;
+        for (uint32_t frame = 0; frame < 200; ++frame) worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
+        expect(worst <= 2, "adaptive schedule: 40 real fps towards 144 caps at two generated frames");
+    }
     return failures == 0;
 }
 
@@ -1036,8 +1190,14 @@ bool record_counted(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource*
 // both outputs come from the presenter thread with the game's tearing flags.
 // Every midpoint is either shown or dropped as stale, never lost; resize keeps
 // the chain on the present queue; teardown drains the thread.
-bool check_vrr_window(Device& state)
+bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier,
+                      const char* label, DWORD frameMs = 27)
 {
+    // Below ~20 ms per real frame at 1.5x the plan asks for more frames than a
+    // 75 Hz panel can show. The game may then be held to the panel's pace, as
+    // with vsync, but never slower: finding 009's game session spiralled to
+    // 16 real fps because queueing was counted as latency.
+    const bool overload = frameMs < 13;
     if (GetModuleHandleW(L"RTSSHooks64.dll") && GetEnvironmentVariableW(L"SEDICI_FG_ALLOW_RTSS", nullptr, 0) == 0) {
         // The wrapper refuses "vrr" under RTSS (see Swapchain::wrap); not a pass.
         std::printf("SKIP vrr presentation: RTSS is injected; close it or set SEDICI_FG_ALLOW_RTSS=1\n");
@@ -1080,6 +1240,8 @@ bool check_vrr_window(Device& state)
         sedici::fg::PresentChoice choice;
         choice.present = sedici::FrameGenerationSettings::Present::Vrr;
         choice.guard = sedici::FrameGenerationSettings::TearGuard::Scanline;
+        choice.multiplier = multiplier;
+        const bool doubled = multiplier == sedici::FrameGenerationSettings::Multiplier::X2;
         ComPtr<sedici::fg::Swapchain> wrapped;
         // Hand the only reference over, as the FFX wrap desc does for the game:
         // "vrr" destroys this chain and recreates it on the present queue.
@@ -1098,6 +1260,9 @@ bool check_vrr_window(Device& state)
         const UINT cycles = 40;
         uint64_t skippedAtTen = 0;
         HANDLE latency = wrapped->GetFrameLatencyWaitableObject();
+        LARGE_INTEGER loopStart{}, loopEnd{}, frequency{};
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&loopStart);
         for (UINT cycle = 0; cycle < cycles; ++cycle) {
             MSG msg{};
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -1105,7 +1270,7 @@ bool check_vrr_window(Device& state)
                 DispatchMessageW(&msg);
             }
             if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
-            Sleep(27); // ~35 fps real rate: under half of a 75 Hz refresh, like the game cap
+            Sleep(frameMs); // 27 ms: ~35 fps real rate, under half of a 75 Hz refresh like the game cap
             ComPtr<ID3D12Resource> buffer;
             if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
             if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
@@ -1121,6 +1286,9 @@ bool check_vrr_window(Device& state)
             if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) { std::printf("vrr: index\n"); return false; }
             if (cycle == 9) skippedAtTen = wrapped->skipped_generates();
         }
+        QueryPerformanceCounter(&loopEnd);
+        const double perFrameMs = 1000.0 * static_cast<double>(loopEnd.QuadPart - loopStart.QuadPart) /
+                                  static_cast<double>(frequency.QuadPart) / cycles;
         // Resize drains the presenter, so every output has been issued after it.
         if (const HRESULT hr = wrapped->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, desc.Flags); FAILED(hr)) {
             std::printf("vrr: resize failed hr=0x%08lx\n", static_cast<unsigned long>(hr));
@@ -1130,13 +1298,42 @@ bool check_vrr_window(Device& state)
         if (FAILED(wrapped->GetLastPresentCount(&presented))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
         const uint64_t shown = wrapped->generated_presents();
         const uint64_t skipped = wrapped->skipped_generates();
-        std::printf("vrr presentation: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n",
+        std::printf("vrr presentation %s: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n", label,
                     calls, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(skipped),
                     presented, canTear ? "yes" : "no");
-        std::printf("vrr: skipped in the first 10 cycles: %llu\n", static_cast<unsigned long long>(skippedAtTen));
-        if (calls != cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-        if (shown + skipped != cycles - 1) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-        if (presented != cycles + shown) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        std::printf("vrr: skipped in the first 10 cycles: %llu, game loop %.2f ms per frame (sleep %lu)\n",
+                    static_cast<unsigned long long>(skippedAtTen), perFrameMs, frameMs);
+        if (overload) {
+            // The game keeps its own pace (a bounded wait for the presenter is
+            // allowed, not being throttled to the panel), and nothing beyond the
+            // plan is presented.
+            const UINT planned = 1 + (cycles - 1) * 3 / 2;
+            DEVMODEW mode{};
+            mode.dmSize = sizeof(mode);
+            const double refreshMs = EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) &&
+                mode.dmDisplayFrequency > 1 ? 1000.0 / mode.dmDisplayFrequency : 1000.0 / 60.0;
+            const double panelPace = 1.5 * refreshMs; // 1.5 flips per real frame
+            if (perFrameMs > std::max<double>(frameMs, panelPace) + 6.0) {
+                std::printf("vrr: game slower than the panel allows (%.2f ms, panel pace %.2f ms)\n",
+                            perFrameMs, panelPace);
+                return false;
+            }
+            if (presented > planned) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        } else if (doubled) {
+            if (calls != cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (shown + skipped != cycles - 1) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (presented != cycles + shown) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        } else {
+            // 1.5x: 3 outputs per 2 real frames after the first, two of them
+            // generated. Allow a few start-up drops, never more than planned.
+            const UINT planned = 1 + (cycles - 1) * 3 / 2;
+            if (calls < cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (presented > planned || presented + 6 < planned) {
+                std::printf("vrr: step failed at line %d (presented %u of %u)\n", __LINE__, presented, planned);
+                return false;
+            }
+            if (shown + 4 < (planned - 1) * 2 / 3) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        }
         // Presentation continues after the resize, still from the presenter.
         for (UINT cycle = 0; cycle < 3; ++cycle) {
             if (FAILED(wrapped->Present(0, presentFlags))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
@@ -1147,8 +1344,8 @@ bool check_vrr_window(Device& state)
 
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
-    std::printf("%s vrr presentation: presenter thread, present queue, resize, teardown\n",
-                ok ? "PASS" : "FAIL");
+    std::printf("%s vrr presentation %s: presenter thread, present queue, resize, teardown\n",
+                ok ? "PASS" : "FAIL", label);
     return ok;
 }
 
@@ -1767,7 +1964,9 @@ int main(int argc, char** argv)
     if (routing) ok = check_routing(state) && ok;
     // Last: overlays that hook Present (RTSS) keep using the queue of the most
     // recent swapchain, so the present queue would leak into later checks.
-    if (present) ok = check_vrr_window(state) && ok;
+    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x") && ok;
+    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x") && ok;
+    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x overload", 6) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

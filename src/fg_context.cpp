@@ -357,6 +357,14 @@ bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
                        D3D12_RESOURCE_STATES outputState, const HudSource* hud) noexcept
 {
     if (!list || !output) return fail("generate without a command list or output");
+    const GeneratePhase phase{output, outputState, m_stage.params().alpha};
+    return generate(list, &phase, 1, hud);
+}
+
+bool Context::generate(ID3D12GraphicsCommandList* list, const GeneratePhase* phases, uint32_t count,
+                       const HudSource* hud) noexcept
+{
+    if (!list || !phases || count == 0) return fail("generate without a command list or output");
     if (!m_enabled) return fail("frame generation disabled");
     if (!m_prepare_valid) return fail("generate without prepare");
     if (m_recorded && list != m_prepare_list)
@@ -375,7 +383,7 @@ bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
     frame.colorState = m_hudless_state;
 
     const bool reset = m_reset_requested || !m_history_valid;
-    if (!m_stage.generate(list, frame, output, reset, outputState, hud)) {
+    if (!m_stage.generate(list, frame, phases, count, reset, hud)) {
         return fail("stage 1 rejected the frame");
     }
 

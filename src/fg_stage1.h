@@ -11,7 +11,7 @@
 //
 // It takes the two most recent real frames (HUD-less color at display
 // resolution, depth and motion vectors at render resolution) and produces one
-// interpolated frame at the midpoint. Nothing here talks to FFX; the caller
+// interpolated frame at the midpoint, or at any phase alpha in (0, 1). Nothing here talks to FFX; the caller
 // owns the command list, the frame history ordering and the output resource.
 //
 // Resource contract for one call:
@@ -49,6 +49,19 @@ struct HudSource {
     D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
 };
 
+// Most generated frames recorded for one real frame. Two covers every output
+// rate up to twice the real rate, including an adaptive target whose output
+// slots do not line up with real frames.
+constexpr uint32_t kMaxPhases = 2;
+
+// One generated frame: `alpha` in (0, 1) is its time between the previous real
+// frame (0) and the current one (1). `output` is returned to `outputState`.
+struct GeneratePhase {
+    ID3D12Resource* output = nullptr;
+    D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON;
+    float alpha = kMidpointAlpha;
+};
+
 class Stage1 {
 public:
     Stage1() = default;
@@ -81,6 +94,13 @@ public:
     bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                   ID3D12Resource* output, bool resetHistory,
                   D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON,
+                  const HudSource* hud = nullptr) noexcept;
+
+    // Same, for `count` (1..kMaxPhases) generated frames between the same pair
+    // of real frames, each at its own alpha into its own output. The history
+    // advances once. On a reset every output receives the real frame.
+    bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
+                  const GeneratePhase* phases, uint32_t count, bool resetHistory,
                   const HudSource* hud = nullptr) noexcept;
 
     const FrameParams& params() const noexcept { return m_params; }
@@ -118,6 +138,8 @@ private:
 
     bool dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline,
                   uint32_t groupsX, uint32_t groupsY) noexcept;
+    void synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous,
+                    const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept;
 
     ID3D12Device* m_device = nullptr;
     bool m_pipelines_ready = false;
@@ -128,6 +150,7 @@ private:
     bool m_prepared = false;
     uint32_t m_current = 0;
     float m_composite_weight = 0.0f;
+    float m_alpha = kMidpointAlpha; // phase written into the root constants
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_root_signature;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lut;

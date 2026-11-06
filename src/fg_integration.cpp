@@ -101,6 +101,17 @@ bool Session::record(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource
     return session->m_context.generate(list, output, state, &hud);
 }
 
+bool Session::record_phases(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
+                            const GeneratePhase* phases, uint32_t count) noexcept
+{
+    auto* session = static_cast<Session*>(user);
+    if (!session || !list || !real || !phases || count == 0) return false;
+    // Same ordering and HUD contract as record(), for several phases at once.
+    const HudSource hud{real, D3D12_RESOURCE_STATE_PRESENT};
+    session->m_context.note_ordered_submission();
+    return session->m_context.generate(list, phases, count, &hud);
+}
+
 void Session::submitted(void* user, ID3D12Fence* fence, uint64_t value) noexcept
 {
     auto* session = static_cast<Session*>(user);
@@ -150,7 +161,7 @@ bool Session::configure(const ffxApiHeader* configureDesc) noexcept
 
     if (m_swapchain) {
         if (m_context.enabled()) {
-            const GenerateSink sink{this, &Session::record, &Session::submitted};
+            const GenerateSink sink{this, &Session::record, &Session::record_phases, &Session::submitted};
             m_swapchain->set_generator(sink);
         } else {
             m_swapchain->set_generator(GenerateSink{});

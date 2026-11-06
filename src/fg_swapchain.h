@@ -12,6 +12,7 @@
 #include "config.h"
 #include "fg_pacing.h"
 #include "fg_presenter.h"
+#include "fg_stage1.h"
 
 namespace sedici::fg {
 
@@ -27,6 +28,11 @@ struct GenerateSink {
     // must restore it before returning, because the wrapper copies from it.
     bool (*record)(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
                    ID3D12Resource* output, D3D12_RESOURCE_STATES outputState) = nullptr;
+    // "vrr" schedules: records every phase of one real frame into one list.
+    // Without it, `record` is called once per phase (enough for count-only
+    // sinks; a real generator must advance its history once per real frame).
+    bool (*recordPhases)(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
+                         const GeneratePhase* phases, uint32_t count) = nullptr;
     // Called after the recorded work was submitted and its fence signalled, so
     // the owner can register retirement (fg::Context::track_submission).
     void (*submitted)(void* user, ID3D12Fence* fence, uint64_t value) = nullptr;
@@ -40,6 +46,8 @@ struct GenerateSink {
 struct PresentChoice {
     FrameGenerationSettings::Present present = FrameGenerationSettings::Present::Vsync;
     FrameGenerationSettings::TearGuard guard = FrameGenerationSettings::TearGuard::Scanline;
+    FrameGenerationSettings::Multiplier multiplier = FrameGenerationSettings::Multiplier::X2;
+    double targetFps = 0.0; // adaptive; 0 = three below the refresh rate
 };
 
 class Swapchain final : public IDXGISwapChain4 {
@@ -68,6 +76,9 @@ public:
     // because this is the one place that sees a game frame rather than an output
     // frame. Left unset, the wrapper does no pacing of its own.
     void set_present_hook(void (*hook)(uint64_t now_qpc_ticks)) noexcept;
+
+    // Overlay drawing and output timing, on whichever path presents.
+    void set_output_hooks(const OutputHooks& hooks) noexcept;
 
     // Generated midpoints presented since wrap, and midpoint deadline misses
     // that fell back to real-frame-only presentation.
@@ -126,7 +137,7 @@ private:
     HRESULT initialize_buffers() noexcept;
     HRESULT drain() noexcept;
     void wait_until(double deadline, double maxWait) noexcept;
-    HRESULT blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept;
+    HRESULT blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState, bool generated) noexcept;
     // Absolute QPC deadline for arming a flip just before the next vertical
     // blank. Returns `now` when frame statistics are unavailable.
     double vblank_deadline(double now) noexcept;
@@ -134,6 +145,10 @@ private:
     // "vrr": generate on the game thread, hand both outputs to the presenter.
     HRESULT present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
     void record_generated() noexcept;
+    // "vrr": records `count` phases into `outputs`; false when nothing usable
+    // was submitted (no sink, or the generator refused the frame).
+    bool record_phases(const GeneratePhase* phases, uint32_t count) noexcept;
+    void configure_schedule(const PresentChoice& choice) noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
 
@@ -156,7 +171,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_generated;
     // "vrr" only: the presenter may still copy last cycle's midpoint while this
     // cycle's is generated, so the two alternate.
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_generated_spare;
+    // "vrr" only: generated images, two sets so the presenter can still copy
+    // the previous frame's while this frame's are generated.
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_phase_outputs[2][kMaxPhases];
+    uint32_t m_phase_set = 0;
+    OutputSchedule m_schedule;
+    // Per 300 game frames: when the window started and how many outputs were
+    // planned, to report the real and output rates against the refresh rate.
+    double m_rate_window_start = 0.0;
+    uint32_t m_rate_window_outputs = 0;
     std::unique_ptr<Presenter> m_presenter;
     // Game-thread time spent waiting for the presenter to catch up.
     uint32_t m_backpressure_samples = 0;
@@ -166,6 +189,7 @@ private:
     D3D12_RESOURCE_STATES m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     GenerateSink m_sink{};
     void (*m_present_hook)(uint64_t) = nullptr;
+    OutputHooks m_output_hooks{};
     // Test-only A/B (`SEDICI_FG_SYNC=1`): present with SyncInterval=1 and drop
     // DXGI_PRESENT_ALLOW_TEARING, to prove whether tearing is flip-phase
     // misalignment. Off by default; the game's own flags are used otherwise.
