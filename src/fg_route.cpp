@@ -208,9 +208,10 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
     } else {
         owned->wrap.reset();
     }
-    // The handle value the game holds is the object address; clearing the slot
-    // keeps a later call with the same recycled value from matching.
-    *context = nullptr;
+    // The caller's handle is left exactly as it was: the original DLL does not
+    // modify it on destroy, and a game that inspects its own context afterwards
+    // must see the same value. The registry entry is gone, so a later call with
+    // the same pointer no longer matches and is forwarded instead.
     *result = ok ? FFX_API_RETURN_OK : failure("destroy before GPU retirement");
     return true;
 }

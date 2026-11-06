@@ -151,6 +151,32 @@ identity, records generation on the wrapper's list, and reports the wrapper's
 fence so retirement stays with the object that owns the list. The offline host
 runs describe, prepare, generate, present, FG off and clean destroy through it.
 
+## Export routing and what is still unverified
+
+`fg.mode` selects the path once, at the first create. `"amd"` is the default and
+forwards everything, so every earlier release's behaviour is intact. `"sedici"`
+creates the generator context and the swapchain wrapper and answers the five
+exports for those handles only; a handle Sedici did not create is still forwarded,
+so an AMD-owned context keeps working even in that mode.
+
+The real-frame limiter attaches through `route_set_present_hook` rather than
+through the swapchain directly. That keeps the wrapper free of limiter and
+configuration symbols, and gives the limiter exactly one call per application
+frame — the same rule the old vtable hook followed.
+
+Two things cannot be established from the recorded contract, and both are left
+deliberately conservative:
+
+- **Queries.** No capture records which `ffxQuery` descs Cyberpunk issues on a
+  frame generation context. Rather than guess an answer, a query on a Sedici-owned
+  context is refused and logged. The first game session will name the descs that
+  need implementing.
+- **Unsupported calls.** Once Sedici owns a context there is no per-call fallback,
+  because a context cannot be handed to AMD mid-life. Anything unsupported is
+  refused and logged instead.
+
+Neither affects `"amd"`, and neither is exercised by a game yet.
+
 Metrics use linear UNORM RGB (alpha excluded) for PSNR and pooled
 8x8 uniform luma SSIM windows with stride 4, not Gaussian-window SSIM.
 
