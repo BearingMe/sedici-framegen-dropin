@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ffx_api.h"
+#include "fg_presenter.h"
 
 // Routing of the five exports between AMD's original DLL and Sedici's own frame
 // generation path.
@@ -31,5 +32,9 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept;
 // Sedici wraps. The DLL registers the real-frame limiter here; the offline host
 // leaves it unset, so nothing in the wrapper depends on the limiter.
 void route_set_present_hook(void (*hook)(uint64_t now_qpc_ticks)) noexcept;
+
+// Overlay drawing and output-frame timing for every swapchain Sedici wraps,
+// standing in for AMD's present callback. Registered by the DLL only.
+void route_set_output_hooks(const OutputHooks& hooks) noexcept;
 
 } // namespace sedici::fg

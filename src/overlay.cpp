@@ -453,6 +453,28 @@ ScopedOverlayCallback::~ScopedOverlayCallback()
     m_count = 0;
 }
 
+void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list,
+                         ID3D12Resource* backbuffer, bool generated) noexcept
+{
+    if (!device || !list || !backbuffer) return;
+    // The fields ui_on_present reads, as AMD's callback fills them when no
+    // separate UI resource is registered.
+    ffxCallbackDescFrameGenerationPresent params{};
+    params.device = device;
+    params.commandList = list;
+    params.outputSwapChainBuffer.resource = backbuffer;
+    params.outputSwapChainBuffer.state = FFX_API_RESOURCE_STATE_PRESENT;
+    params.isGeneratedFrame = generated;
+    sedici::ui_on_present(&params);
+}
+
+void overlay_output_presented(bool generated) noexcept
+{
+    ffxCallbackDescFrameGenerationPresent params{};
+    params.isGeneratedFrame = generated;
+    overlay_on_present(&params);
+}
+
 void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
 {
     if (!params) return;

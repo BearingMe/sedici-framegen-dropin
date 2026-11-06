@@ -521,6 +521,23 @@ void toggles_after_configure(ffxContext* context, const ffxConfigureDescHeader* 
     }
 }
 
+void toggles_note_fg_configure(const ffxConfigureDescHeader* desc) noexcept
+{
+    try {
+        std::set<const ffxApiHeader*> seen;
+        for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+            if (!seen.insert(item).second || seen.size() > kMaxChainItems) break;
+            if (item->type == FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION) {
+                g_fg_enabled.store(
+                    reinterpret_cast<const ffxConfigureDescFrameGeneration&>(*item).frameGenerationEnabled,
+                    std::memory_order_relaxed);
+                return;
+            }
+        }
+    } catch (...) {
+    }
+}
+
 void toggles_on_destroy(void* context) noexcept
 {
     try {

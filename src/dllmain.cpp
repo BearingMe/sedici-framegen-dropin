@@ -7,7 +7,11 @@
 #include "overlay.h"
 #include "present_hook.h"
 #include "stats.h"
+#include "timing.h"
 #include "toggles.h"
+#include "ui.h"
+
+#include "ffx_api_framegeneration_dx12.h"
 
 #include <windows.h>
 
@@ -21,6 +25,35 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
     return TRUE;
 }
 
+namespace {
+
+// One call per game frame on Sedici's own swapchain: the real-frame timing the
+// overlay shows, then the limiter, in the order the native Present hook uses.
+void sedici_game_present(uint64_t now_qpc) noexcept
+{
+    sedici::timing_on_real_present(now_qpc);
+    limiter_before_present(now_qpc);
+}
+
+// The overlay's hotkey and cursor handling need the game window, which the
+// native path records in toggles_after_create.
+void capture_wrapped_window(const ffxCreateContextDescHeader* desc) noexcept
+{
+    try {
+        for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+            if (item->type != FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12) continue;
+            const auto& wrap = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainWrapDX12&>(*item);
+            HWND window = nullptr;
+            if (wrap.swapchain && *wrap.swapchain && SUCCEEDED((*wrap.swapchain)->GetHwnd(&window)) && window)
+                sedici::ui_capture_window(window);
+            return;
+        }
+    } catch (...) {
+    }
+}
+
+} // namespace
+
 extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
                                             ffxCreateContextDescHeader* desc,
                                             const ffxAllocationCallbacks* callbacks)
@@ -32,11 +65,19 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     ScopedDescOverride desc_override(desc);
 
     // Under Sedici ownership the limiter attaches to Sedici's own wrapper, which
-    // is the only place that still sees one call per application frame.
-    if (sedici::fg::routing_enabled()) sedici::fg::route_set_present_hook(&limiter_before_present);
+    // is the only place that still sees one call per application frame, and the
+    // overlay draws from the wrapper instead of AMD's present callback.
+    if (sedici::fg::routing_enabled()) {
+        sedici::fg::route_set_present_hook(&sedici_game_present);
+        sedici::fg::OutputHooks hooks;
+        hooks.draw = &overlay_draw_output;
+        hooks.presented = &overlay_output_presented;
+        sedici::fg::route_set_output_hooks(hooks);
+    }
 
     if (ffxReturnCode_t routed{}; sedici::fg::route_create(context, desc, &routed)) {
         describe_call(FfxExportKind::Create, desc, routed, context ? *context : nullptr);
+        if (routed == FFX_API_RETURN_OK) capture_wrapped_window(desc);
         return routed;
     }
 
@@ -95,6 +136,7 @@ extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
     void* existing = context ? *context : nullptr;
     if (ffxReturnCode_t routed{}; sedici::fg::route_configure(context, desc, &routed)) {
         describe_call(FfxExportKind::Configure, desc, routed, existing);
+        if (routed == FFX_API_RETURN_OK) toggles_note_fg_configure(desc);
         return routed;
     }
 

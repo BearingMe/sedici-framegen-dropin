@@ -76,3 +76,8 @@ void toggles_after_configure(ffxContext* context, const ffxConfigureDescHeader* 
 // state. Without this a recycled context pointer would look "already applied".
 // Takes the context value (the `void*` the game holds), not the slot pointer.
 void toggles_on_destroy(void* context) noexcept;
+
+// Sedici owns frame generation (fg.mode = "sedici"): configure never reaches
+// toggles_after_configure, so only record what the game asked of frame
+// generation, for the limiter's and overlay's "frame generation on/off".
+void toggles_note_fg_configure(const ffxConfigureDescHeader* desc) noexcept;

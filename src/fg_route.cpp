@@ -29,6 +29,7 @@ struct Owned {
 std::mutex g_owned_mutex;
 std::map<void*, Owned> g_owned;
 void (*g_present_hook)(uint64_t) = nullptr;
+OutputHooks g_output_hooks{};
 
 constexpr size_t kMaxChainItems = 64;
 
@@ -72,6 +73,17 @@ bool routing_enabled() noexcept
     return sedici::settings().fg.mode == sedici::FrameGenerationMode::Sedici;
 }
 
+void route_set_output_hooks(const OutputHooks& hooks) noexcept
+{
+    std::lock_guard lock(g_owned_mutex);
+    g_output_hooks = hooks;
+    for (auto& entry : g_owned) {
+        if (entry.second.kind == Kind::Wrap && entry.second.wrap && entry.second.wrap->wrapper()) {
+            entry.second.wrap->wrapper()->set_output_hooks(hooks);
+        }
+    }
+}
+
 void route_set_present_hook(void (*hook)(uint64_t)) noexcept
 {
     std::lock_guard lock(g_owned_mutex);
@@ -113,6 +125,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             return true;
         }
         owned->wrapper()->set_present_hook(g_present_hook);
+        owned->wrapper()->set_output_hooks(g_output_hooks);
         void* handle = owned.get();
         const auto [entry, inserted] = g_owned.emplace(handle, Owned{Kind::Wrap, nullptr, std::move(owned)});
         if (!inserted) {

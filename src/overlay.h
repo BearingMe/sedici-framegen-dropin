@@ -3,6 +3,10 @@
 #include "ffx_framegeneration.h"
 
 #include <cstddef>
+
+struct ID3D12Device;
+struct ID3D12GraphicsCommandList;
+struct ID3D12Resource;
 #include <cstdint>
 
 // Sedici's frame-generation present callback.
@@ -57,6 +61,14 @@ private:
 // timestamp and the real/generated split, and logs output fps every 300 calls.
 // Never lets an exception escape into FFX.
 void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept;
+
+// Sedici's own frame-generation swapchain stands in for AMD's callback with
+// these two (fg::OutputHooks). `overlay_draw_output` records the overlay onto
+// a native backbuffer in PRESENT state on the list executed right before it is
+// presented; `overlay_output_presented` follows each successful Present.
+void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list,
+                         ID3D12Resource* backbuffer, bool generated) noexcept;
+void overlay_output_presented(bool generated) noexcept;
 // Called after successful swapchain creation to relate registration contexts
 // to the swapchain identity referenced by frame-generation configure calls.
 void overlay_after_create(void* context, const ffxCreateContextDescHeader* desc) noexcept;
