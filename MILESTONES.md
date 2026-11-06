@@ -163,6 +163,13 @@ new testing framework, broad matrix or dozens of new tests.
 
 ### P1.5 — First deploy and Cyberpunk verification
 
+**Deployed, not launched.** The Release DLL is installed in Cyberpunk's `bin\x64`;
+the original is preserved as `.orig` and the user's `sedici.toml` was kept, so the
+deployed build runs `fg.mode = "amd"` and is behaviourally identical to the
+previous deployment. Recorded in
+[007](docs/findings/007-fg-baseline.md#deployment-record). Game launch and the
+`fg.mode = "sedici"` switch both remain to be authorized separately.
+
 - With deployment authorization and the game stopped, deploy through the existing
   safety script. Preserve `.orig` and the user's configuration.
 - Only after this first deploy, have the user launch Cyberpunk, or obtain

@@ -177,6 +177,31 @@ deliberately conservative:
 
 Neither affects `"amd"`, and neither is exercised by a game yet.
 
+## Deployment record
+
+Deployed to the Cyberpunk `bin\x64` directory through `tools/deploy.ps1` on
+2026-11-06, with the game stopped and no launch performed.
+
+- Deployed DLL SHA256 `89A6987B2DEDB5AFC9F75BE88CF7589BBC4D7B9EDD3AFCA419E63E2290659B98`,
+  identical to the Release build from commit `3fddbe4`.
+- Original `.orig` untouched at `02297BEEDD285E822D3A64F314CF00FAF378DCEC0EDC47FF0C4DD71B3A8C2F18`.
+- The existing `sedici.toml` was kept, not overwritten: it is the user's, and
+  deploy never replaces it.
+- That kept file has no `[fg]` section, so the deployed build runs with
+  `fg.mode = "amd"` and behaves exactly like the previous deployment. The new
+  code is present but inert until the mode is switched.
+
+To exercise Sedici's own generator, add to the deployed `sedici.toml`:
+
+```toml
+[fg]
+mode = "sedici"
+```
+
+That is a deliberate, reversible change to the user's configuration, not
+something deployment does. Roll back with `tools/restore.ps1 -Game cp2077`, which
+restores the `.orig` and removes `sedici.toml`.
+
 Metrics use linear UNORM RGB (alpha excluded) for PSNR and pooled
 8x8 uniform luma SSIM windows with stride 4, not Gaussian-window SSIM.
 
