@@ -1,0 +1,15 @@
+﻿[submodule "references/sources/mobfgsr"]
+	path = references/sources/mobfgsr
+	url = https://github.com/Mob-FGSR/MobFGSR.git
+[submodule "references/sources/stssnet"]
+	path = references/sources/stssnet
+	url = https://github.com/ryanhe312/STSSNet-AAAI2024.git
+[submodule "references/sources/tbfe"]
+	path = references/sources/tbfe
+	url = https://github.com/NJUCG/tile-based-frame-extrapolation.git
+[submodule "references/sources/lmv"]
+	path = references/sources/lmv
+	url = https://github.com/jsnzwu/learnable-motion-vector.git
+[submodule "references/sources/moflow"]
+	path = references/sources/moflow
+	url = https://github.com/jsnzwu/motion-guided-flow.git
