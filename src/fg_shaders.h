@@ -122,6 +122,27 @@ float4 sample_bicubic(Texture2D<float4> tex, float2 uv, float2 size)
 }
 )hlsl";
 
+// Input decode: any float motion format becomes RG16F in UV units, depth is
+// remapped to the upstream "smaller is nearer" convention. Kept separate from
+// dilate so the pipeline never depends on the game's exact texture formats.
+inline constexpr const char* kDecode = R"hlsl(
+Texture2D<float> inputDepth : register(t0);
+Texture2D<float4> inputMotion : register(t1);
+RWTexture2D<float> decodedDepth : register(u0);
+RWTexture2D<float2> decodedMotion : register(u1);
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = int2(renderSize.xy);
+    int2 pos = int2(id.xy);
+    if (any(pos >= size)) return;
+
+    decodedDepth[pos] = remap_depth(inputDepth.Load(int3(pos, 0)));
+    decodedMotion[pos] = inputMotion.Load(int3(pos, 0)).xy / motionVectorScale;
+}
+)hlsl";
+
 // Depth and motion dilation: each pixel borrows the nearest (nearest to the
 // camera) neighbour's motion so splatting does not leave gaps on thin geometry.
 inline constexpr const char* kDilate = R"hlsl(
@@ -144,12 +165,12 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     };
 
     int2 nearestPos = pos;
-    float nearestDepth = remap_depth(inputDepth.Load(int3(pos, 0)));
+    float nearestDepth = inputDepth.Load(int3(pos, 0));
 
     [unroll] for (uint i = 0; i < 8; ++i)
     {
         int2 samplePos = clamp_pos(pos + offsets[i], size);
-        float depth = remap_depth(inputDepth.Load(int3(samplePos, 0)));
+        float depth = inputDepth.Load(int3(samplePos, 0));
         if (depth < nearestDepth)
         {
             nearestDepth = depth;
@@ -157,9 +178,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    float2 motionPixels = inputMotion.Load(int3(nearestPos, 0));
     outputDepth[pos] = nearestDepth;
-    outputMotion[pos] = motionPixels / motionVectorScale;
+    outputMotion[pos] = inputMotion.Load(int3(nearestPos, 0));
 }
 )hlsl";
 

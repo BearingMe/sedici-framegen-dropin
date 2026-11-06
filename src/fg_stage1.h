@@ -23,13 +23,18 @@
 namespace sedici::fg {
 
 struct InputFrame {
-    ID3D12Resource* color = nullptr;
-    ID3D12Resource* depth = nullptr;
-    ID3D12Resource* motion = nullptr;
+    ID3D12Resource* color = nullptr;   // display resolution, R8G8B8A8_UNORM
+    ID3D12Resource* depth = nullptr;   // render resolution
+    ID3D12Resource* motion = nullptr;  // render resolution, two or more float channels
 
     D3D12_RESOURCE_STATES colorState = D3D12_RESOURCE_STATE_COPY_SOURCE;
     D3D12_RESOURCE_STATES depthState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     D3D12_RESOURCE_STATES motionState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+    // Formats of the game's resources; the decode pass converts them to the
+    // pipeline's internal layout, so any float depth/motion format works.
+    DXGI_FORMAT depthFormat = DXGI_FORMAT_R32_FLOAT;
+    DXGI_FORMAT motionFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 };
 
 class Stage1 {
@@ -102,12 +107,15 @@ private:
     uint32_t m_increment = 0;
     uint32_t m_block = 0;
 
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_decode;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_dilate;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_clear;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_reproject;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_fill;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_warp;
 
+    Target m_decodedDepth;
+    Target m_decodedMotion;
     Target m_depth[2];
     Target m_motion[2];
     Target m_color[2];

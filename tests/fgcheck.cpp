@@ -24,8 +24,12 @@
 
 #include <DirectXPackedVector.h>
 
+#include "fg_context.h"
 #include "fg_params.h"
 #include "fg_stage1.h"
+
+#include "ffx_api_framegeneration_dx12.h"
+#include "ffx_framegeneration.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -474,6 +478,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         frame.colorState = D3D12_RESOURCE_STATE_COMMON;
         frame.depthState = D3D12_RESOURCE_STATE_COMMON;
         frame.motionState = D3D12_RESOURCE_STATE_COMMON;
+        frame.depthFormat = DXGI_FORMAT_R32_FLOAT;
+        frame.motionFormat = DXGI_FORMAT_R16G16_FLOAT;
 
         state.allocator->Reset();
         state.list->Reset(state.allocator.Get(), nullptr);
@@ -556,6 +562,86 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     return true;
 }
 
+
+// Contract checks for the FFX-facing context: the descs Cyberpunk sends must be
+// accepted, and anything the generator cannot honour must be refused so the
+// caller can fall back.
+int check_contract(Device& state)
+{
+    int failures = 0;
+    auto expect = [&failures](bool condition, const char* what) {
+        std::printf("%s %s\n", condition ? "PASS" : "FAIL", what);
+        if (!condition) ++failures;
+    };
+
+    const auto color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                      64, 36, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    const auto depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
+                                      32, 18, D3D12_RESOURCE_FLAG_NONE);
+    const auto motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                       32, 18, D3D12_RESOURCE_FLAG_NONE);
+    const auto output = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                       64, 36, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    if (!color || !depth || !motion || !output) {
+        std::printf("FAIL contract textures\n");
+        return 1;
+    }
+
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = state.device.Get();
+
+    ffxCreateContextDescFrameGeneration create{};
+    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    create.header.pNext = &backend.header;
+    create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+    create.displaySize = {64, 36};
+    create.maxRenderSize = {64, 36};
+    create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+
+    sedici::fg::Context context;
+    expect(context.create(&create.header), "create accepts Cyberpunk's create desc");
+
+    ffxConfigureDescFrameGeneration configure{};
+    configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+    configure.frameGenerationEnabled = true;
+    configure.HUDLessColor.resource = color.Get();
+    configure.HUDLessColor.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    configure.frameID = 7;
+    expect(context.configure(&configure.header), "configure accepts the FrameGenerationConfig desc");
+
+    ffxDispatchDescFrameGenerationPrepare prepare{};
+    prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+    prepare.renderSize = {32, 18};
+    prepare.motionVectorScale = {32.0f, 18.0f};
+    prepare.depth.resource = depth.Get();
+    prepare.depth.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    prepare.motionVectors.resource = motion.Get();
+    prepare.motionVectors.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    expect(context.prepare(&prepare.header), "prepare accepts the legacy prepare desc");
+
+    state.allocator->Reset();
+    state.list->Reset(state.allocator.Get(), nullptr);
+    const bool generated = context.generate(state.list.Get(), output.Get(),
+                                            D3D12_RESOURCE_STATE_COMMON);
+    expect(generated, "generate produces a frame");
+    expect(state.submit(), "the frame command list executes");
+    expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
+           "a second generate without a new prepare is refused");
+
+    prepare.motionVectors.resource = color.Get();
+    expect(!context.prepare(&prepare.header), "a non-float motion vector resource is refused");
+    prepare.motionVectors.resource = motion.Get();
+
+    configure.frameGenerationEnabled = false;
+    expect(context.configure(&configure.header), "configure accepts frame generation off");
+    expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
+           "generate is refused while frame generation is off");
+
+    context.destroy();
+    return failures;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -598,6 +684,9 @@ int main(int argc, char** argv)
     for (const auto& scene : kScenes) {
         ok = run_case(state, scene, keepImages) && ok;
     }
+
+    const int contractFailures = check_contract(state);
+    if (contractFailures != 0) ok = false;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

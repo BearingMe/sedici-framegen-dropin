@@ -63,6 +63,7 @@ add_library(sedici SHARED
     src/log.cpp
     src/fg_params.cpp
     src/fg_stage1.cpp
+    src/fg_context.cpp
     ${SEDICI_IMGUI_SOURCES}
     exports.def
 )
@@ -128,11 +129,19 @@ if(SEDICI_BUILD_FGCHECK)
         tests/fgcheck.cpp
         src/fg_params.cpp
         src/fg_stage1.cpp
+        src/fg_context.cpp
         src/live.cpp
         src/config.cpp
         src/log.cpp
     )
-    target_include_directories(sedici_fgcheck PRIVATE src third_party/tomlplusplus)
+    target_include_directories(sedici_fgcheck PRIVATE
+        src
+        third_party/tomlplusplus
+        third_party/ffx/api/include
+        third_party/ffx/api/include/dx12
+        third_party/ffx/framegeneration/include
+        third_party/ffx/framegeneration/include/dx12
+    )
     target_compile_definitions(sedici_fgcheck PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     target_compile_options(sedici_fgcheck PRIVATE /utf-8 /W4 /permissive-)
     target_link_libraries(sedici_fgcheck PRIVATE dxgi d3d12 d3dcompiler)
