@@ -13,12 +13,12 @@
 
 namespace sedici::fg {
 
-// Records the midpoint for the real frame the game just finished.
+// Records the midpoint for the previous/current real-frame pair.
 //
 // The wrapper owns the command list and the output resource; the hook only
 // records. `output` is display resolution, RGBA8, UAV-capable, and is presented
-// on the *next* cycle, so a midpoint that misses its deadline is dropped instead
-// of delaying the real frame.
+// in the same cycle, before the current real frame and before any presentation
+// wait. A midpoint that misses its deadline is dropped, never kept for next time.
 struct GenerateSink {
     void* user = nullptr;
     // `outputState` is the state `output` is in when recording starts; the hook
@@ -33,8 +33,7 @@ struct GenerateSink {
 // Wraps the existing native swapchain without replacing it or changing its
 // buffer count. The game renders into private backbuffers and only this object
 // copies into native presentation buffers, presenting a generated midpoint
-// before the real frame when one is available. One cycle of generated-frame
-// latency is inherent: a midpoint between frames N-1 and N cannot precede N.
+// before the current real frame when a temporal pair is available.
 class Swapchain final : public IDXGISwapChain4 {
 public:
     // All allocation happens before success. Neither the caller's pointer nor
@@ -106,6 +105,7 @@ private:
     ~Swapchain();
     HRESULT initialize_buffers() noexcept;
     HRESULT drain() noexcept;
+    void wait_until(double deadline, double maxWait) noexcept;
     HRESULT blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept;
     HRESULT present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
     void record_generated() noexcept;
@@ -127,8 +127,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_buffers;
 
-    // One-cycle-deep generated frame. Bounded by construction: a new midpoint is
-    // never recorded while an unshown one exists.
+    // One in-flight midpoint, consumed or discarded in its own cycle.
     Microsoft::WRL::ComPtr<ID3D12Resource> m_generated;
     D3D12_RESOURCE_STATES m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     GenerateSink m_sink{};
@@ -140,11 +139,14 @@ private:
     UINT m_game_index = 0;   // game-facing buffer, advances once per cycle
     UINT64 m_fence_value = 0;
     HANDLE m_event = nullptr;
+    HANDLE m_pacing_timer = nullptr;
 
-    double m_last_cycle = 0.0;
-    double m_last_game_present = 0.0;
-    double m_interval = 1.0 / 60.0;
-    bool m_cycle_started = false;
+    PacingState m_pacing;
+    uint64_t m_present_cycles = 0;
+    uint32_t m_gap_samples = 0;
+    double m_gap_sum = 0.0;
+    double m_gap_min = 0.0;
+    double m_gap_max = 0.0;
 };
 
 } // namespace sedici::fg

@@ -91,8 +91,9 @@ bool Session::record(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource
 {
     auto* session = static_cast<Session*>(user);
     if (!session || !list || !real || !output) return false;
-    // The wrapper presents this image one cycle later, so the HUD comes from the
-    // backbuffer it just showed. The game's buffer is in PRESENT when recorded.
+    // The wrapper generates before either native Present, so the HUD and colour
+    // belong to the current prepare and are consumed before returning to the game.
+    // The game's buffer is in PRESENT when recorded.
     const HudSource hud{real, D3D12_RESOURCE_STATE_PRESENT};
     // Generation is recorded on the same queue the game presents on, after the
     // prepare it submitted for this frame, so queue order already holds.

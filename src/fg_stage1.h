@@ -33,8 +33,10 @@ struct InputFrame {
     D3D12_RESOURCE_STATES depthState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     D3D12_RESOURCE_STATES motionState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 
-    // Formats of the game's resources; the decode pass converts them to the
-    // pipeline's internal layout, so any float depth/motion format works.
+    // Typed SRV formats compatible with the game's resources, not necessarily
+    // their allocation formats (e.g. D32_FLOAT depth is viewed as R32_FLOAT;
+    // R32G8X24_TYPELESS uses R32_FLOAT_X8X24_TYPELESS on depth plane 0).
+    // The decode pass converts these views to the pipeline's internal layout.
     DXGI_FORMAT depthFormat = DXGI_FORMAT_R32_FLOAT;
     DXGI_FORMAT motionFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 };

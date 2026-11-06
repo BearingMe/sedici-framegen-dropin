@@ -38,14 +38,24 @@ DXGI_FORMAT format_of(ID3D12Resource* resource) noexcept
     return resource ? resource->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
 }
 
-bool is_supported_depth(DXGI_FORMAT format) noexcept
+DXGI_FORMAT depth_srv_format(DXGI_FORMAT format) noexcept
 {
     switch (format) {
+    // FFX reports D32_FLOAT as R32_FLOAT. The native resource format is not
+    // itself an SRV format: depth and typeless allocations need a typed view.
+    case DXGI_FORMAT_D32_FLOAT:
+    case DXGI_FORMAT_R32_TYPELESS:
     case DXGI_FORMAT_R32_FLOAT:
+        return DXGI_FORMAT_R32_FLOAT;
+    // Cyberpunk's native depth/stencil allocation has two planes. Sample only
+    // plane 0 as float depth; the stencil plane is not an input to generation.
+    case DXGI_FORMAT_R32G8X24_TYPELESS:
+    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+        return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
     case DXGI_FORMAT_R16_FLOAT:
-        return true;
+        return DXGI_FORMAT_R16_FLOAT;
     default:
-        return false;
+        return DXGI_FORMAT_UNKNOWN;
     }
 }
 
@@ -137,6 +147,7 @@ bool Context::destroy() noexcept
     m_hudless = nullptr;
     m_depth = nullptr;
     m_motion = nullptr;
+    m_input_formats_logged = false;
     m_enabled = false;
     m_prepare_valid = false;
     m_history_valid = false;
@@ -260,6 +271,19 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     m_motion_state = as_state(motion->state);
 
     if (!m_depth || !m_motion) return fail("prepare without depth or motion vectors");
+    if (!m_input_formats_logged) {
+        m_input_formats_logged = true;
+        try {
+            const auto nativeDepth = m_depth->GetDesc();
+            const auto nativeMotion = m_motion->GetDesc();
+            log_event(1, "fg: native inputs depth{format=" + std::to_string(nativeDepth.Format) +
+                " flags=" + std::to_string(nativeDepth.Flags) + " size=" +
+                std::to_string(nativeDepth.Width) + "x" + std::to_string(nativeDepth.Height) +
+                "} motion{format=" + std::to_string(nativeMotion.Format) + " flags=" +
+                std::to_string(nativeMotion.Flags) + " size=" + std::to_string(nativeMotion.Width) +
+                "x" + std::to_string(nativeMotion.Height) + "}");
+        } catch (...) {}
+    }
     if (renderSize.width == 0 || renderSize.height == 0) return fail("prepare without a render size");
 
     const bool geometry_ok = renderSize.width <= m_max_render_width &&
@@ -268,7 +292,8 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
                              renderSize.height <= m_display_height;
     if (!geometry_ok) return fail("prepare outside the created sizes");
 
-    if (!is_supported_depth(format_of(m_depth))) return fail("unsupported depth format");
+    const DXGI_FORMAT depthFormat = depth_srv_format(format_of(m_depth));
+    if (depthFormat == DXGI_FORMAT_UNKNOWN) return fail("unsupported depth format");
     if (!is_supported_motion(format_of(m_motion))) return fail("unsupported motion vector format");
     for (auto* resource : {m_depth, m_motion}) {
         const auto desc = resource->GetDesc();
@@ -306,7 +331,7 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     inputs.motion = m_motion;
     inputs.depthState = m_depth_state;
     inputs.motionState = m_motion_state;
-    inputs.depthFormat = format_of(m_depth);
+    inputs.depthFormat = depthFormat;
     inputs.motionFormat = format_of(m_motion);
     if (!m_stage.capture_prepare(commandList, inputs)) return fail("prepare snapshot rejected");
     m_recorded = true;

@@ -19,17 +19,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include <DirectXPackedVector.h>
 
 #include "fg_context.h"
+#include "config.h"
 #include "fg_integration.h"
 #include "fg_pacing.h"
 #include "fg_params.h"
+#include "fg_route.h"
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
+#include "log.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
@@ -187,8 +192,9 @@ ComPtr<ID3D12Resource> create_buffer(ID3D12Device* device, uint64_t size,
 }
 
 ComPtr<ID3D12Resource> create_texture(ID3D12Device* device, DXGI_FORMAT format,
-                                      uint32_t width, uint32_t height,
-                                      D3D12_RESOURCE_FLAGS flags)
+                                       uint32_t width, uint32_t height,
+                                       D3D12_RESOURCE_FLAGS flags,
+                                       const D3D12_CLEAR_VALUE* clear = nullptr)
 {
     D3D12_HEAP_PROPERTIES properties{};
     properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -206,7 +212,7 @@ ComPtr<ID3D12Resource> create_texture(ID3D12Device* device, DXGI_FORMAT format,
 
     ComPtr<ID3D12Resource> resource;
     if (FAILED(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE, &description,
-                                               D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                               D3D12_RESOURCE_STATE_COMMON, clear,
                                                IID_PPV_ARGS(&resource)))) {
         return nullptr;
     }
@@ -362,6 +368,38 @@ struct Device {
     }
 };
 
+// The chronology check uses FLIP_SEQUENTIAL so previously presented native
+// buffers retain their contents. Read the actual copies, not a callback count.
+std::vector<uint8_t> read_presented(Device& state, ID3D12Resource* texture)
+{
+    const auto desc = texture->GetDesc();
+    const auto width = static_cast<uint32_t>(desc.Width);
+    const auto pitch = align_to(width * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    auto buffer = create_buffer(state.device.Get(), static_cast<uint64_t>(pitch) * desc.Height,
+        D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (!buffer || FAILED(state.allocator->Reset()) ||
+        FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return {};
+    transition(state.list.Get(), texture, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{};
+    from.pResource = texture;
+    from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_TEXTURE_COPY_LOCATION to{};
+    to.pResource = buffer.Get();
+    to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    to.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, width, desc.Height, 1, pitch};
+    state.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+    transition(state.list.Get(), texture, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+    if (!state.submit()) return {};
+    void* mapped = nullptr;
+    if (FAILED(buffer->Map(0, nullptr, &mapped))) return {};
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * desc.Height * 4);
+    for (uint32_t y = 0; y < desc.Height; ++y)
+        std::memcpy(pixels.data() + static_cast<size_t>(y) * width * 4,
+                    static_cast<const uint8_t*>(mapped) + static_cast<size_t>(y) * pitch, width * 4);
+    buffer->Unmap(0, nullptr);
+    return pixels;
+}
+
 struct FrameTextures {
     ComPtr<ID3D12Resource> color;
     ComPtr<ID3D12Resource> depth;
@@ -387,9 +425,10 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
                                              kDisplayWidth, kDisplayHeight,
                                              D3D12_RESOURCE_FLAG_NONE);
-        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
-                                             kRenderWidth, kRenderHeight,
-                                             D3D12_RESOURCE_FLAG_NONE);
+        // Match the game's depth-target allocation; FFX describes it as R32_FLOAT.
+        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_D32_FLOAT,
+                                              kRenderWidth, kRenderHeight,
+                                              D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
         frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
                                               kRenderWidth, kRenderHeight,
                                               D3D12_RESOURCE_FLAG_NONE);
@@ -739,6 +778,65 @@ int check_contract(Device& state)
     expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
            "a second generate without a new prepare is refused");
 
+    // The FFX description hides the native depth format. Exercise the actual
+    // D32 and two-plane depth/stencil allocations through Context, not only
+    // Stage1 with a hand-selected view. Each must use a typed depth-plane SRV.
+    for (const auto format : {DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_TYPELESS,
+                              DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT}) {
+        const bool stencil = format == DXGI_FORMAT_R32G8X24_TYPELESS ||
+                             format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+        const DXGI_FORMAT dsvFormat = stencil ? DXGI_FORMAT_D32_FLOAT_S8X24_UINT : DXGI_FORMAT_D32_FLOAT;
+        D3D12_CLEAR_VALUE clear{};
+        clear.Format = dsvFormat;
+        clear.DepthStencil.Depth = 0.75f;
+        clear.DepthStencil.Stencil = 37;
+        const auto nativeDepth = create_texture(state.device.Get(), format, 32, 18,
+                                                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, &clear);
+        if (!nativeDepth) { expect(false, "native depth texture creation"); continue; }
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        heapDesc.NumDescriptors = 1;
+        ComPtr<ID3D12DescriptorHeap> heap;
+        if (FAILED(state.device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&heap)))) return failures + 1;
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv{};
+        dsv.Format = dsvFormat;
+        dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        const auto target = heap->GetCPUDescriptorHandleForHeapStart();
+        state.device->CreateDepthStencilView(nativeDepth.Get(), &dsv, target);
+        if (FAILED(state.allocator->Reset()) ||
+            FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return failures + 1;
+        transition(state.list.Get(), nativeDepth.Get(), D3D12_RESOURCE_STATE_COMMON,
+                   D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        state.list->ClearDepthStencilView(target, stencil
+            ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH,
+            0.75f, 37, 0, nullptr);
+        transition(state.list.Get(), nativeDepth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        prepare.depth = ffxApiGetResourceDX12(nativeDepth.Get(),
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        const bool accepted = context.prepare(&prepare.header);
+        const char* label = format == DXGI_FORMAT_D32_FLOAT
+            ? "prepare samples native D32_FLOAT using an R32_FLOAT view"
+            : format == DXGI_FORMAT_R32_TYPELESS
+            ? "prepare samples native R32_TYPELESS using an R32_FLOAT view"
+            : format == DXGI_FORMAT_R32G8X24_TYPELESS
+            ? "prepare samples Cyberpunk's R32G8X24_TYPELESS depth plane"
+            : "prepare samples native D32_FLOAT_S8X24_UINT depth plane";
+        expect(accepted, label);
+        const bool generatedDepth = accepted && context.generate(state.list.Get(), output.Get(),
+                                                                  D3D12_RESOURCE_STATE_COMMON);
+        expect(generatedDepth, "native depth snapshot generates a frame");
+        const bool submitted = state.submit();
+        expect(submitted && (!accepted || context.track_submission(state.fence.Get(), state.fenceValue)),
+               "native depth work retires with input states restored");
+    }
+    prepare.depth = ffxApiGetResourceDX12(depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+
+    prepare.depth.resource = color.Get();
+    expect(!context.prepare(&prepare.header) && !context.pending(),
+           "incompatible native depth format is still refused");
+    prepare.depth.resource = depth.Get();
+
     prepare.motionVectors.resource = color.Get();
     expect(!context.prepare(&prepare.header) && !context.pending(),
            "a non-float motion resource is refused and clears pending preparation");
@@ -823,12 +921,21 @@ bool check_pacing()
         if (!condition) ++failures;
     };
 
+    expect(sedici::fg::ticks_to_seconds(30000000, 10000000) == 3.0,
+           "QPC counts divide by frequency to produce seconds");
+    const double uptime = sedici::fg::ticks_to_seconds(987654321000000ULL, 10000000);
+    const double later = sedici::fg::ticks_to_seconds(987654321277778ULL, 10000000);
+    expect(std::abs((later - uptime) - 1.0 / 36.0) < 1e-7,
+           "QPC conversion preserves a 36 fps interval after long uptime");
+    expect(sedici::fg::ticks_to_seconds(1, 0) == 0.0,
+           "missing QPC frequency does not divide by zero");
+
     sedici::fg::PacingInput input;
     input.cycleStarted = false;
     input.generatedReady = true;
     auto plan = sedici::fg::plan_present(input);
-    expect(plan.presentGenerated && plan.firstWait == 0.0,
-           "the first cycle presents immediately and holds nothing back");
+    expect(!plan.presentGenerated && plan.firstWait == 0.0 && plan.secondWait == 0.0,
+           "the first cycle presents only the real seed without waiting");
 
     input.cycleStarted = true;
     input.interval = 1.0 / 60.0;
@@ -842,28 +949,61 @@ bool check_pacing()
 
     input.now = 10.0;
     plan = sedici::fg::plan_present(input);
-    expect(plan.firstWait <= input.interval * 0.5 + 1e-9,
-           "an early cycle waits at most half an interval");
+    expect(plan.firstWait == 0.0,
+           "an early cycle never waits before the current midpoint");
 
     input.now = 10.0 + 3.0 * input.interval;
     plan = sedici::fg::plan_present(input);
     expect(plan.firstWait == 0.0, "a late cycle presents without waiting");
+    expect(!plan.presentGenerated && plan.secondWait == 0.0,
+           "a midpoint past its slot is dropped without delaying the real frame");
 
     input.generatedReady = false;
+    input.now = input.lastCycle;
     plan = sedici::fg::plan_present(input);
-    expect(!plan.presentGenerated && plan.secondWait == 0.0,
+    expect(!plan.presentGenerated && plan.firstWait == 0.0 && plan.secondWait == 0.0,
            "without a midpoint the real frame is never held");
 
     input.interval = 0.0;
+    input.now = input.lastCycle + 1.0 / 60.0;
     input.generatedReady = true;
     plan = sedici::fg::plan_present(input);
     expect(plan.secondWait > 0.0 && plan.secondWait <= 0.5,
            "an invalid interval falls back to a bounded pacing value");
+
+    // Feed actual elapsed wrapper work back into the next entry. One-shot
+    // decisions cannot expose a self-amplifying scheduler. Simulate over nine
+    // minutes, including FG off/on and a 200 ms source stall, with no real sleeps.
+    sedici::fg::PacingState pacing;
+    constexpr double period = 1.0 / 36.0;
+    double entry = 1000000.0;
+    bool bounded = true, recovered = true;
+    uint32_t outputs = 0;
+    for (uint32_t cycle = 0; cycle < 20000; ++cycle) {
+        const bool enabled = cycle < 5000 || cycle >= 5100;
+        if (cycle == 5000 || cycle == 5100) pacing = {};
+        if (cycle == 10000) entry += 0.2;
+        const auto next = pacing.plan(entry, enabled);
+        // CPU recording, native Present and copy work vary independently. They
+        // consume the entry-based budget instead of extending its deadline.
+        const double work = cycle % 2 ? 0.002 : 0.004;
+        const double real = std::max(entry + work, next.realDeadline);
+        const double followingEntry = std::max(entry + period, real + 0.004);
+        bounded &= next.firstWait == 0.0 && next.realDeadline <= entry + pacing.interval * 0.5 + 1e-8;
+        if (!enabled) bounded &= !next.presentGenerated && next.realDeadline == entry;
+        if (cycle > 10500) recovered &= std::abs(pacing.interval - period) < 1e-7;
+        outputs += next.presentGenerated ? 2 : 1;
+        entry = followingEntry;
+    }
+    expect(bounded && recovered && std::abs(pacing.interval - period) < 1e-7 && outputs > 39800,
+           "20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall");
     return failures == 0;
 }
 
 struct TestGenerator {
     uint32_t calls = 0;
+    IDXGISwapChain4* native = nullptr;
+    bool before_present = true;
 };
 
 // Stand-in for the real generator. Presentation is what is under test here, so
@@ -875,6 +1015,10 @@ bool record_solid(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* r
     (void)state;
     auto* generator = static_cast<TestGenerator*>(user);
     if (!generator || !list || !output || !real) return false;
+    UINT count = 0;
+    const UINT expected = generator->calls ? generator->calls * 2 - 1 : 0;
+    generator->before_present &= generator->native &&
+        SUCCEEDED(generator->native->GetLastPresentCount(&count)) && count == expected;
     ++generator->calls;
     return true;
 }
@@ -918,7 +1062,7 @@ bool check_generated_window(Device& state)
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         ComPtr<ID3D12DescriptorHeap> uavHeap;
         if (FAILED(state.device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&uavHeap)))) return false;
-        TestGenerator generator{0};
+        TestGenerator generator{0, native.Get()};
         sedici::fg::GenerateSink sink{&generator, &record_solid, nullptr};
         wrapped->set_generator(sink);
 
@@ -946,7 +1090,7 @@ bool check_generated_window(Device& state)
                     generator.calls,
                     static_cast<unsigned long long>(wrapped->generated_presents()),
                     static_cast<unsigned long long>(wrapped->skipped_generates()));
-        if (generator.calls != cycles) return false;
+        if (generator.calls != cycles || !generator.before_present) return false;
         if (wrapped->generated_presents() != cycles - 1) return false;
         if (wrapped->skipped_generates() != 0) return false;
         UINT presented = 0;
@@ -974,7 +1118,8 @@ bool check_generated_window(Device& state)
 
 // The production path end to end: a wrapped swapchain, an FFX-shaped frame
 // generation session bound to it, and generated frames coming out of Sedici's
-// own presentation schedule. Only the five DLL exports are still not routed.
+// own presentation schedule. Native buffer readback verifies temporal order,
+// current-frame HUD labels, and the actual midpoint image rather than counts.
 bool check_session_window(Device& state)
 {
     const wchar_t* className = L"SediciFgSession";
@@ -997,7 +1142,7 @@ bool check_session_window(Device& state)
         desc.SampleDesc.Count = 1;
         desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         desc.BufferCount = 3;
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         ComPtr<IDXGISwapChain1> created;
         if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
             nullptr, nullptr, &created))) return false;
@@ -1026,9 +1171,10 @@ bool check_session_window(Device& state)
             return false;
         }
 
-        // One pair of frames, uploaded once; the session only needs their data.
-        FrameTextures frames[2];
-        for (int index = 0; index < 2; ++index) {
+        // Five consecutive moving frames, not repeating/resetting one pair.
+        constexpr uint32_t cycles = 5;
+        FrameTextures frames[cycles];
+        for (uint32_t index = 0; index < cycles; ++index) {
             const auto display = make_scene(kScenes[0], static_cast<float>(index),
                                             kDisplayWidth, kDisplayHeight);
             const auto render = make_scene(kScenes[0], static_cast<float>(index),
@@ -1066,15 +1212,18 @@ bool check_session_window(Device& state)
             if (!state.submit()) return false;
         }
 
+        const uint32_t hudPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+        auto hudUpload = create_buffer(state.device.Get(), hudPitch * 8,
+            D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+        if (!hudUpload) return false;
         ShowWindow(window, SW_SHOWNOACTIVATE);
-        const uint32_t cycles = 5;
         for (uint32_t cycle = 0; cycle < cycles; ++cycle) {
             MSG msg{};
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            const uint32_t source = cycle % 2;
+            const uint32_t source = cycle;
             if (FAILED(state.allocator->Reset()) ||
                 FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
 
@@ -1111,12 +1260,38 @@ bool check_session_window(Device& state)
             ComPtr<ID3D12Resource> buffer;
             if (FAILED(handle.swapchain()->GetBuffer(handle.swapchain()->GetCurrentBackBufferIndex(),
                                                      IID_PPV_ARGS(&buffer)))) return false;
+            transition(state.list.Get(), frames[source].color.Get(), D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
-                       D3D12_RESOURCE_STATE_RENDER_TARGET);
-            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_COPY_DEST);
+            state.list->CopyResource(buffer.Get(), frames[source].color.Get());
+            transition(state.list.Get(), frames[source].color.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                       D3D12_RESOURCE_STATE_COMMON);
+            const float marker[] = {static_cast<float>(cycle + 1) / 8.0f, 1.0f, 0.0f, 1.0f};
+            void* mappedHud = nullptr;
+            if (FAILED(hudUpload->Map(0, nullptr, &mappedHud))) return false;
+            for (uint32_t y = 0; y < 8; ++y) {
+                for (uint32_t x = 0; x < 8; ++x) {
+                    auto* pixel = static_cast<uint8_t*>(mappedHud) + y * hudPitch + x * 4;
+                    pixel[0] = static_cast<uint8_t>(std::lround(marker[0] * 255.0f));
+                    pixel[1] = pixel[3] = 255;
+                    pixel[2] = 0;
+                }
+            }
+            hudUpload->Unmap(0, nullptr);
+            D3D12_TEXTURE_COPY_LOCATION hudFrom{};
+            hudFrom.pResource = hudUpload.Get();
+            hudFrom.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            hudFrom.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, 8, 8, 1, hudPitch};
+            D3D12_TEXTURE_COPY_LOCATION hudTo{};
+            hudTo.pResource = buffer.Get();
+            hudTo.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            state.list->CopyTextureRegion(&hudTo, 0, kDisplayHeight - 8, 0, &hudFrom, nullptr);
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                        D3D12_RESOURCE_STATE_PRESENT);
             if (!state.submit()) return false;
 
+            const UINT firstNative = native->GetCurrentBackBufferIndex();
             if (FAILED(handle.swapchain()->Present(1, 0))) {
                 std::printf("session: present failed\n");
                 return false;
@@ -1124,7 +1299,37 @@ bool check_session_window(Device& state)
             std::printf("session: cycle %u generated %llu shown %llu skipped %llu\n", cycle,
                         static_cast<unsigned long long>(session.context().frames_generated()),
                         static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
-                        static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+                         static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+
+            // Each native image must belong to this cycle. FLIP_SEQUENTIAL
+            // preserves these buffers after Present. Exclude the top-left OSD
+            // area from the scene comparison, but verify the HUD label below it.
+            for (UINT image = 0; image < (cycle ? 2u : 1u); ++image) {
+                ComPtr<ID3D12Resource> presented;
+                if (FAILED(native->GetBuffer((firstNative + image) % desc.BufferCount,
+                                             IID_PPV_ARGS(&presented)))) return false;
+                const auto actual = read_presented(state, presented.Get());
+                if (actual.empty()) return false;
+                const bool midpoint = cycle && image == 0;
+                const float time = static_cast<float>(cycle) - (midpoint ? 0.5f : 0.0f);
+                const auto expected = quantise(make_scene(kScenes[0], time,
+                                                          kDisplayWidth, kDisplayHeight).color);
+                std::vector<uint8_t> sceneActual, sceneExpected;
+                for (uint32_t y = 80; y < kDisplayHeight - 16; ++y) {
+                    const size_t begin = (static_cast<size_t>(y) * kDisplayWidth + 160) * 4;
+                    const size_t end = static_cast<size_t>(y + 1) * kDisplayWidth * 4;
+                    sceneActual.insert(sceneActual.end(), actual.begin() + begin, actual.begin() + end);
+                    sceneExpected.insert(sceneExpected.end(), expected.begin() + begin, expected.begin() + end);
+                }
+                const double score = psnr(sceneExpected, sceneActual);
+                const size_t label = (static_cast<size_t>(kDisplayHeight - 4) * kDisplayWidth + 4) * 4;
+                const int red = static_cast<int>(std::lround(marker[0] * 255.0f));
+                const bool matchingHud = std::abs(static_cast<int>(actual[label]) - red) <= 1 &&
+                    actual[label + 1] == 255 && actual[label + 2] == 0;
+                std::printf("session: frame %u %s time=%.1f psnr=%.2f HUD=%s\n", cycle,
+                    midpoint ? "midpoint" : "real", time, score, matchingHud ? "current" : "WRONG");
+                if (!matchingHud || (midpoint ? score < 35.0 : sceneActual != sceneExpected)) return false;
+            }
         }
 
         if (session.context().frames_generated() != cycles) {
@@ -1161,6 +1366,102 @@ bool check_session_window(Device& state)
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
     std::printf("%s session: describe, prepare, generate and present through the wrapper\n",
+                ok ? "PASS" : "FAIL");
+    return ok;
+}
+
+bool check_routing(Device& state)
+{
+    if (!sedici::fg::routing_enabled()) return false;
+    const wchar_t* className = L"SediciFgRouting";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici routing", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = kDisplayWidth;
+        desc.Height = kDisplayHeight;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native, caller;
+        if (FAILED(created.As(&native))) return false;
+
+        struct Contexts {
+            ffxContext session = nullptr;
+            ffxContext wrap = nullptr;
+            ~Contexts() {
+                ffxReturnCode_t result{};
+                if (session) (void)sedici::fg::route_destroy(&session, &result);
+                if (wrap) (void)sedici::fg::route_destroy(&wrap, &result);
+            }
+        } contexts;
+        ffxReturnCode_t result = FFX_API_RETURN_ERROR;
+        ffxCreateBackendDX12Desc backend{};
+        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backend.device = state.device.Get();
+        ffxCreateContextDescFrameGeneration create{};
+        create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        create.header.pNext = &backend.header;
+        create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+        create.displaySize = {kDisplayWidth, kDisplayHeight};
+        create.maxRenderSize = {kRenderWidth, kRenderHeight};
+        create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        if (!sedici::fg::route_create(&contexts.session, &create.header, &result) ||
+            result != FFX_API_RETURN_OK || !contexts.session) return false;
+
+        IDXGISwapChain4* replacement = native.Get();
+        ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+        wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+        wrap.header.pNext = &backend.header;
+        wrap.swapchain = &replacement;
+        wrap.gameQueue = state.queue.Get();
+        if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
+            result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) return false;
+        caller.Attach(replacement); // Adopt the reference returned to the caller.
+        if (contexts.wrap == contexts.session) return false;
+
+        ffxConfigureDescFrameGeneration configure{};
+        configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        configure.swapChain = caller.Get();
+        configure.frameGenerationEnabled = false;
+        if (!sedici::fg::route_configure(&contexts.session, &configure.header, &result) ||
+            result != FFX_API_RETURN_OK) return false;
+        ffxApiHeader unsupported{};
+        unsupported.type = UINT64_MAX;
+        for (auto* context : {&contexts.session, &contexts.wrap}) {
+            if (!sedici::fg::route_query(context, &unsupported, &result) ||
+                result != FFX_API_RETURN_ERROR) return false;
+            if (!sedici::fg::route_dispatch(context, &unsupported, &result) ||
+                result != FFX_API_RETURN_ERROR) return false;
+        }
+        int unrelated = 0;
+        ffxContext foreign = &unrelated;
+        if (sedici::fg::route_query(&foreign, &unsupported, &result)) return false;
+        for (auto* context : {&contexts.session, &contexts.wrap}) {
+            if (!sedici::fg::route_destroy(context, &result) || result != FFX_API_RETURN_OK) return false;
+            *context = nullptr;
+        }
+        // The caller's COM reference must survive destruction of the FFX owner.
+        DXGI_SWAP_CHAIN_DESC1 after{};
+        return SUCCEEDED(caller->GetDesc1(&after)) && after.Width == kDisplayWidth;
+    }();
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s routing: two live handles, configure/query/dispatch, foreign handle, destroy\n",
                 ok ? "PASS" : "FAIL");
     return ok;
 }
@@ -1258,10 +1559,28 @@ bool check_window(Device& state)
 int main(int argc, char** argv)
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
-    bool keepImages = false, present = false;
+    bool keepImages = false, present = false, routing = false;
     for (int i = 1; i < argc; ++i) {
         keepImages |= std::string(argv[i]) == "--images";
         present |= std::string(argv[i]) == "--present";
+        routing |= std::string(argv[i]) == "--routing";
+    }
+
+    if (routing) {
+        // Use only the offline executable's directory, never the game's config.
+        // Settings are read once; remove our fixture immediately afterwards.
+        const auto config = dll_directory() / L"sedici.toml";
+        if (std::filesystem::exists(config)) {
+            std::fprintf(stderr, "routing check refuses to overwrite existing sedici.toml\n");
+            return 1;
+        }
+        {
+            std::ofstream fixture(config);
+            fixture << "[fg]\nmode = \"sedici\"\n[log]\nlevel = 0\n";
+            if (!fixture) return 1;
+        }
+        (void)sedici::settings();
+        std::filesystem::remove(config);
     }
 
     {
@@ -1315,13 +1634,14 @@ int main(int argc, char** argv)
     if (present) ok = check_window(state) && ok;
     if (present) ok = check_generated_window(state) && ok;
     if (present) ok = check_session_window(state) && ok;
+    if (routing) ok = check_routing(state) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();
         if (count > 0) {
             std::printf("debug layer reported %llu message(s):\n",
                         static_cast<unsigned long long>(count));
-            for (UINT64 index = 0; index < count && index < 8; ++index) {
+            for (UINT64 index = 0; index < count && index < 32; ++index) {
                 SIZE_T length = 0;
                 if (FAILED(info->GetMessage(index, nullptr, &length)) || length == 0) continue;
                 std::vector<char> buffer(length);

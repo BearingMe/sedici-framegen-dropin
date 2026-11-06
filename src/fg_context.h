@@ -95,6 +95,7 @@ private:
     D3D12_RESOURCE_STATES m_motion_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     ID3D12Resource* m_depth = nullptr;
     ID3D12Resource* m_motion = nullptr;
+    bool m_input_formats_logged = false;
 
     uint32_t m_render_width = 0;
     uint32_t m_render_height = 0;

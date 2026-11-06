@@ -1,19 +1,22 @@
 #include "fg_swapchain.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <new>
 #include <thread>
+
+#include "log.h"
 
 namespace sedici::fg {
 
 namespace {
 
-double ticks_per_second() noexcept
+uint64_t ticks_per_second() noexcept
 {
-    static const double frequency = [] {
+    static const uint64_t frequency = [] {
         LARGE_INTEGER value{};
-        QueryPerformanceFrequency(&value);
-        return value.QuadPart ? static_cast<double>(value.QuadPart) : 0.0;
+        return QueryPerformanceFrequency(&value) ? static_cast<uint64_t>(value.QuadPart) : uint64_t{0};
     }();
     return frequency;
 }
@@ -22,7 +25,7 @@ double now_seconds() noexcept
 {
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
-    return static_cast<double>(counter.QuadPart) * ticks_per_second();
+    return ticks_to_seconds(static_cast<uint64_t>(counter.QuadPart), ticks_per_second());
 }
 
 uint64_t now_ticks() noexcept
@@ -30,14 +33,6 @@ uint64_t now_ticks() noexcept
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
     return static_cast<uint64_t>(counter.QuadPart);
-}
-
-void sleep_seconds(double seconds) noexcept
-{
-    if (!(seconds > 0.0)) return;
-    // Bounded: a corrupted interval must not stall the game thread.
-    const double capped = seconds > 0.05 ? 0.05 : seconds;
-    std::this_thread::sleep_for(std::chrono::duration<double>(capped));
 }
 
 } // namespace
@@ -81,6 +76,11 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     }
     if (SUCCEEDED(hr)) hr = object->initialize_buffers();
     if (FAILED(hr)) { delete object; return hr; }
+    // Timer availability affects precision, never whether wrapping succeeds.
+    object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr,
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!object->m_pacing_timer)
+        object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     *result = object;
     return S_OK;
 }
@@ -89,12 +89,16 @@ Swapchain::~Swapchain()
 {
     (void)drain();
     if (m_event) CloseHandle(m_event);
+    if (m_pacing_timer) CloseHandle(m_pacing_timer);
 }
 
 void Swapchain::set_generator(const GenerateSink& sink) noexcept
 {
     std::lock_guard lock(m_mutex);
-    if (sink.record != m_sink.record || sink.user != m_sink.user) m_generated_ready = false;
+    if (sink.record != m_sink.record || sink.user != m_sink.user) {
+        m_generated_ready = false;
+        m_pacing = {};
+    }
     m_sink = sink;
 }
 
@@ -138,12 +142,12 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     generated.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     Microsoft::WRL::ComPtr<ID3D12Resource> midpoint;
     hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
-        D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&midpoint));
+        D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&midpoint));
     if (FAILED(hr)) return hr;
 
     m_buffers = std::move(buffers);
     m_generated = midpoint;
-    m_generated_state = D3D12_RESOURCE_STATE_COMMON;
+    m_generated_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
     m_generated_ready = false;
     m_game_index = 0;
     return S_OK;
@@ -162,6 +166,33 @@ HRESULT Swapchain::drain() noexcept
     const DWORD wait = WaitForSingleObject(m_event, 5000);
     if (wait == WAIT_OBJECT_0) return m_device->GetDeviceRemovedReason();
     return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+}
+
+void Swapchain::wait_until(double deadline, double maxWait) noexcept
+{
+    const double now = now_seconds();
+    if (!std::isfinite(deadline) || !(maxWait > 0.0)) return;
+    const double remaining = std::clamp(deadline - now, 0.0, std::min(maxWait, 0.05));
+    if (!(remaining > 0.0)) return;
+    // Sleep most of the bounded wait, then finish against the absolute QPC
+    // deadline. A relative sleep after Present would add its API time to the gap.
+    constexpr double spin = 0.00025;
+    const double target = now + remaining;
+    if (!ticks_per_second()) {
+        std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
+        return;
+    }
+    if (remaining > spin) {
+        LARGE_INTEGER due{};
+        due.QuadPart = -std::max<LONGLONG>(1, static_cast<LONGLONG>((remaining - spin) * 1e7));
+        if (m_pacing_timer && SetWaitableTimer(m_pacing_timer, &due, 0, nullptr, nullptr, FALSE)) {
+            if (WaitForSingleObject(m_pacing_timer, static_cast<DWORD>(remaining * 1000.0) + 5)
+                != WAIT_OBJECT_0) return;
+        } else {
+            std::this_thread::sleep_for(std::chrono::duration<double>(remaining - spin));
+        }
+    }
+    while (now_seconds() < target) YieldProcessor();
 }
 
 HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept
@@ -236,7 +267,7 @@ void Swapchain::record_generated() noexcept
         ++m_skipped_generates;
         return;
     }
-    m_generated_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    // The sink restores the state it was given; do not invent a new state here.
     m_generated_ready = true;
     if (m_sink.submitted) m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value);
 }
@@ -257,47 +288,47 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     if (m_present_hook) m_present_hook(now_ticks());
 
     const double now = now_seconds();
-    if (m_cycle_started) {
-        const double delta = now - m_last_game_present;
-        if (delta > 1e-4 && delta < 1.0) m_interval = m_interval * 0.9 + delta * 0.1;
-    }
-    if (!m_sink.record) m_generated_ready = false;
-
-    PacingInput input;
-    input.now = now;
-    input.lastCycle = m_last_cycle;
-    input.interval = m_interval;
-    input.cycleStarted = m_cycle_started;
-    input.generatedReady = m_generated_ready;
-    const PacingOutput plan = plan_present(input);
+    // Snapshot colour/HUD and generate from THIS prepare before any native
+    // Present or sleep can let the application recycle its inputs. The preceding
+    // real frame is already on screen; the next outputs must be midpoint(N-1,N)
+    // and real N, not last cycle's midpoint followed by real N.
+    m_generated_ready = false;
+    record_generated();
+    const bool hadHistory = m_pacing.cycleStarted;
+    const PacingOutput plan = m_pacing.plan(now, m_generated_ready);
 
     if (m_generated_ready && !plan.presentGenerated) {
         // The midpoint missed its slot. Drop it rather than delaying the frame
         // the game has already finished; one cycle of backlog is never kept.
         m_generated_ready = false;
-        ++m_skipped_generates;
+        if (hadHistory) ++m_skipped_generates;
     }
 
-    sleep_seconds(plan.firstWait);
+    double cycleStartedAt = 0.0;
+    bool presentedGenerated = false;
 
     if (plan.presentGenerated) {
         hr = blit(m_generated.Get(), &m_generated_state);
         if (SUCCEEDED(hr)) {
+            cycleStartedAt = now_seconds();
             hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
             if (FAILED(hr)) return hr;
             m_generated_ready = false;
             ++m_generated_presents;
+            presentedGenerated = true;
         } else {
             m_generated_ready = false;
             ++m_skipped_generates;
         }
-        sleep_seconds(plan.secondWait);
+        if (presentedGenerated)
+            wait_until(plan.realDeadline, m_pacing.interval * 0.5);
     }
 
     auto* real = m_buffers[m_game_index].Get();
     D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
     hr = blit(real, &realState);
     if (FAILED(hr)) return hr;
+    const double realSubmittedAt = now_seconds();
     hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
 
     // Retire our copy AND any work DXGI queues for Present. A fence before
@@ -306,12 +337,26 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     if (FAILED(signaled)) return signaled;
 
     if (SUCCEEDED(hr)) {
-        m_last_cycle = now;
-        m_last_game_present = now;
-        m_cycle_started = true;
-        // Prepare the next midpoint from the frame just shown. It is presented
-        // one cycle later, so this work never blocks the real frame.
-        record_generated();
+        if (presentedGenerated) {
+            const double gap = (realSubmittedAt - cycleStartedAt) * 1000.0;
+            if (!m_gap_samples || gap < m_gap_min) m_gap_min = gap;
+            m_gap_max = std::max(m_gap_max, gap);
+            m_gap_sum += gap;
+            ++m_gap_samples;
+        }
+        if (++m_present_cycles % 300 == 0) {
+            try {
+                log_event(1, "fg: present pacing cycles=" + std::to_string(m_present_cycles) +
+                    " generated=" + std::to_string(m_generated_presents) +
+                    " skipped=" + std::to_string(m_skipped_generates) +
+                    " interval_ms=" + std::to_string(m_pacing.interval * 1000.0) +
+                    " cpu_gap_ms{avg=" + std::to_string(m_gap_samples ? m_gap_sum / m_gap_samples : 0.0) +
+                    " min=" + std::to_string(m_gap_min) + " max=" + std::to_string(m_gap_max) + "}");
+            } catch (...) {}
+            m_gap_samples = 0;
+            m_gap_sum = m_gap_min = m_gap_max = 0.0;
+        }
+        m_generated_ready = false; // Never carry a midpoint past its own real frame.
         m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
     }
     return hr;
@@ -379,7 +424,7 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
                   : m_native->ResizeBuffers(count, width, height, format, flags);
     if (FAILED(hr)) return hr;
     m_generated_ready = false;
-    m_cycle_started = false;
+    m_pacing = {};
     return initialize_buffers();
 }
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags)

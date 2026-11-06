@@ -203,14 +203,19 @@ a modified desc.
 |---|---|---|---|---|
 | `mode` | string | `"amd"` | `"amd"`, `"sedici"` | `amd` forwards every frame generation call to the original DLL, exactly as before. `sedici` uses Sedici's own generator and swapchain wrapper for the whole process |
 
-The choice is made once, from the first create call, and cannot change mid-process:
+The choice is read once per process and cannot change mid-process:
 a frame generation context cannot be handed to AMD after Sedici has owned it.
 Under `sedici`, an unsupported call on a Sedici-owned context is refused and logged
 rather than forwarded, and output pacing belongs to Sedici's wrapper alone.
 
-`sedici` is experimental and has not yet been through a game session. Any context
-AMD still owns keeps working normally even in that mode, because only handles
-Sedici created are routed to Sedici.
+`sedici` remains experimental. An authorized Cyberpunk gameplay capture measured
+72 output fps with a 36 fps in-game cap, after correcting context registration,
+native depth views and a pacing regression. This is not full acceptance: tearing,
+paired display-change timing, startup artifacts, shutdown retirement and some
+overlay/limiter integration remain unresolved. See
+[the current findings](docs/findings/007-fg-baseline.md#current-pair-gameplay-validation-and-remaining-issues).
+The default remains `amd`. Any context AMD still owns keeps working normally even
+in `sedici` mode, because only handles Sedici created are routed to Sedici.
 
 ### `[limiter]`
 

@@ -82,20 +82,24 @@ note's ~0.15–0.30 ms analytical budget is an estimate, not an existing result.
 
 ### P1.3 — Integrate FFX and Sedici's custom schedule
 
-**Done offline; exports routed but unverified in a game.** `src/fg_context.*` is a
+**Integrated offline; game acceptance blocked.** `src/fg_context.*` is a
 supported-subset desc adapter with queue-signalled retirement, abandoned-snapshot
 recovery and a bounded retirement wait before slot reuse. `src/fg_pacing.*` owns
-the output decision: midpoint first, real frame half an interval later, waits
-capped at half an interval, and a missed midpoint is dropped rather than queued.
+the output decision: no pre-midpoint wait and a real-frame deadline half an
+interval after entry, with already elapsed work consuming that budget; missed
+midpoints are dropped rather than queued.
 `src/fg_swapchain.*` presents private game-facing backbuffers, one generated frame
-per cycle with a one-cycle pipeline, and `src/fg_integration.*` binds an FFX
+for the current pair before its current real frame, and `src/fg_integration.*` binds an FFX
 session to that wrapper. `src/fg_route.*` routes the five exports, selected by
 `fg.mode`, and the offline host runs the whole path.
 
 Open before this can be called verified: which queries Cyberpunk issues (the route
 currently refuses all queries on a Sedici-owned context and logs them), and
-whether the game accepts the wrapped swapchain in every path it uses. Until a game
-session exercises it, `fg.mode` stays `"amd"` and the DLL forwards to AMD.
+whether the game accepts the wrapped swapchain in every path it uses. The prior
+deployed pacing candidate regressed to 18 fps; the replacement entry-budget and
+chronological-output implementation restored 72 output fps in gameplay, but
+GPU/display bunching and reported tearing/startup artifacts remain. `fg.mode` still
+defaults to `"amd"` and forwards to AMD unless deliberately switched for a session.
 
 - Implement the supported game's create/configure/prepare/dispatch/query/destroy
   contract and Sedici's swapchain wrapper, retaining the five-export interface.
@@ -140,6 +144,11 @@ real-frame wrapper (identity, Present/Present1, TEST, resize, teardown), the
 schedule (one midpoint per cycle, capped waits, sink removal), HUD preservation
 (100% of a known HUD block survives compositing in all three scenes) and the whole
 session path (describe, prepare, generate, present, FG off, clean destroy).
+The same host now includes a 20,000-cycle closed-loop pacing simulation and native
+buffer readback of five consecutive moving frames with current-frame HUD labels;
+`--routing` additionally exercises owned-handle routing. Headless checks pass,
+but the strict windowed host exits nonzero on known RTSS-injected state warnings
+despite passing its functional assertions. These warnings are not filtered.
 Production-size timing and in-game verification remain. A new Cyberpunk capture is
 not a pre-deploy gate.
 
@@ -163,12 +172,28 @@ new testing framework, broad matrix or dozens of new tests.
 
 ### P1.5 — First deploy and Cyberpunk verification
 
-**Deployed, not launched.** The Release DLL is installed in Cyberpunk's `bin\x64`;
-the original is preserved as `.orig` and the user's `sedici.toml` was kept, so the
-deployed build runs `fg.mode = "amd"` and is behaviourally identical to the
-previous deployment. Recorded in
-[007](docs/findings/007-fg-baseline.md#deployment-record). Game launch and the
-`fg.mode = "sedici"` switch both remain to be authorized separately.
+**Deployed and measured; not accepted.** The registration fix prevented the
+startup crash, and the native depth/stencil SRV fix cleared prepare rejections
+in a subsequent 30-second authorized `sedici`-mode session. FG context destruction
+still returns `destroy before GPU retirement`; generated cadence/quality are not
+accepted. The limiter's FG-active bookkeeping also remains unwired on the routed path.
+The initial depth-validation test process was closed normally, `.orig` is
+preserved, and the user's config was restored byte-for-byte (`amd` on the next
+launch unless deliberately switched). See
+[007](docs/findings/007-fg-baseline.md#native-depthstencil-view-fix).
+
+The subsequent user-driven gameplay capture confirms stable 72 fps presentation
+with a 36 fps in-game cap, but reports alternating sub-ms / roughly 28 ms
+display-change intervals. The first clock/deadline correction was deployed and
+regressed to 17.9 output fps. A replacement entry-budget/current-pair scheduler
+passes a sustained closed-loop simulation and native GPU-buffer chronology/HUD
+checks and was deployed/launched with authorization. The authorized 30-second
+gameplay capture records 72.0 fps, present-interval SD 0.845 ms and p99 16.307 ms,
+but half its display-change intervals remain below 1 ms, alternating with roughly
+28 ms gaps. The user confirms the regression is fixed, with some tearing and
+artifacts during initial game boot still present. Even GPU/display cadence,
+startup quality and clean teardown are not accepted. See
+[current validation/open issues](docs/findings/007-fg-baseline.md#current-pair-gameplay-validation-and-remaining-issues).
 
 - With deployment authorization and the game stopped, deploy through the existing
   safety script. Preserve `.orig` and the user's configuration.

@@ -109,17 +109,25 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             *result = failure("swapchain wrap failed");
             return true;
         }
-        *wrap->swapchain = owned->swapchain();
+        owned->wrapper()->set_present_hook(g_present_hook);
+        void* handle = owned.get();
+        const auto [entry, inserted] = g_owned.emplace(handle, Owned{Kind::Wrap, nullptr, std::move(owned)});
+        if (!inserted) {
+            *result = failure("duplicate swapchain context handle");
+            return true;
+        }
+        // Capture the key before moving the owner, and publish outputs only
+        // after registration. Argument evaluation may otherwise read get()
+        // after the move and register nullptr instead of the returned handle.
+        *wrap->swapchain = entry->second.wrap->swapchain();
         // Handing the pointer to the game transfers a reference to it. Without
         // this the game's Release() and our own ComPtr share a single count, and
         // the wrapper is destroyed with a live owner still holding the address.
         (*wrap->swapchain)->AddRef();
-        owned->wrapper()->set_present_hook(g_present_hook);
         // The game needs a handle for this context too: it passes it back to
         // configure (UI registration) and destroy. Returning OK with a null
-        // handle left the caller dereferencing null immediately afterwards.
-        *context = owned.get();
-        g_owned.emplace(owned.get(), Owned{Kind::Wrap, nullptr, std::move(owned)});
+        // handle violates the context contract.
+        *context = handle;
         *result = FFX_API_RETURN_OK;
         log_route("created swapchain wrapper", "");
         return true;
@@ -130,8 +138,13 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         *result = failure(owned->context().last_error());
         return true;
     }
-    *context = owned.get();
-    g_owned.emplace(owned.get(), Owned{Kind::Session, std::move(owned), nullptr});
+    void* handle = owned.get();
+    const auto registration = g_owned.emplace(handle, Owned{Kind::Session, std::move(owned), nullptr});
+    if (!registration.second) {
+        *result = failure("duplicate frame generation context handle");
+        return true;
+    }
+    *context = handle;
     *result = FFX_API_RETURN_OK;
     log_route("created frame generation context", "");
     return true;
