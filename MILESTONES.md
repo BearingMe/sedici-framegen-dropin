@@ -8,9 +8,10 @@ Start with 1080p output and 2× interpolation: one generated midpoint between
 consecutive real frames. GFFE, super-resolution, extrapolation, additional
 multipliers and a training framework are outside this phase.
 
-**Status:** P1.1 complete ([baseline](docs/findings/007-fg-baseline.md)); P1.2 in
-progress — the analytical stage is implemented as HLSL and a DX12 pipeline, with
-no FFX integration yet, so the shipped DLL still forwards generation to AMD. The
+**Status:** P1.1 baseline recorded ([baseline](docs/findings/007-fg-baseline.md));
+P1.2/P1.3 in progress. The LUT-backed stage runs through the FFX desc adapter
+offline; a real-frame-only swapchain wrapper also runs offline. Neither is routed
+from exports, so the shipped DLL still forwards generation to AMD. The
 existing Cyberpunk implementation and recorded performance are the baseline. Do
 not launch the game before the first deploy or require a new contract-capture
 run. Deployment and any later agent-driven launch require separate authorization.
@@ -53,10 +54,12 @@ numbers are not universal acceptance thresholds.
 
 ### P1.2 — Implement the DX12 first-layer generator
 
-**Done.** `src/fg_params.*` (constants), `src/fg_packing.h` (11/11/10 mirror),
+**In progress, not integration-complete.** `src/fg_params.*` (constants), `src/fg_packing.h` (11/11/10 mirror),
 `src/fg_shaders.h` (dilate, clear, reproject, fill, warp) and `src/fg_stage1.*`
-(DX12 targets, history, dispatch chain). Not yet called from the DLL; FFX
-integration is P1.3.
+(DX12 targets, history, dispatch chain). The FLOAT LUT is embedded; FFX scaling,
+direction and state mapping are corrected. Prepare records normalization/dilation
+into private textures on the supplied command list. Fence-protected concurrent
+submissions are still required before DLL integration.
 
 - Normalize depth, motion vectors, jitter and render/output coordinates; keep
   two-frame history with discontinuity, resize and FG-toggle resets.
@@ -78,6 +81,17 @@ passthrough images or AMD-generated output. Measure GPU time; the architecture
 note's ~0.15–0.30 ms analytical budget is an estimate, not an existing result.
 
 ### P1.3 — Integrate FFX and Sedici's custom schedule
+
+**In progress.** `src/fg_context.*` is a supported-subset desc adapter, not a
+complete FFX provider. `src/fg_swapchain.*` presents real frames through private
+backbuffers offline. Generated scheduling, callbacks and export routing remain.
+Depth/motion snapshots are recorded at prepare time; the current adapter remains
+single-slot. It now requires registered queue-signalled retirement fences before
+reuse/destruction, and an explicit prepare-fence wait for split generation.
+Abandoned snapshots recover after retirement, including FG off/on. The offline
+host checks compute-queue prepare followed by graphics-queue generation.
+Bounded multi-frame slots and scheduler ownership remain unfinished; this is not
+yet ready for asynchronous game integration.
 
 - Implement the supported game's create/configure/prepare/dispatch/query/destroy
   contract and Sedici's swapchain wrapper, retaining the five-export interface.
@@ -104,21 +118,22 @@ limiter, pacing controls and overlay remain coherent with that ownership.
 
 ### P1.4 — One small offline acceptance run
 
-**Host ready, real-frame scoring pending.** `tests/fgcheck.cpp` (built with
+**Partial offline validation.** `tests/fgcheck.cpp` (built with
 `-DSEDICI_BUILD_FGCHECK=ON`) runs the production stage 1 over three synthetic
-scenes at 480x270 display / 320x180 render and prints PSNR, SSIM and GPU time:
+scenes through the FFX adapter at 480x270 display / 320x180 render, using RGBA16F
+UV motion and the original FLOAT LUT. Times include debug-layer overhead:
 
 | Scene | PSNR | SSIM | stage 1 |
 | --- | --- | --- | --- |
-| rightward pan | 61.98 dB | 1.0000 | 0.035 ms |
-| leftward pan | 43.13 dB | 0.9990 | 0.035 ms |
-| diagonal thin bar | 49.05 dB | 0.9990 | 0.035 ms |
+| rightward pan | 42.92 dB | 0.9985 | ~0.050 ms |
+| leftward pan | 40.60 dB | 0.9975 | ~0.050 ms |
+| diagonal thin bar | 45.99 dB | 0.9984 | ~0.050 ms |
 
-These numbers validate the implementation (trajectory, sign, splat, fill, fusion,
-resource states) on synthetic motion. They say nothing about image quality on a
-rendered frame, they are not the 1080p budget, and the rescaled cost is a rough
-estimate, not a measurement. Still to do: score real captured frames and read
-the 1080p cost from the overlay/stats once P1.3 exists.
+These are synthetic checks, not proof of in-game quality or full ABI compatibility.
+Earlier bicubic scores used a different sampler and bypassed FFX conversion;
+do not compare them as a quality regression. `--present` adds the real-frame
+wrapper window, resize and teardown. Production-size timing and generated/HUD
+presentation checks remain. A new Cyberpunk capture is not a pre-deploy gate.
 
 - One DX12 executable exercises the production generator and scheduler. Use a
   few short sequences covering camera motion, moving/thin geometry, disocclusion

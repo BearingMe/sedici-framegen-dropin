@@ -18,7 +18,9 @@
 //   * `color` is display resolution, `depth`/`motion` are render resolution.
 //   * Every input is transitioned from `InputFrame::state` to the state each
 //     pass needs, then back to that same state before the call returns.
-//   * `output` is display resolution and is left in UNORDERED_ACCESS.
+//   * `output` is display resolution and is restored to outputState.
+// The owner must retire submitted work before configure/release/generate reuse.
+// A Stage1 instance is a single in-flight slot, not a concurrent recorder.
 
 namespace sedici::fg {
 
@@ -51,6 +53,16 @@ public:
     // Applies the frame geometry. Recreates the intermediate targets when the
     // sizes change; safe to call every frame.
     bool configure(const FrameParams& params) noexcept;
+
+    // Record depth/motion normalization and dilation on the game's prepare
+    // command list, before the application can recycle its input textures.
+    // Generation must execute after this command list on the same queue, or
+    // with an explicit queue dependency. One outstanding pair per Stage1.
+    bool capture_prepare(ID3D12GraphicsCommandList* list, const InputFrame& frame) noexcept;
+
+    // Only after all recorded work has retired. Keep resources/state tracking,
+    // but abandon the snapshot and force the next generated frame to seed history.
+    void discard_prepare() noexcept;
 
     // Returns false and leaves the command list untouched when the pipeline is
     // not configured or the inputs do not match the configured geometry.
@@ -100,9 +112,12 @@ private:
 
     FrameParams m_params{};
     bool m_configured = false;
+    bool m_history_valid = false;
+    bool m_prepared = false;
     uint32_t m_current = 0;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_root_signature;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_lut;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_heap;
     uint32_t m_increment = 0;
     uint32_t m_block = 0;

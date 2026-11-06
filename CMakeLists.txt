@@ -64,6 +64,7 @@ add_library(sedici SHARED
     src/fg_params.cpp
     src/fg_stage1.cpp
     src/fg_context.cpp
+    src/fg_swapchain.cpp
     ${SEDICI_IMGUI_SOURCES}
     exports.def
 )
@@ -130,6 +131,8 @@ if(SEDICI_BUILD_FGCHECK)
         src/fg_params.cpp
         src/fg_stage1.cpp
         src/fg_context.cpp
+        src/fg_swapchain.cpp
+        src/overlay_compose.cpp
         src/live.cpp
         src/config.cpp
         src/log.cpp

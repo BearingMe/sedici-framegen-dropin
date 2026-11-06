@@ -1,5 +1,7 @@
 #include "fg_params.h"
 
+#include <cmath>
+
 namespace sedici::fg {
 
 namespace {
@@ -11,7 +13,10 @@ bool valid(const FrameParams& params) noexcept
     if (params.renderWidth == 0 || params.renderHeight == 0) return false;
     if (params.displayWidth == 0 || params.displayHeight == 0) return false;
     if (!(params.alpha > 0.0f && params.alpha < 1.0f)) return false;
-    if (params.motionVectorScaleX < kMinScale || params.motionVectorScaleY < kMinScale) return false;
+    if (!std::isfinite(params.motionVectorScaleX) || !std::isfinite(params.motionVectorScaleY)) return false;
+    if (std::abs(params.motionVectorScaleX) < kMinScale || std::abs(params.motionVectorScaleY) < kMinScale) return false;
+    if (!std::isfinite(params.depthThreshold) || params.depthThreshold <= 0.0f) return false;
+    if (!std::isfinite(params.colorThreshold) || params.colorThreshold < 0.0f) return false;
     if (params.displayWidth < params.renderWidth || params.displayHeight < params.renderHeight) return false;
     return true;
 }
@@ -54,8 +59,8 @@ Constants make_constants(const FrameParams& params) noexcept
 
     c.renderScale = dw / rw;
 
-    c.motionVectorScale[0] = params.motionVectorScaleX;
-    c.motionVectorScale[1] = params.motionVectorScaleY;
+    c.motionVectorScale[0] = params.motionVectorScaleX / rw;
+    c.motionVectorScale[1] = params.motionVectorScaleY / rh;
 
     return c;
 }

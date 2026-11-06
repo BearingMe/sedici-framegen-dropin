@@ -10,8 +10,8 @@
 // * Input motion arrives in pixels relative to motionVectorScale and is
 //   converted to UV space once, in `dilate`.
 // * Depth is remapped to the upstream "smaller is nearer" convention here.
-// * `warp` samples with Catmull-Rom bicubic instead of the 32x32x16 LUT, which
-//   is not shipped yet; the 4x4 tap pattern is unchanged.
+// * `warp` samples the original 128x128 FLOAT atlas, exported offline with
+//   tools/export_mobfgsr_lut.py. No EXR dependency exists at runtime.
 //
 // The kernels are embedded as source so the deployed DLL has no external
 // shader files. They are compiled once per device at first use.
@@ -79,46 +79,42 @@ int2 clamp_pos(int2 pos, int2 size)
     return clamp(pos, int2(0, 0), max(size - 1, int2(0, 0)));
 }
 
-float cubic_weight(float x)
+Buffer<float> sampleWeights : register(t7);
+
+float lut_weight(float2 position)
 {
-    float ax = abs(x);
-    if (ax <= 1.0f)
-    {
-        return (1.5f * ax - 2.5f) * ax * ax + 1.0f;
-    }
-    if (ax < 2.0f)
-    {
-        return ((-0.5f * ax + 2.5f) * ax - 4.0f) * ax + 2.0f;
-    }
-    return 0.0f;
+    position = clamp(position, 0.0f, 127.0f);
+    int2 p0 = (int2)floor(position);
+    int2 p1 = min(p0 + 1, 127);
+    float2 f = frac(position);
+    return lerp(lerp(sampleWeights[p0.y * 128 + p0.x], sampleWeights[p0.y * 128 + p1.x], f.x),
+                lerp(sampleWeights[p1.y * 128 + p0.x], sampleWeights[p1.y * 128 + p1.x], f.x), f.y);
 }
 
-// Catmull-Rom 4x4 reconstruction, standing in for the upstream LUT sampling.
-float4 sample_bicubic(Texture2D<float4> tex, float2 uv, float2 size)
+// Same 4x4 weights and atlas coordinates as upstream Sample.glsl.
+float4 sample_lut(Texture2D<float4> tex, float2 uv, float2 size)
 {
     int2 texelSize = int2(size);
-    float2 position = uv * size - 0.5f;
-    float2 base = floor(position);
-    float2 fraction = position - base;
-    int2 basePos = (int2)base;
+    float2 position = uv * size;
+    float2 center = round(position);
+    float2 fraction = position - center + 0.5f;
+    int2 basePos = (int2)(center - 0.5f);
 
     float4 accumulator = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float weightSum = 0.0f;
 
     [unroll] for (int y = 0; y < 4; ++y)
     {
-        float wy = cubic_weight(fraction.y - (y - 1));
         [unroll] for (int x = 0; x < 4; ++x)
         {
-            float wx = cubic_weight(fraction.x - (x - 1));
-            float weight = wx * wy;
+            float weight = lut_weight(31.0f * fraction + float2(x, y) * 32.0f);
             int2 samplePos = clamp_pos(basePos + int2(x - 1, y - 1), texelSize);
             accumulator += tex.Load(int3(samplePos, 0)) * weight;
             weightSum += weight;
         }
     }
 
-    return weightSum > 0.0f ? accumulator / weightSum : float4(0.0f, 0.0f, 0.0f, 0.0f);
+    return abs(weightSum) > 1e-6f ? accumulator / weightSum : tex.Load(int3(clamp_pos(basePos, texelSize), 0));
 }
 )hlsl";
 
@@ -139,7 +135,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (any(pos >= size)) return;
 
     decodedDepth[pos] = remap_depth(inputDepth.Load(int3(pos, 0)));
-    decodedMotion[pos] = inputMotion.Load(int3(pos, 0)).xy / motionVectorScale;
+    decodedMotion[pos] = inputMotion.Load(int3(pos, 0)).xy * motionVectorScale;
 }
 )hlsl";
 
@@ -338,7 +334,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (any(pos >= displaySize)) return;
 
     float2 uv = ((float2)pos + 0.5f) * presentationSize.zw;
-    int2 scaledPos = clamp_pos((int2)((float2)pos / renderScale), renderTexelSize);
+    int2 scaledPos = clamp_pos((int2)(uv * renderSize.xy), renderTexelSize);
 
     uint packedData = filledReprojection.Load(int3(scaledPos, 0));
     float2 mv1;
@@ -376,8 +372,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     int2 samplePos_t1 = clamp_pos((int2)(sampleUV_t1 * renderSize.xy), renderTexelSize);
     int2 samplePos_t0 = clamp_pos((int2)(sampleUV_t0 * renderSize.xy), renderTexelSize);
 
-    float4 color_t1 = sample_bicubic(currentColor, sampleUV_t1, presentationSize.xy);
-    float4 color_t0 = sample_bicubic(previousColor, sampleUV_t0, presentationSize.xy);
+    float4 color_t1 = sample_lut(currentColor, sampleUV_t1, presentationSize.xy);
+    float4 color_t0 = sample_lut(previousColor, sampleUV_t0, presentationSize.xy);
     float depth_t1 = currentDepth.Load(int3(samplePos_t1, 0));
     float depth_t0 = previousDepth.Load(int3(samplePos_t0, 0));
 

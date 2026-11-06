@@ -3,8 +3,13 @@
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 #include "log.h"
+#include "overlay_compose.h"
 
+#include <cmath>
 #include <string>
+
+#pragma warning(push)
+#pragma warning(disable : 4996) // Cyberpunk uses the legacy prepare contract.
 
 namespace sedici::fg {
 
@@ -25,8 +30,7 @@ const T* find_desc(const ffxApiHeader* desc, uint64_t type) noexcept
 
 D3D12_RESOURCE_STATES as_state(uint32_t value) noexcept
 {
-    // FFX's DX12 resources carry D3D12_RESOURCE_STATES in `state`.
-    return static_cast<D3D12_RESOURCE_STATES>(value);
+    return static_cast<D3D12_RESOURCE_STATES>(sedici::dx12_state_from_ffx(value));
 }
 
 DXGI_FORMAT format_of(ID3D12Resource* resource) noexcept
@@ -38,10 +42,7 @@ bool is_supported_depth(DXGI_FORMAT format) noexcept
 {
     switch (format) {
     case DXGI_FORMAT_R32_FLOAT:
-    case DXGI_FORMAT_D32_FLOAT:
-    case DXGI_FORMAT_R32_TYPELESS:
     case DXGI_FORMAT_R16_FLOAT:
-    case DXGI_FORMAT_D16_UNORM:
         return true;
     default:
         return false;
@@ -65,13 +66,57 @@ bool is_supported_motion(DXGI_FORMAT format) noexcept
 bool Context::fail(const char* reason) noexcept
 {
     m_error = reason;
-    log_event(2, std::string("fg: rejected: ") + reason);
+    try { log_event(2, std::string("fg: rejected: ") + reason); } catch (...) {}
     return false;
 }
 
-void Context::destroy() noexcept
+bool Context::retired() const noexcept
 {
+    if (m_recorded) return false;
+    if (!m_retirement_fence) return true;
+    const uint64_t completed = m_retirement_fence->GetCompletedValue();
+    return completed != UINT64_MAX && completed >= m_retirement_value;
+}
+
+bool Context::track_submission(ID3D12Fence* fence, uint64_t value) noexcept
+{
+    if (!m_recorded || !fence || value == 0 || value == UINT64_MAX)
+        return fail("invalid submission retirement token");
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    if (FAILED(fence->GetDevice(IID_PPV_ARGS(&device))) || device.Get() != m_device)
+        return fail("submission fence belongs to another device");
+    if (fence == m_retirement_fence.Get() && value <= m_retirement_value)
+        return fail("submission fence timeline did not advance");
+    m_retirement_fence = fence;
+    m_retirement_value = value;
+    m_recorded = false;
+    return true;
+}
+
+bool Context::wait_prepare(ID3D12CommandQueue* queue) noexcept
+{
+    if (!queue || !m_snapshot || m_recorded || !m_retirement_fence)
+        return fail("prepare has no registered submission");
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    if (FAILED(queue->GetDevice(IID_PPV_ARGS(&device))) || device.Get() != m_device)
+        return fail("generation queue belongs to another device");
+    if (m_retirement_fence->GetCompletedValue() == UINT64_MAX)
+        return fail("prepare device removed");
+    if (FAILED(queue->Wait(m_retirement_fence.Get(), m_retirement_value)))
+        return fail("generation queue wait failed");
+    m_prepare_waited = true;
+    return true;
+}
+
+bool Context::destroy() noexcept
+{
+    if (!retired()) return fail("destroy before GPU retirement");
     m_stage.release_targets();
+    m_retirement_fence.Reset();
+    m_retirement_value = 0;
+    m_snapshot = false;
+    m_prepare_waited = false;
+    m_prepare_list = nullptr;
     m_device = nullptr;
     m_hudless = nullptr;
     m_depth = nullptr;
@@ -84,13 +129,23 @@ void Context::destroy() noexcept
     m_display_height = 0;
     m_render_width = 0;
     m_render_height = 0;
+    m_frame_id = 0;
+    m_prepared_frame_id = 0;
+    m_frames_generated = 0;
+    return true;
 }
 
-bool Context::create(const ffxApiHeader* createDesc) noexcept
+bool Context::create(const ffxApiHeader* createDesc) noexcept try
 {
     const auto* frameGeneration = find_desc<ffxCreateContextDescFrameGeneration>(
         createDesc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
     if (!frameGeneration) return fail("create without FrameGenerationCreate");
+    if (m_device) return fail("context already created");
+    constexpr uint32_t supported = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED |
+        FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
+    if (frameGeneration->flags & ~supported) return fail("unsupported frame generation create flags");
+    if (frameGeneration->backBufferFormat != FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM)
+        return fail("unsupported back buffer format");
 
     const auto* backend = find_desc<ffxCreateBackendDX12Desc>(
         createDesc, FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12);
@@ -118,6 +173,7 @@ bool Context::create(const ffxApiHeader* createDesc) noexcept
                           ? ", display-res motion" : ""));
     return true;
 }
+catch (...) { return fail("context initialization exception"); }
 
 bool Context::configure(const ffxApiHeader* configureDesc) noexcept
 {
@@ -152,7 +208,18 @@ bool Context::configure(const ffxApiHeader* configureDesc) noexcept
 
 bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
 {
+    // A rejected prepare must never leave the preceding frame eligible.
+    m_prepare_valid = false;
     if (!m_device) return fail("prepare without a context");
+    if (!retired()) return fail("prepare slot is still recorded or in flight");
+    // An invalidated prepare still owns its descriptors until its submission
+    // retires. Only now may it be abandoned, without releasing its textures.
+    if (m_snapshot) {
+        m_stage.discard_prepare();
+        m_snapshot = false;
+        m_reset_requested = true;
+        m_history_valid = false;
+    }
 
     const auto* v2 = find_desc<ffxDispatchDescFrameGenerationPrepareV2>(
         prepareDesc, FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2);
@@ -166,6 +233,7 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     const FfxApiDimensions2D renderSize = v2 ? v2->renderSize : legacy->renderSize;
     const FfxApiFloatCoords2D motionScale = v2 ? v2->motionVectorScale : legacy->motionVectorScale;
     const bool reset = v2 ? v2->reset : legacy->unused_reset;
+    const uint64_t frameID = v2 ? v2->frameID : legacy->frameID;
 
     m_depth = static_cast<ID3D12Resource*>(depth->resource);
     m_motion = static_cast<ID3D12Resource*>(motion->resource);
@@ -183,17 +251,61 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
 
     if (!is_supported_depth(format_of(m_depth))) return fail("unsupported depth format");
     if (!is_supported_motion(format_of(m_motion))) return fail("unsupported motion vector format");
+    for (auto* resource : {m_depth, m_motion}) {
+        const auto desc = resource->GetDesc();
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+            desc.Width != renderSize.width || desc.Height != renderSize.height ||
+            desc.MipLevels != 1 || desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1 ||
+            (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+            return fail("unsupported input texture geometry or usage");
+    }
 
+    if (!std::isfinite(motionScale.x) || !std::isfinite(motionScale.y) ||
+        motionScale.x == 0.0f || motionScale.y == 0.0f) return fail("invalid motion vector scale");
+    if (m_render_width != renderSize.width || m_render_height != renderSize.height) {
+        m_reset_requested = true;
+        m_history_valid = false;
+    }
     m_render_width = renderSize.width;
     m_render_height = renderSize.height;
     m_motion_scale_x = motionScale.x;
     m_motion_scale_y = motionScale.y;
-    m_prepare_valid = true;
 
-    if (reset) {
+    auto* commandList = static_cast<ID3D12GraphicsCommandList*>(v2 ? v2->commandList : legacy->commandList);
+    if (!commandList) return fail("prepare without a command list");
+    FrameParams params{};
+    params.renderWidth = m_render_width;
+    params.renderHeight = m_render_height;
+    params.displayWidth = m_display_width;
+    params.displayHeight = m_display_height;
+    params.depthInverted = (m_create_flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED) != 0;
+    params.motionVectorScaleX = -m_motion_scale_x;
+    params.motionVectorScaleY = -m_motion_scale_y;
+    if (!m_stage.configure(params)) return fail("prepare stage configuration");
+    InputFrame inputs{};
+    inputs.depth = m_depth;
+    inputs.motion = m_motion;
+    inputs.depthState = m_depth_state;
+    inputs.motionState = m_motion_state;
+    inputs.depthFormat = format_of(m_depth);
+    inputs.motionFormat = format_of(m_motion);
+    if (!m_stage.capture_prepare(commandList, inputs)) return fail("prepare snapshot rejected");
+    m_recorded = true;
+    m_snapshot = true;
+    m_prepare_waited = false;
+    m_prepare_list = commandList;
+    m_prepare_valid = true;
+    // The game must keep inputs alive until its prepare submission retires.
+    // Descriptors do not own COM references. Generation uses private snapshots
+    // and no longer dereferences depth/motion pointers from a previous call.
+    m_depth = nullptr;
+    m_motion = nullptr;
+
+    if (reset || (m_history_valid && frameID != m_prepared_frame_id + 1)) {
         m_reset_requested = true;
         m_history_valid = false;
     }
+    m_prepared_frame_id = frameID;
     return true;
 }
 
@@ -203,32 +315,20 @@ bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
     if (!list || !output) return fail("generate without a command list or output");
     if (!m_enabled) return fail("frame generation disabled");
     if (!m_prepare_valid) return fail("generate without prepare");
+    if (m_recorded && list != m_prepare_list)
+        return fail("split generation before prepare submission registration");
+    if (!m_recorded && !m_prepare_waited)
+        return fail("split generation without a prepare queue dependency");
+    if (m_prepared_frame_id != m_frame_id) return fail("configure/prepare frame ID mismatch");
     if (!m_hudless) return fail("generate without a HUD-less colour resource");
 
     if (m_hudless->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
         return fail("HUD-less colour is not R8G8B8A8_UNORM");
     }
 
-    FrameParams params{};
-    params.renderWidth = m_render_width;
-    params.renderHeight = m_render_height;
-    params.displayWidth = m_display_width;
-    params.displayHeight = m_display_height;
-    params.depthInverted = (m_create_flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED) != 0;
-    params.motionVectorScaleX = m_motion_scale_x;
-    params.motionVectorScaleY = m_motion_scale_y;
-
-    if (!m_stage.configure(params)) return fail("stage 1 configuration");
-
     InputFrame frame{};
     frame.color = m_hudless;
-    frame.depth = m_depth;
-    frame.motion = m_motion;
     frame.colorState = m_hudless_state;
-    frame.depthState = m_depth_state;
-    frame.motionState = m_motion_state;
-    frame.depthFormat = format_of(m_depth);
-    frame.motionFormat = format_of(m_motion);
 
     const bool reset = m_reset_requested || !m_history_valid;
     if (!m_stage.generate(list, frame, output, reset, outputState)) {
@@ -238,8 +338,13 @@ bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
     m_history_valid = true;
     m_reset_requested = false;
     m_prepare_valid = false;
+    m_snapshot = false;
+    m_recorded = true;
+    m_prepare_list = nullptr;
     ++m_frames_generated;
     return true;
 }
 
 } // namespace sedici::fg
+
+#pragma warning(pop)

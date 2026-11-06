@@ -27,11 +27,15 @@
 #include "fg_context.h"
 #include "fg_params.h"
 #include "fg_stage1.h"
+#include "fg_swapchain.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 
 using Microsoft::WRL::ComPtr;
+
+#pragma warning(push)
+#pragma warning(disable : 4996) // Exercise the desc Cyberpunk actually uses.
 
 namespace {
 
@@ -146,11 +150,13 @@ std::vector<uint8_t> quantise(const std::vector<float>& values)
     return result;
 }
 
-std::vector<uint16_t> pack_half2(const std::vector<float>& values)
+std::vector<uint16_t> pack_ffx_motion(const std::vector<float>& values)
 {
-    std::vector<uint16_t> result(values.size());
-    for (size_t i = 0; i < values.size(); ++i) {
-        result[i] = DirectX::PackedVector::XMConvertFloatToHalf(values[i]);
+    std::vector<uint16_t> result(values.size() * 2, 0);
+    for (size_t i = 0; i < values.size() / 2; ++i) {
+        // Cyberpunk-shaped RGBA16F: FFX current->previous UV vectors.
+        result[i * 4] = DirectX::PackedVector::XMConvertFloatToHalf(-values[i * 2] / kRenderWidth);
+        result[i * 4 + 1] = DirectX::PackedVector::XMConvertFloatToHalf(-values[i * 2 + 1] / kRenderHeight);
     }
     return result;
 }
@@ -336,16 +342,18 @@ struct Device {
 
     bool wait()
     {
-        queue->Signal(fence.Get(), ++fenceValue);
-        while (fence->GetCompletedValue() < fenceValue) {
-            Sleep(0);
-        }
-        return true;
+        if (FAILED(queue->Signal(fence.Get(), ++fenceValue))) return false;
+        HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!event) return false;
+        const HRESULT hr = fence->SetEventOnCompletion(fenceValue, event);
+        const DWORD result = SUCCEEDED(hr) ? WaitForSingleObject(event, 5000) : WAIT_FAILED;
+        CloseHandle(event);
+        return result == WAIT_OBJECT_0 && SUCCEEDED(device->GetDeviceRemovedReason());
     }
 
     bool submit()
     {
-        list->Close();
+        if (FAILED(list->Close())) return false;
         ID3D12CommandList* lists[] = {list.Get()};
         queue->ExecuteCommandLists(1, lists);
         return wait();
@@ -369,8 +377,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     const std::vector<uint8_t> previousColor = quantise(previousDisplay.color);
     const std::vector<uint8_t> currentColor = quantise(currentDisplay.color);
-    const std::vector<uint16_t> previousMotion = pack_half2(previousRender.motion);
-    const std::vector<uint16_t> currentMotion = pack_half2(currentRender.motion);
+    const std::vector<uint16_t> previousMotion = pack_ffx_motion(previousRender.motion);
+    const std::vector<uint16_t> currentMotion = pack_ffx_motion(currentRender.motion);
 
     FrameTextures frames[2];
     for (int index = 0; index < 2; ++index) {
@@ -380,7 +388,7 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
                                              kRenderWidth, kRenderHeight,
                                              D3D12_RESOURCE_FLAG_NONE);
-        frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16_FLOAT,
+        frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
                                               kRenderWidth, kRenderHeight,
                                               D3D12_RESOURCE_FLAG_NONE);
         if (!frames[index].color || !frames[index].depth || !frames[index].motion) {
@@ -401,6 +409,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     const uint32_t renderRowPitch = align_to(kRenderWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     const uint64_t colorBytes = static_cast<uint64_t>(colorRowPitch) * kDisplayHeight;
     const uint64_t renderBytes = static_cast<uint64_t>(renderRowPitch) * kRenderHeight;
+    const uint64_t motionBytes = static_cast<uint64_t>(align_to(kRenderWidth * 8,
+        D3D12_TEXTURE_DATA_PITCH_ALIGNMENT)) * kRenderHeight;
 
     for (int index = 0; index < 2; ++index) {
         const auto& color = index == 0 ? previousColor : currentColor;
@@ -411,7 +421,7 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
                                           D3D12_RESOURCE_STATE_GENERIC_READ);
         auto depthStaging = create_buffer(state.device.Get(), renderBytes, D3D12_HEAP_TYPE_UPLOAD,
                                           D3D12_RESOURCE_STATE_GENERIC_READ);
-        auto motionStaging = create_buffer(state.device.Get(), renderBytes, D3D12_HEAP_TYPE_UPLOAD,
+        auto motionStaging = create_buffer(state.device.Get(), motionBytes, D3D12_HEAP_TYPE_UPLOAD,
                                            D3D12_RESOURCE_STATE_GENERIC_READ);
 
         state.allocator->Reset();
@@ -421,29 +431,27 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), render.depth.data(),
                kRenderWidth, kRenderHeight, 4);
         upload(state.list.Get(), frames[index].motion.Get(), motionStaging.Get(), motion.data(),
-               kRenderWidth, kRenderHeight, 4);
+               kRenderWidth, kRenderHeight, 8);
         if (!state.submit()) {
             std::fprintf(stderr, "upload failed\n");
             return false;
         }
+
     }
 
-    sedici::fg::Stage1 stage;
-    if (!stage.initialize(state.device.Get())) {
-        std::fprintf(stderr, "stage 1 initialization failed\n");
-        return false;
-    }
-
-    sedici::fg::FrameParams params{};
-    params.renderWidth = kRenderWidth;
-    params.renderHeight = kRenderHeight;
-    params.displayWidth = kDisplayWidth;
-    params.displayHeight = kDisplayHeight;
-    params.depthInverted = true;
-    params.motionVectorScaleX = static_cast<float>(kRenderWidth);
-    params.motionVectorScaleY = static_cast<float>(kRenderHeight);
-    if (!stage.configure(params)) {
-        std::fprintf(stderr, "stage 1 configuration failed\n");
+    sedici::fg::Context context;
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = state.device.Get();
+    ffxCreateContextDescFrameGeneration create{};
+    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    create.header.pNext = &backend.header;
+    create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+    create.displaySize = {kDisplayWidth, kDisplayHeight};
+    create.maxRenderSize = {kRenderWidth, kRenderHeight};
+    create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    if (!context.create(&create.header)) {
+        std::fprintf(stderr, "context initialization failed\n");
         return false;
     }
 
@@ -468,23 +476,28 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     uint32_t measured = 0;
 
     for (uint32_t iteration = 0; iteration < kIterations; ++iteration) {
-        const bool first = iteration == 0;
         const uint32_t source = iteration % 2;
-
-        sedici::fg::InputFrame frame{};
-        frame.color = frames[source].color.Get();
-        frame.depth = frames[source].depth.Get();
-        frame.motion = frames[source].motion.Get();
-        frame.colorState = D3D12_RESOURCE_STATE_COMMON;
-        frame.depthState = D3D12_RESOURCE_STATE_COMMON;
-        frame.motionState = D3D12_RESOURCE_STATE_COMMON;
-        frame.depthFormat = DXGI_FORMAT_R32_FLOAT;
-        frame.motionFormat = DXGI_FORMAT_R16G16_FLOAT;
-
-        state.allocator->Reset();
-        state.list->Reset(state.allocator.Get(), nullptr);
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
         state.list->EndQuery(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
-        if (!stage.generate(state.list.Get(), frame, output.Get(), first, outputState)) {
+        ffxConfigureDescFrameGeneration configure{};
+        configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        configure.frameGenerationEnabled = true;
+        configure.HUDLessColor = ffxApiGetResourceDX12(frames[source].color.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        configure.frameID = iteration;
+        ffxDispatchDescFrameGenerationPrepare prepare{};
+        prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+        prepare.frameID = iteration;
+        prepare.commandList = state.list.Get();
+        prepare.renderSize = {kRenderWidth, kRenderHeight};
+        prepare.motionVectorScale = {static_cast<float>(kRenderWidth), static_cast<float>(kRenderHeight)};
+        prepare.depth = ffxApiGetResourceDX12(frames[source].depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        prepare.motionVectors = ffxApiGetResourceDX12(frames[source].motion.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        // Repeating pairs, not a physically incorrect backwards step with
+        // forward-pointing motion. Each pair begins with a history reset.
+        prepare.unused_reset = source == 0;
+        if (!context.configure(&configure.header) || !context.prepare(&prepare.header)) return false;
+
+        if (!context.generate(state.list.Get(), output.Get(), outputState)) {
             std::fprintf(stderr, "stage 1 rejected the frame\n");
             return false;
         }
@@ -513,11 +526,12 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             std::fprintf(stderr, "dispatch failed\n");
             return false;
         }
+        if (!context.track_submission(state.fence.Get(), state.fenceValue)) return false;
 
         void* mapped = nullptr;
         if (SUCCEEDED(timings->Map(0, nullptr, &mapped))) {
             const auto* values = static_cast<const uint64_t*>(mapped);
-            if (iteration > 0 && values[1] > values[0]) {
+            if (source == 1 && values[1] > values[0]) {
                 ticks += values[1] - values[0];
                 ++measured;
             }
@@ -606,31 +620,37 @@ int check_contract(Device& state)
     configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
     configure.frameGenerationEnabled = true;
     configure.HUDLessColor.resource = color.Get();
-    configure.HUDLessColor.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    configure.HUDLessColor.state = FFX_API_RESOURCE_STATE_COMMON;
     configure.frameID = 7;
     expect(context.configure(&configure.header), "configure accepts the FrameGenerationConfig desc");
 
     ffxDispatchDescFrameGenerationPrepare prepare{};
     prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+    prepare.frameID = configure.frameID;
+    state.allocator->Reset();
+    state.list->Reset(state.allocator.Get(), nullptr);
+    prepare.commandList = state.list.Get();
     prepare.renderSize = {32, 18};
     prepare.motionVectorScale = {32.0f, 18.0f};
     prepare.depth.resource = depth.Get();
-    prepare.depth.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    prepare.depth.state = FFX_API_RESOURCE_STATE_COMMON;
     prepare.motionVectors.resource = motion.Get();
-    prepare.motionVectors.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    prepare.motionVectors.state = FFX_API_RESOURCE_STATE_COMMON;
     expect(context.prepare(&prepare.header), "prepare accepts the legacy prepare desc");
+    expect(!context.retired() && !context.destroy(),
+           "recorded prepare prevents premature teardown");
 
-    state.allocator->Reset();
-    state.list->Reset(state.allocator.Get(), nullptr);
     const bool generated = context.generate(state.list.Get(), output.Get(),
                                             D3D12_RESOURCE_STATE_COMMON);
     expect(generated, "generate produces a frame");
-    expect(state.submit(), "the frame command list executes");
+    expect(state.submit() && context.track_submission(state.fence.Get(), state.fenceValue),
+           "the frame command list executes and registers retirement");
     expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
            "a second generate without a new prepare is refused");
 
     prepare.motionVectors.resource = color.Get();
-    expect(!context.prepare(&prepare.header), "a non-float motion vector resource is refused");
+    expect(!context.prepare(&prepare.header) && !context.pending(),
+           "a non-float motion resource is refused and clears pending preparation");
     prepare.motionVectors.resource = motion.Get();
 
     configure.frameGenerationEnabled = false;
@@ -638,15 +658,169 @@ int check_contract(Device& state)
     expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
            "generate is refused while frame generation is off");
 
-    context.destroy();
+    // One deterministic lifetime check, not a timing race: hold a prepare
+    // submission behind a gate, invalidate it, then recover after retirement.
+    ComPtr<ID3D12CommandQueue> prepareQueue;
+    ComPtr<ID3D12CommandAllocator> prepareAllocator;
+    ComPtr<ID3D12GraphicsCommandList> prepareList;
+    ComPtr<ID3D12Fence> prepareFence, gate;
+    D3D12_COMMAND_QUEUE_DESC queueDesc{};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    if (FAILED(state.device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&prepareQueue))) ||
+        FAILED(state.device->CreateCommandAllocator(queueDesc.Type, IID_PPV_ARGS(&prepareAllocator))) ||
+        FAILED(state.device->CreateCommandList(0, queueDesc.Type, prepareAllocator.Get(), nullptr,
+                                               IID_PPV_ARGS(&prepareList))) ||
+        FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&prepareFence))) ||
+        FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)))) return failures + 1;
+
+    configure.frameGenerationEnabled = true;
+    configure.frameID = 8;
+    prepare.frameID = 8;
+    prepare.commandList = prepareList.Get();
+    expect(context.configure(&configure.header) && context.prepare(&prepare.header),
+           "next prepare records on a separate compute queue");
+    configure.frameGenerationEnabled = false;
+    expect(context.configure(&configure.header) && !context.pending(),
+           "FG off invalidates the recorded snapshot without freeing it");
+    if (FAILED(prepareList->Close())) return failures + 1;
+    // Only this test gate is CPU-signalled; retirement is queue-signalled.
+    if (FAILED(prepareQueue->Wait(gate.Get(), 1))) return failures + 1;
+    ID3D12CommandList* prepareLists[]{prepareList.Get()};
+    prepareQueue->ExecuteCommandLists(1, prepareLists);
+    const HRESULT signaled = prepareQueue->Signal(prepareFence.Get(), 1);
+    const bool tracked = SUCCEEDED(signaled) && context.track_submission(prepareFence.Get(), 1);
+    expect(tracked && !context.retired(), "submitted prepare remains occupied behind its GPU fence");
+    expect(!context.prepare(&prepare.header) && !context.destroy(),
+           "in-flight snapshot refuses reuse and teardown");
+    // Always open the gate before any return or blocking wait.
+    if (FAILED(gate->Signal(1))) return failures + 1;
+    if (FAILED(state.queue->Wait(prepareFence.Get(), 1)) || !state.wait()) return failures + 1;
+    expect(context.retired(), "prepare becomes reusable after GPU retirement");
+
+    if (FAILED(prepareAllocator->Reset()) ||
+        FAILED(prepareList->Reset(prepareAllocator.Get(), nullptr))) return failures + 1;
+    configure.frameGenerationEnabled = true;
+    configure.frameID = 9;
+    prepare.frameID = 9;
+    expect(context.configure(&configure.header) && context.prepare(&prepare.header),
+           "FG re-enable recovers an abandoned retired snapshot");
+    if (FAILED(prepareList->Close())) return failures + 1;
+    prepareQueue->ExecuteCommandLists(1, prepareLists);
+    if (FAILED(prepareQueue->Signal(prepareFence.Get(), 2))) return failures + 1;
+    if (FAILED(state.allocator->Reset()) ||
+        FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return failures + 1;
+    expect(context.track_submission(prepareFence.Get(), 2), "split prepare registers its completion fence");
+    expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
+           "split generation without an explicit queue dependency is refused");
+    expect(context.wait_prepare(state.queue.Get()),
+           "generation queue waits for the registered compute prepare");
+    expect(context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
+           "split-queue generation consumes the recovered snapshot");
+    expect(state.submit() && context.track_submission(state.fence.Get(), state.fenceValue),
+           "generation retirement covers the cross-queue dependency");
+
+    expect(context.destroy(), "retired context destroys safely");
     return failures;
+}
+
+bool check_window(Device& state)
+{
+    std::printf("window host: creating window\n");
+    const wchar_t* className = L"SediciFgAcceptance";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici offline swapchain", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    bool ok = [&] {
+        std::printf("window host: creating native swapchain\n");
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 480;
+        desc.Height = 270;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+        ComPtr<sedici::fg::Swapchain> wrapped;
+        std::printf("window host: allocating wrapper\n");
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped))) return false;
+        ComPtr<IUnknown> identity, identityAgain;
+        ComPtr<IDXGISwapChain1> older;
+        if (FAILED(wrapped.As(&identity)) || FAILED(wrapped.As(&older)) ||
+            FAILED(older.As(&identityAgain)) || identity.Get() != identityAgain.Get()) return false;
+        ComPtr<ID3D12DescriptorHeap> rtv;
+        D3D12_DESCRIPTOR_HEAP_DESC heap{};
+        heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        heap.NumDescriptors = 1;
+        if (FAILED(state.device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&rtv)))) return false;
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        std::printf("window host: presenting\n");
+        for (UINT frame = 0; frame < 8; ++frame) {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            const UINT index = wrapped->GetCurrentBackBufferIndex();
+            if (FAILED(wrapped->Present(0, DXGI_PRESENT_TEST)) ||
+                index != wrapped->GetCurrentBackBufferIndex()) return false;
+            ComPtr<ID3D12Resource> buffer;
+            if (FAILED(wrapped->GetBuffer(index, IID_PPV_ARGS(&buffer)))) return false;
+            const auto target = rtv->GetCPUDescriptorHandleForHeapStart();
+            state.device->CreateRenderTargetView(buffer.Get(), nullptr, target);
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            const float color[4]{}; // Matches the wrapper's optimized clear value.
+            state.list->ClearRenderTargetView(target, color, 0, nullptr);
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            if (!state.submit()) return false;
+            if (frame % 2) {
+                DXGI_PRESENT_PARAMETERS parameters{};
+                if (FAILED(wrapped->Present1(1, 0, &parameters))) return false;
+            } else if (FAILED(wrapped->Present(1, 0))) return false;
+            if (wrapped->GetCurrentBackBufferIndex() != (index + 1) % 3) return false;
+        }
+        ComPtr<ID3D12Resource> held;
+        std::printf("window host: resizing\n");
+        if (FAILED(wrapped->GetBuffer(0, IID_PPV_ARGS(&held)))) return false;
+        if (wrapped->ResizeBuffers(3, 320, 180, desc.Format, 0) != DXGI_ERROR_INVALID_CALL) return false;
+        std::printf("window host: outstanding-reference rejection passed\n");
+        held.Reset();
+        if (FAILED(wrapped->ResizeBuffers(3, 320, 180, desc.Format, 0))) return false;
+        std::printf("window host: resize completed\n");
+        if (FAILED(wrapped->GetBuffer(0, IID_PPV_ARGS(&held))) || held->GetDesc().Width != 320) return false;
+        held.Reset();
+        std::printf("window host: releasing swapchain\n");
+        // Wrapper teardown drains its own copy submission before releasing resources.
+        return true;
+    }();
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s windowed real-frame wrapper: identity, Present/Present1, TEST, resize, teardown\n", ok ? "PASS" : "FAIL");
+    return ok;
 }
 
 } // namespace
 
 int main(int argc, char** argv)
 {
-    const bool keepImages = argc > 1 && std::string(argv[1]) == "--images";
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    bool keepImages = false, present = false;
+    for (int i = 1; i < argc; ++i) {
+        keepImages |= std::string(argv[i]) == "--images";
+        present |= std::string(argv[i]) == "--present";
+    }
 
     {
         ComPtr<ID3D12Debug> debug;
@@ -660,6 +834,14 @@ int main(int argc, char** argv)
                                  IID_PPV_ARGS(&state.device)))) {
         std::fprintf(stderr, "no D3D12 device\n");
         return 1;
+    }
+    ComPtr<ID3D12InfoQueue1> messages;
+    DWORD callbackCookie = 0;
+    if (SUCCEEDED(state.device.As(&messages))) {
+        messages->RegisterMessageCallback([](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
+            D3D12_MESSAGE_ID, LPCSTR description, void*) {
+                if (severity <= D3D12_MESSAGE_SEVERITY_ERROR) std::fprintf(stderr, "DX12: %s\n", description);
+            }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &callbackCookie);
     }
 
     D3D12_COMMAND_QUEUE_DESC queueDescription{};
@@ -687,6 +869,7 @@ int main(int argc, char** argv)
 
     const int contractFailures = check_contract(state);
     if (contractFailures != 0) ok = false;
+    if (present) ok = check_window(state) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();
@@ -708,3 +891,5 @@ int main(int argc, char** argv)
 
     return ok ? 0 : 1;
 }
+
+#pragma warning(pop)

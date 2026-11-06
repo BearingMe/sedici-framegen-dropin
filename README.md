@@ -80,7 +80,12 @@ Budget target: **≤ 2.0 ms at 1080p** on a Radeon RX 7700 XT — 1.30–1.67 ms
 WMMA, 0.95–1.20 ms in INT8 dp4a. These are design estimates from the papers, not
 measurements.
 
-Status: **design only.** Nothing on this branch generates a frame yet. The pacing
+Status: **offline implementation in progress.** The LUT-backed analytical stage
+generates synthetic midpoint images through an FFX desc adapter; a separate
+real-frame-only wrapper is checked in an offline window. The exports still use
+AMD's generator; generated-frame scheduling and game integration are unfinished.
+See [the baseline and integration checkpoint](docs/findings/007-fg-baseline.md)
+and [Mob-FGSR attribution](docs/mobfgsr-attribution.md). The pacing
 fix, limiter and overlay described above still work and stay in scope; the new
 path falls back to forwarding to the `.orig` DLL whenever it is disabled,
 unsupported or fails to initialize. Constraints and open questions are in
@@ -93,7 +98,7 @@ is added. Establish the baseline from the current implementation and existing
 findings, implement the generator and schedule, run one small offline acceptance
 executable (PSNR, SSIM, GPU time and presentation), then deploy with authorization.
 No game launch before the first deploy; deployment is not launch authorization.
-No broad new test matrix. All Phase 1 work is currently planned, not implemented.
+No broad new test matrix. Phase 1 is not deploy-ready yet.
 
 Reference code lives in `references/sources/` as shallow, blobless, sparsely
 checked-out submodules (`mobfgsr`, `stssnet`, `tbfe`, `lmv`, `moflow`). They are

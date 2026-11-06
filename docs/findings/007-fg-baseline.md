@@ -38,15 +38,18 @@ Consequences for the generator:
 
 - The FG inputs arrive at **render resolution** (1707x720 at FSR Quality), while
   HUD-less color and the output are **display resolution** (2560x1080). Stage 1
-  therefore has to run its splatting and fusion at render resolution and its
+  therefore runs motion reconstruction at render resolution and its
   final warp at display resolution, which is exactly the `render_size` /
   `presentation_size` / `render_scale` split in the reference implementation.
-- Depth is reversed (near = 1) because `DepthInverted` is set, and the far plane
-  is infinite. The reference packs an 11-bit "nearer is smaller" depth, so the
+- Depth is reversed (near = 1) because `DepthInverted` is set. An infinite far
+  plane is not established by the recorded flags. The reference packs an
+  11-bit "nearer is smaller" depth, so the
   dilated depth is remapped with `depth * depthScale + depthBias` (`-1, +1` for
   inverted).
-- Motion vectors are in pixels relative to `motionVectorScale`, so UV motion is
-  `mv / motionVectorScale`. No jitter-cancellation flag is set.
+- FFX specifies `pixelMotion = mv * motionVectorScale`; the recorded scale
+  `(1707,720)` indicates UV inputs. Normalize with `mv * scale / renderSize`.
+  FFX reprojects current-to-previous with `uv + mv`; MobFGSR uses `uv - mv`,
+  requiring sign inversion at the boundary. No jitter-cancellation flag is set.
 - 2x interpolation means one generated midpoint per prepare, presented before
   its real frame, with a one-frame input delay.
 
@@ -73,8 +76,57 @@ must be compared against them only with the configuration differences stated.
   generated frame will tear. Verify on the offline sequence first, then in game.
 - Depth is non-linear (reversed-Z, infinite far), so the paper's `0.004` depth
   threshold is not directly comparable; it is a tuning value, not a constant.
-- Camera cuts are not signalled in the descs. The implemented response is a
-  history reset driven by the game's own `reset` flag and by a large frame-time
-  or resolution change.
-- The reference LUT (`lut.exr`) is not loaded; sampling uses Catmull-Rom bicubic
-  until the LUT is exported offline and its format is checked.
+- Camera-cut behaviour remains unverified. Current resets cover explicit
+  prepare reset, frame-ID discontinuities, first use and size changes; there
+  is no measured camera-cut detector or frame-time heuristic yet.
+- The reference LUT (`lut.exr`) is exported offline and embedded as a 128x128
+  FLOAT atlas (64 KiB), not the estimated 16 KiB INT8 representation. See
+  `tools/export_mobfgsr_lut.py` and [attribution](../mobfgsr-attribution.md).
+
+## Integration corrections and wrapper checkpoint
+
+The old synthetic pixel-vector host bypassed FFX normalization and state mapping.
+It could not detect inverse motion scaling or direct FFX-to-DX12 state casting.
+The host now scores through `fg::Context` with RGBA16F current-to-previous UV
+motion and FFX resource-state flags.
+
+AMD's reconstruction source confirms `fReprojectedUv = fUv + fMotionVector`:
+`Kits/FidelityFX/framegeneration/fsr3/include/gpu/frameinterpolation/`
+`ffx_frameinterpolation_reconstruct_dilated_velocity_and_previous_depth.h`,
+reviewed at SDK commit `7539ae8b6568ad29ed78a753404351daf3b5cca7`.
+
+`fg::Swapchain` wraps the existing native SDR swapchain with private game-facing
+buffers, without changing the native buffer count. The offline `--present` path
+covers COM identity, Present/Present1, TEST, resize rejection while a buffer is
+held, resize success and teardown. Its fence must be signalled **after** native
+Present: a pre-Present fence failed to retire DXGI's queued work, causing final
+release of an in-flight buffer during resize (caught by the debug layer).
+
+Prepare-time normalization/dilation is now recorded into private textures using
+the prepare command list. Generation no longer reads raw depth/motion pointers
+retained from prepare. The owner must order the two submissions and retire the
+single slot before reuse or resize. `Context::track_submission` registers a
+queue-signalled completion fence after recorded work is submitted; `retired`
+guards reuse and explicit destruction. A split generation submission requires
+`wait_prepare` on its execution queue. The owner must retire work before ending
+the C++ object's lifetime, too; a failed explicit destroy does not make scope
+exit safe. Calls must be serialized by the owner.
+
+A rejected prepare or FG-off configure can invalidate a pending snapshot without
+retiring its GPU work. Previously this left Stage1's `m_prepared` occupied
+forever. Once the registered fence completes, the adapter now discards the stale
+snapshot without releasing its targets and resets history for the next frame.
+The host deterministically holds a compute prepare behind a test gate, checks
+that reuse/destruction are refused, releases the gate, and verifies recovery
+and split compute-to-graphics generation. Retirement fences are queue-signalled;
+only the test gate is CPU-signalled. A bounded multi-frame retirement policy is
+still not implemented.
+
+Metrics use linear UNORM RGB (alpha excluded) for PSNR and pooled
+8x8 uniform luma SSIM windows with stride 4, not Gaussian-window SSIM.
+
+This is a real-frame-only wrapper, not the finished FG scheduler, and is not
+routed from the five exports. Remaining: generation callbacks and routing,
+generated-frame/HUD composition, bounded output
+scheduling, version/query semantics and coordinated fallback. No deployment
+or game launch has occurred for the new path.

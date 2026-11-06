@@ -33,8 +33,9 @@ struct FrameParams {
     float depthThreshold = kDefaultDepthThreshold;
     float colorThreshold = kDefaultColorThreshold;
 
-    // Pixels of motion for a full-screen move, as reported in
-    // ffxDispatchDescFrameGenerationPrepare::motionVectorScale.
+    // FFX scale: pixelMotion = inputMotion * motionVectorScale.
+    // Use render size for UV inputs, (1,1) for pixel inputs. Signed scales
+    // are legal; direction is converted at the FFX boundary.
     float motionVectorScaleX = 1.0f;
     float motionVectorScaleY = 1.0f;
 };
