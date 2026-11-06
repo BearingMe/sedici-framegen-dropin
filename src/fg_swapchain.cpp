@@ -8,16 +8,28 @@ namespace sedici::fg {
 
 namespace {
 
+double ticks_per_second() noexcept
+{
+    static const double frequency = [] {
+        LARGE_INTEGER value{};
+        QueryPerformanceFrequency(&value);
+        return value.QuadPart ? static_cast<double>(value.QuadPart) : 0.0;
+    }();
+    return frequency;
+}
+
 double now_seconds() noexcept
 {
-    static const double period = [] {
-        LARGE_INTEGER frequency{};
-        QueryPerformanceFrequency(&frequency);
-        return frequency.QuadPart ? 1.0 / static_cast<double>(frequency.QuadPart) : 0.0;
-    }();
     LARGE_INTEGER counter{};
     QueryPerformanceCounter(&counter);
-    return static_cast<double>(counter.QuadPart) * period;
+    return static_cast<double>(counter.QuadPart) * ticks_per_second();
+}
+
+uint64_t now_ticks() noexcept
+{
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<uint64_t>(counter.QuadPart);
 }
 
 void sleep_seconds(double seconds) noexcept
@@ -84,6 +96,12 @@ void Swapchain::set_generator(const GenerateSink& sink) noexcept
     std::lock_guard lock(m_mutex);
     if (sink.record != m_sink.record || sink.user != m_sink.user) m_generated_ready = false;
     m_sink = sink;
+}
+
+void Swapchain::set_present_hook(void (*hook)(uint64_t)) noexcept
+{
+    std::lock_guard lock(m_mutex);
+    m_present_hook = hook;
 }
 
 HRESULT Swapchain::initialize_buffers() noexcept try
@@ -234,6 +252,11 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
         return DXGI_ERROR_WAS_STILL_DRAWING;
     HRESULT hr = drain();
     if (FAILED(hr)) return hr;
+
+    // The limiter caps the game's real frames. This is the one place that sees
+    // exactly one call per application frame, so it runs here and not per output
+    // frame; the generated midpoint follows whatever the real frame does.
+    if (m_present_hook) m_present_hook(now_ticks());
 
     const double now = now_seconds();
     if (m_cycle_started) {

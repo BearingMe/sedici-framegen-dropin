@@ -2,6 +2,7 @@
 #include "config.h"
 #include "fg_route.h"
 #include "forward.h"
+#include "limiter.h"
 #include "log.h"
 #include "overlay.h"
 #include "present_hook.h"
@@ -29,6 +30,10 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     // was actually forwarded, and is restored on return.
     (void)sedici::settings();
     ScopedDescOverride desc_override(desc);
+
+    // Under Sedici ownership the limiter attaches to Sedici's own wrapper, which
+    // is the only place that still sees one call per application frame.
+    if (sedici::fg::routing_enabled()) sedici::fg::route_set_present_hook(&limiter_before_present);
 
     if (ffxReturnCode_t routed{}; sedici::fg::route_create(context, desc, &routed)) {
         describe_call(FfxExportKind::Create, desc, routed, context ? *context : nullptr);

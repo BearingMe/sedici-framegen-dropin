@@ -27,4 +27,9 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;
 bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept;
 
+// Installs a hook that runs once per application Present on every swapchain
+// Sedici wraps. The DLL registers the real-frame limiter here; the offline host
+// leaves it unset, so nothing in the wrapper depends on the limiter.
+void route_set_present_hook(void (*hook)(uint64_t now_qpc_ticks)) noexcept;
+
 } // namespace sedici::fg

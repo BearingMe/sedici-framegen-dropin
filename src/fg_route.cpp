@@ -28,6 +28,7 @@ struct Owned {
 
 std::mutex g_owned_mutex;
 std::map<void*, Owned> g_owned;
+void (*g_present_hook)(uint64_t) = nullptr;
 
 constexpr size_t kMaxChainItems = 64;
 
@@ -71,6 +72,19 @@ bool routing_enabled() noexcept
     return sedici::settings().fg.mode == sedici::FrameGenerationMode::Sedici;
 }
 
+void route_set_present_hook(void (*hook)(uint64_t)) noexcept
+{
+    std::lock_guard lock(g_owned_mutex);
+    g_present_hook = hook;
+    // Already-wrapped swapchains take the hook too: the configuration is read
+    // once, but the hook may be installed before or after the first wrap.
+    for (auto& entry : g_owned) {
+        if (entry.second.kind == Kind::Wrap && entry.second.wrap && entry.second.wrap->wrapper()) {
+            entry.second.wrap->wrapper()->set_present_hook(hook);
+        }
+    }
+}
+
 bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !desc) return false;
@@ -96,6 +110,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             return true;
         }
         *wrap->swapchain = owned->swapchain();
+        owned->wrapper()->set_present_hook(g_present_hook);
         g_owned.emplace(owned.get(), Owned{Kind::Wrap, nullptr, std::move(owned)});
         *result = FFX_API_RETURN_OK;
         log_route("created swapchain wrapper", "");

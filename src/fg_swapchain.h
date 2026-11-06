@@ -46,6 +46,12 @@ public:
     // time; a pending midpoint is discarded when the sink is replaced or cleared.
     void set_generator(const GenerateSink& sink) noexcept;
 
+    // Called once per application Present, before any output is produced, with
+    // the QPC timestamp taken on entry. The real-frame limiter attaches here
+    // because this is the one place that sees a game frame rather than an output
+    // frame. Left unset, the wrapper does no pacing of its own.
+    void set_present_hook(void (*hook)(uint64_t now_qpc_ticks)) noexcept;
+
     // Generated midpoints presented since wrap, and midpoint deadline misses
     // that fell back to real-frame-only presentation.
     uint64_t generated_presents() const noexcept { return m_generated_presents; }
@@ -126,6 +132,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> m_generated;
     D3D12_RESOURCE_STATES m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     GenerateSink m_sink{};
+    void (*m_present_hook)(uint64_t) = nullptr;
     bool m_generated_ready = false;
     uint64_t m_generated_presents = 0;
     uint64_t m_skipped_generates = 0;
