@@ -122,6 +122,35 @@ and split compute-to-graphics generation. Retirement fences are queue-signalled;
 only the test gate is CPU-signalled. A bounded multi-frame retirement policy is
 still not implemented.
 
+## Generated presentation, HUD and the session path
+
+The wrapper now presents two frames per game Present: the midpoint for the
+*previous* pair, then the real frame the game just finished. That one-cycle lag is
+inherent, because a midpoint between frames N-1 and N cannot precede N; the
+alternative is an uneven output cadence. `plan_present` (pure, in `fg_pacing.*`)
+caps every wait at half an interval so a slow cycle cannot stretch the game's own
+frame time, and the wrapper drops a midpoint whose slot has passed instead of
+queueing it.
+
+Pacing is owned by the wrapper alone. The limiter still caps real frames, and the
+overlay callback is untouched.
+
+The generated image is HUD-less by construction, so the composite pass adds back
+the HUD layer as `currentBackbuffer - HUDLessColor`. This preserves a static HUD
+exactly (100% of a known block survived in all three scenes) but, over fast
+motion, a semi-transparent HUD leaves background change behind. A registered UI
+resource would avoid that; Cyberpunk registers none.
+
+Presentation uses three separate command allocators: two alternating ones for the
+per-cycle copies and one for generation. Sharing one is wrong, not merely slow:
+the copies of a cycle execute before either allocator may be reset, and generation
+is recorded after them, which the debug layer reports as a device removal.
+
+`fg::Session` binds the FFX-shaped context to a wrapped swapchain found by
+identity, records generation on the wrapper's list, and reports the wrapper's
+fence so retirement stays with the object that owns the list. The offline host
+runs describe, prepare, generate, present, FG off and clean destroy through it.
+
 Metrics use linear UNORM RGB (alpha excluded) for PSNR and pooled
 8x8 uniform luma SSIM windows with stride 4, not Gaussian-window SSIM.
 

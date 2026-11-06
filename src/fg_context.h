@@ -34,9 +34,11 @@ public:
     bool prepare(const ffxApiHeader* prepareDesc) noexcept;
 
     // Generates the pending midpoint into `output`. Returns false when the game
-    // has not supplied everything a frame needs.
+    // has not supplied everything a frame needs. With `hud`, the HUD layer of
+    // `hud->real` is composited onto the midpoint.
     bool generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
-                  D3D12_RESOURCE_STATES outputState) noexcept;
+                  D3D12_RESOURCE_STATES outputState,
+                  const HudSource* hud = nullptr) noexcept;
 
     // After ExecuteCommandLists, register a queue-signalled fence covering ALL
     // work recorded since the last registration. No CPU-signalled completion.
@@ -44,7 +46,19 @@ public:
     // before executing it, then register its own completion fence.
     bool track_submission(ID3D12Fence* fence, uint64_t value) noexcept;
     bool wait_prepare(ID3D12CommandQueue* queue) noexcept;
+    // The caller guarantees the recorded prepare work was already submitted on
+    // the same queue as the following generation, before it. The swapchain uses
+    // this: generation is recorded on the game's own presentation queue, after
+    // the prepare the game submitted in the same frame.
+    void note_ordered_submission() noexcept
+    {
+        m_recorded = false;
+        m_prepare_waited = true;
+    }
     bool retired() const noexcept;
+    // Bounded wait for the last registered submission. Returns false if nothing
+    // was submitted yet or the wait timed out; never waits unbounded.
+    bool wait_for_retirement(uint32_t timeoutMs) noexcept;
 
     bool ready() const noexcept { return m_stage.ready() && m_display_width != 0; }
     bool enabled() const noexcept { return m_enabled; }

@@ -1,8 +1,34 @@
 #include "fg_swapchain.h"
 
+#include <chrono>
 #include <new>
+#include <thread>
 
 namespace sedici::fg {
+
+namespace {
+
+double now_seconds() noexcept
+{
+    static const double period = [] {
+        LARGE_INTEGER frequency{};
+        QueryPerformanceFrequency(&frequency);
+        return frequency.QuadPart ? 1.0 / static_cast<double>(frequency.QuadPart) : 0.0;
+    }();
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return static_cast<double>(counter.QuadPart) * period;
+}
+
+void sleep_seconds(double seconds) noexcept
+{
+    if (!(seconds > 0.0)) return;
+    // Bounded: a corrupted interval must not stall the game thread.
+    const double capped = seconds > 0.05 ? 0.05 : seconds;
+    std::this_thread::sleep_for(std::chrono::duration<double>(capped));
+}
+
+} // namespace
 
 HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
                         Swapchain** result) noexcept
@@ -21,10 +47,20 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
         if (SUCCEEDED(hr) && nativeDevice.Get() != object->m_device.Get()) hr = E_INVALIDARG;
     }
     if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator));
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator[0]));
+    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator[1]));
+    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_generate_allocator));
     if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        object->m_allocator.Get(), nullptr, IID_PPV_ARGS(&object->m_list));
-    if (SUCCEEDED(hr)) hr = object->m_list->Close();
+        object->m_allocator[0].Get(), nullptr, IID_PPV_ARGS(&object->m_list[0]));
+    if (SUCCEEDED(hr)) hr = object->m_list[0]->Close();
+    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        object->m_allocator[1].Get(), nullptr, IID_PPV_ARGS(&object->m_list[1]));
+    if (SUCCEEDED(hr)) hr = object->m_list[1]->Close();
+    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        object->m_generate_allocator.Get(), nullptr, IID_PPV_ARGS(&object->m_generate_list));
+    if (SUCCEEDED(hr)) hr = object->m_generate_list->Close();
     if (SUCCEEDED(hr)) hr = object->m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&object->m_fence));
     if (SUCCEEDED(hr)) {
@@ -43,6 +79,13 @@ Swapchain::~Swapchain()
     if (m_event) CloseHandle(m_event);
 }
 
+void Swapchain::set_generator(const GenerateSink& sink) noexcept
+{
+    std::lock_guard lock(m_mutex);
+    if (sink.record != m_sink.record || sink.user != m_sink.user) m_generated_ready = false;
+    m_sink = sink;
+}
+
 HRESULT Swapchain::initialize_buffers() noexcept try
 {
     DXGI_SWAP_CHAIN_DESC1 desc{};
@@ -50,6 +93,7 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     if (FAILED(hr)) return hr;
     if (desc.SampleDesc.Count != 1 || desc.BufferCount == 0 || desc.Stereo ||
         desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) return DXGI_ERROR_UNSUPPORTED;
+
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> buffers(desc.BufferCount);
     D3D12_HEAP_PROPERTIES heap{};
     heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -69,8 +113,22 @@ HRESULT Swapchain::initialize_buffers() noexcept try
             D3D12_RESOURCE_STATE_PRESENT, &clear, IID_PPV_ARGS(&buffer));
         if (FAILED(hr)) return hr;
     }
+
+    // The generated image is written by a compute pass and copied to a native
+    // backbuffer, so it needs UAV access and never needs to be a render target.
+    D3D12_RESOURCE_DESC generated = texture;
+    generated.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    Microsoft::WRL::ComPtr<ID3D12Resource> midpoint;
+    hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
+        D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&midpoint));
+    if (FAILED(hr)) return hr;
+
     m_buffers = std::move(buffers);
-    m_current = 0;
+    m_generated = midpoint;
+    m_generated_state = D3D12_RESOURCE_STATE_COMMON;
+    m_generated_ready = false;
+    m_game_index = 0;
+    m_native_index = 0;
     return S_OK;
 }
 catch (...) { return E_OUTOFMEMORY; }
@@ -87,6 +145,156 @@ HRESULT Swapchain::drain() noexcept
     const DWORD wait = WaitForSingleObject(m_event, 5000);
     if (wait == WAIT_OBJECT_0) return m_device->GetDeviceRemovedReason();
     return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+}
+
+HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept
+{
+    if (!source || !sourceState) return E_INVALIDARG;
+    Microsoft::WRL::ComPtr<ID3D12Resource> destination;
+    HRESULT hr = m_native->GetBuffer(m_native->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&destination));
+    if (FAILED(hr)) return hr;
+    // Alternating allocators: both copies of a cycle execute before either can be
+    // reset, so they must not share one.
+    const uint32_t slot = m_next_list;
+    m_next_list ^= 1u;
+    auto* allocator = m_allocator[slot].Get();
+    auto* list = m_list[slot].Get();
+    hr = allocator->Reset();
+    if (SUCCEEDED(hr)) hr = list->Reset(allocator, nullptr);
+    if (FAILED(hr)) return hr;
+
+    const D3D12_RESOURCE_STATES restore = *sourceState;
+    const bool sourceTransition = restore != D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    UINT count = 0;
+    const auto add = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
+                         D3D12_RESOURCE_STATES after) {
+        if (before == after) return;
+        auto& barrier = barriers[count++];
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.pResource = resource;
+        barrier.Transition.StateBefore = before;
+        barrier.Transition.StateAfter = after;
+    };
+    add(source, restore, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    add(destination.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (count) list->ResourceBarrier(count, barriers);
+    list->CopyResource(destination.Get(), source);
+
+    count = 0;
+    add(destination.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+    if (sourceTransition) add(source, D3D12_RESOURCE_STATE_COPY_SOURCE, restore);
+    if (count) list->ResourceBarrier(count, barriers);
+
+    hr = list->Close();
+    if (FAILED(hr)) return hr;
+    ID3D12CommandList* lists[]{list};
+    m_queue->ExecuteCommandLists(1, lists);
+    return S_OK;
+}
+
+void Swapchain::record_generated(double now) noexcept
+{
+    (void)now;
+    if (!m_sink.record || !m_generated || m_generated_ready) return;
+    auto* allocator = m_generate_allocator.Get();
+    auto* list = m_generate_list.Get();
+    if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator, nullptr))) return;
+    auto* real = m_buffers[m_game_index].Get();
+    const bool recorded = m_sink.record(m_sink.user, list, real, m_generated.Get(), m_generated_state);
+    if (!recorded) {
+        ++m_skipped_generates;
+        // The list may hold partial work; close it so the next reset is legal.
+        list->Close();
+        return;
+    }
+    if (FAILED(list->Close())) {
+        ++m_skipped_generates;
+        return;
+    }
+    ID3D12CommandList* lists[]{list};
+    m_queue->ExecuteCommandLists(1, lists);
+    if (FAILED(m_queue->Signal(m_fence.Get(), ++m_fence_value))) {
+        ++m_skipped_generates;
+        return;
+    }
+    m_generated_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    m_generated_ready = true;
+    if (m_sink.submitted) m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value);
+}
+
+HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
+{
+    std::lock_guard lock(m_mutex);
+    if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+    if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
+    if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_fence->GetCompletedValue() < m_fence_value)
+        return DXGI_ERROR_WAS_STILL_DRAWING;
+    HRESULT hr = drain();
+    if (FAILED(hr)) return hr;
+
+    const double now = now_seconds();
+    if (m_cycle_started) {
+        const double delta = now - m_last_game_present;
+        if (delta > 1e-4 && delta < 1.0) m_interval = m_interval * 0.9 + delta * 0.1;
+    }
+    if (!m_sink.record) m_generated_ready = false;
+
+    PacingInput input;
+    input.now = now;
+    input.lastCycle = m_last_cycle;
+    input.interval = m_interval;
+    input.cycleStarted = m_cycle_started;
+    input.generatedReady = m_generated_ready;
+    const PacingOutput plan = plan_present(input);
+
+    if (m_generated_ready && !plan.presentGenerated) {
+        // The midpoint missed its slot. Drop it rather than delaying the frame
+        // the game has already finished; one cycle of backlog is never kept.
+        m_generated_ready = false;
+        ++m_skipped_generates;
+    }
+
+    sleep_seconds(plan.firstWait);
+
+    if (plan.presentGenerated) {
+        hr = blit(m_generated.Get(), &m_generated_state);
+        if (SUCCEEDED(hr)) {
+            hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+            if (FAILED(hr)) return hr;
+            m_generated_ready = false;
+            ++m_generated_presents;
+        } else {
+            m_generated_ready = false;
+            ++m_skipped_generates;
+        }
+        sleep_seconds(plan.secondWait);
+    }
+
+    auto* real = m_buffers[m_game_index].Get();
+    D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
+    hr = blit(real, &realState);
+    if (FAILED(hr)) return hr;
+    hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+
+    // Retire our copy AND any work DXGI queues for Present. A fence before
+    // Present is insufficient for releasing native buffers on resize.
+    const HRESULT signaled = m_queue->Signal(m_fence.Get(), ++m_fence_value);
+    if (FAILED(signaled)) return signaled;
+
+    if (SUCCEEDED(hr)) {
+        m_last_cycle = now;
+        m_last_game_present = now;
+        m_cycle_started = true;
+        // Prepare the next midpoint from the frame just shown. It is presented
+        // one cycle later, so this work never blocks the real frame.
+        m_native_index = (m_native_index + 1) % static_cast<UINT>(m_buffers.size());
+        record_generated(now);
+        m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
+    }
+    return hr;
 }
 
 HRESULT STDMETHODCALLTYPE Swapchain::QueryInterface(REFIID iid, void** result)
@@ -110,49 +318,6 @@ ULONG STDMETHODCALLTYPE Swapchain::Release()
     return refs;
 }
 
-HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
-{
-    std::lock_guard lock(m_mutex);
-    if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
-    if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
-    if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_fence->GetCompletedValue() < m_fence_value)
-        return DXGI_ERROR_WAS_STILL_DRAWING;
-    HRESULT hr = drain();
-    if (FAILED(hr)) return hr;
-    Microsoft::WRL::ComPtr<ID3D12Resource> destination;
-    hr = m_native->GetBuffer(m_native->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&destination));
-    if (FAILED(hr)) return hr;
-    hr = m_allocator->Reset();
-    if (SUCCEEDED(hr)) hr = m_list->Reset(m_allocator.Get(), nullptr);
-    if (FAILED(hr)) return hr;
-    auto* source = m_buffers[m_current].Get();
-    D3D12_RESOURCE_BARRIER barriers[2]{};
-    for (auto& barrier : barriers) {
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-    }
-    barriers[0].Transition.pResource = source;
-    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    barriers[1].Transition.pResource = destination.Get();
-    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-    m_list->ResourceBarrier(2, barriers);
-    m_list->CopyResource(destination.Get(), source);
-    for (auto& barrier : barriers) std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
-    m_list->ResourceBarrier(2, barriers);
-    hr = m_list->Close();
-    if (FAILED(hr)) return hr;
-    ID3D12CommandList* lists[]{m_list.Get()};
-    m_queue->ExecuteCommandLists(1, lists);
-    hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
-    // Retire both our copy AND any work DXGI adds to the queue for Present.
-    // A fence before Present is insufficient for releasing native buffers on resize.
-    const HRESULT signaled = m_queue->Signal(m_fence.Get(), ++m_fence_value);
-    if (FAILED(signaled)) return signaled;
-    if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED) m_current = (m_current + 1) % static_cast<UINT>(m_buffers.size());
-    return hr;
-}
-
 HRESULT STDMETHODCALLTYPE Swapchain::Present(UINT sync, UINT flags) { return present(sync, flags, nullptr); }
 HRESULT STDMETHODCALLTYPE Swapchain::Present1(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params)
 {
@@ -167,7 +332,7 @@ HRESULT STDMETHODCALLTYPE Swapchain::GetBuffer(UINT index, REFIID iid, void** re
     if (index >= m_buffers.size()) return DXGI_ERROR_INVALID_CALL;
     return m_buffers[index]->QueryInterface(iid, result);
 }
-UINT STDMETHODCALLTYPE Swapchain::GetCurrentBackBufferIndex() { std::lock_guard lock(m_mutex); return m_current; }
+UINT STDMETHODCALLTYPE Swapchain::GetCurrentBackBufferIndex() { std::lock_guard lock(m_mutex); return m_game_index; }
 
 HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                           const UINT* masks, IUnknown* const* queues, bool version1) noexcept
@@ -193,6 +358,8 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
     hr = version1 ? m_native->ResizeBuffers1(count, width, height, format, flags, masks, queues)
                   : m_native->ResizeBuffers(count, width, height, format, flags);
     if (FAILED(hr)) return hr;
+    m_generated_ready = false;
+    m_cycle_started = false;
     return initialize_buffers();
 }
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags)

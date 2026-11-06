@@ -17,7 +17,7 @@ namespace {
 constexpr uint32_t kRootConstants = sizeof(Constants) / sizeof(uint32_t);
 constexpr uint32_t kSrvSlots = 8;
 constexpr uint32_t kUavSlots = 4;
-constexpr uint32_t kBlocks = 6;
+constexpr uint32_t kBlocks = 7;
 constexpr uint32_t kBlockSlots = kSrvSlots + kUavSlots;
 constexpr uint32_t kHeapSlots = kBlocks * kBlockSlots;
 constexpr uint32_t kGroupSize = 8;
@@ -158,7 +158,8 @@ bool Stage1::initialize(ID3D12Device* device) noexcept try
                         compile_pipeline(shaders::kClear, "clear", m_clear.GetAddressOf()) &&
                         compile_pipeline(shaders::kReproject, "reproject", m_reproject.GetAddressOf()) &&
                         compile_pipeline(shaders::kFill, "fill", m_fill.GetAddressOf()) &&
-                        compile_pipeline(shaders::kWarp, "warp", m_warp.GetAddressOf());
+                        compile_pipeline(shaders::kWarp, "warp", m_warp.GetAddressOf()) &&
+                        compile_pipeline(shaders::kComposite, "composite", m_composite.GetAddressOf());
     return m_pipelines_ready;
 }
 catch (...) { return false; }
@@ -261,6 +262,11 @@ bool Stage1::create_targets() noexcept
                        m_params.renderHeight, uav)) return false;
     if (!create_target(m_filled, DXGI_FORMAT_R32_UINT, m_params.renderWidth,
                        m_params.renderHeight, uav)) return false;
+
+    // The warp writes the midpoint here and the composite pass finishes it, so
+    // HUD composition never has to run inside the fusion pass.
+    if (!create_target(m_midpoint, DXGI_FORMAT_R8G8B8A8_UNORM, m_params.displayWidth,
+                       m_params.displayHeight, uav)) return false;
 
     return true;
 }
@@ -370,7 +376,9 @@ bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipe
     D3D12_GPU_DESCRIPTOR_HANDLE uav = srv;
     uav.ptr += static_cast<UINT64>(kSrvSlots) * m_increment;
 
-    list->SetComputeRoot32BitConstants(0, kRootConstants, &constants, 0);
+    Constants withWeight = constants;
+    withWeight.padding[0] = m_composite_weight;
+    list->SetComputeRoot32BitConstants(0, kRootConstants, &withWeight, 0);
     list->SetComputeRootDescriptorTable(1, srv);
     list->SetComputeRootDescriptorTable(2, uav);
     list->Dispatch(groupX, groupY, 1);
@@ -428,7 +436,7 @@ bool Stage1::capture_prepare(ID3D12GraphicsCommandList* list, const InputFrame& 
 
 bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                       ID3D12Resource* output, bool resetHistory,
-                      D3D12_RESOURCE_STATES outputState) noexcept
+                      D3D12_RESOURCE_STATES outputState, const HudSource* hud) noexcept
 {
     if (!m_configured || !m_pipelines_ready || !list || !output || !frame.color) return false;
     const auto matches = [](ID3D12Resource* resource, uint32_t width, uint32_t height) {
@@ -443,6 +451,14 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
         output->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         !(output->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) return false;
     if (output == frame.color || output == frame.depth || output == frame.motion) return false;
+    if (hud && hud->real) {
+        if (hud->real == output) return false;
+        const auto desc = hud->real->GetDesc();
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+            desc.Width != m_params.displayWidth || desc.Height != m_params.displayHeight ||
+            desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM || desc.MipLevels != 1 ||
+            desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1) return false;
+    }
     if (!m_prepared && !capture_prepare(list, frame)) return false;
 
     const uint32_t current = m_current;
@@ -461,10 +477,18 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
         copy_target(list, m_motion[current], m_motion[previous]);
         copy_target(list, m_color[current], m_color[previous]);
         // There is no temporal pair yet. Seed history and emit the real frame;
-        // warping two copies of it would manufacture motion on a reset.
+        // warping two copies of it would manufacture motion on a reset. With a
+        // HUD source the game's own frame is the exact frame to show, so the
+        // seed is not HUD-less.
         transition(list, m_color[current], D3D12_RESOURCE_STATE_COPY_SOURCE);
         transition_external(list, output, outputState, D3D12_RESOURCE_STATE_COPY_DEST);
-        list->CopyResource(output, m_color[current].get());
+        if (hud && hud->real) {
+            transition_external(list, hud->real, hud->realState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            list->CopyResource(output, hud->real);
+            transition_external(list, hud->real, D3D12_RESOURCE_STATE_COPY_SOURCE, hud->realState);
+        } else {
+            list->CopyResource(output, m_color[current].get());
+        }
         transition_external(list, output, D3D12_RESOURCE_STATE_COPY_DEST, outputState);
         transition(list, m_color[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_current = previous;
@@ -497,8 +521,8 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     uav_barrier(list, m_filled.get());
     transition(list, m_filled, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    // 4. Warp both real frames to the midpoint and fuse.
-    transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    // 4. Warp both real frames to the midpoint and fuse into a private target.
+    transition(list, m_midpoint, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     begin_block(5);
     D3D12_SHADER_RESOURCE_VIEW_DESC lutView{};
@@ -516,10 +540,33 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     write_srv(4, m_depth[previous].get(), DXGI_FORMAT_R32_FLOAT);
     write_srv(5, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
     write_srv(6, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
-    write_uav(0, output, DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_uav(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     dispatch(list, m_warp.Get(), groups(m_params.displayWidth), groups(m_params.displayHeight));
 
+    uav_barrier(list, m_midpoint.get());
+    transition(list, m_midpoint, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    // 5. Composite the game's HUD layer (backbuffer minus HUD-less colour) onto
+    //    the midpoint. Without a HUD source the weight is zero and this is a copy.
+    const bool hasHud = hud && hud->real;
+    m_composite_weight = hasHud ? 1.0f : 0.0f;
+    if (hasHud) {
+        transition_external(list, hud->real, hud->realState,
+                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    begin_block(6);
+    write_srv(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(1, hasHud ? hud->real : m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(2, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_uav(0, output, DXGI_FORMAT_R8G8B8A8_UNORM);
+    dispatch(list, m_composite.Get(), groups(m_params.displayWidth), groups(m_params.displayHeight));
     transition_external(list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, outputState);
+    if (hasHud) {
+        transition_external(list, hud->real, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                            hud->realState);
+    }
+    m_composite_weight = 0.0f;
 
     m_current = previous;
     m_history_valid = true;

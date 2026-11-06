@@ -25,6 +25,8 @@
 #include <DirectXPackedVector.h>
 
 #include "fg_context.h"
+#include "fg_integration.h"
+#include "fg_pacing.h"
 #include "fg_params.h"
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
@@ -573,6 +575,95 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         save_ppm(name, generated, kDisplayWidth, kDisplayHeight);
     }
 
+    // HUD preservation: the game's backbuffer carries a HUD the HUD-less input
+    // does not. A known white block over a background-only corner must survive
+    // the composite; it is a corner the synthetic scenes never reach.
+    {
+        const uint32_t x0 = 4, y0 = 4, x1 = 60, y1 = 40;
+        auto hudColor = currentDisplay.color;
+        for (uint32_t y = y0; y < y1; ++y) {
+            for (uint32_t x = x0; x < x1; ++x) {
+                const size_t index = (static_cast<size_t>(y) * kDisplayWidth + x) * 4;
+                hudColor[index + 0] = 1.0f;
+                hudColor[index + 1] = 1.0f;
+                hudColor[index + 2] = 1.0f;
+            }
+        }
+        const auto hudBytes = quantise(hudColor);
+        auto hudTexture = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                         kDisplayWidth, kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
+        auto hudStaging = create_buffer(state.device.Get(), outputRowPitch * kDisplayHeight,
+                                        D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+        if (!hudTexture || !hudStaging) return false;
+        if (FAILED(state.allocator->Reset()) ||
+            FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+
+        upload(state.list.Get(), hudTexture.Get(), hudStaging.Get(), hudBytes.data(),
+               kDisplayWidth, kDisplayHeight, 4);
+
+        ffxConfigureDescFrameGeneration hudConfigure{};
+        hudConfigure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        hudConfigure.frameGenerationEnabled = true;
+        hudConfigure.HUDLessColor = ffxApiGetResourceDX12(frames[1].color.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        hudConfigure.frameID = kIterations;
+
+        ffxDispatchDescFrameGenerationPrepare hudPrepare{};
+        hudPrepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+        hudPrepare.frameID = kIterations;
+        hudPrepare.commandList = state.list.Get();
+        hudPrepare.renderSize = {kRenderWidth, kRenderHeight};
+        hudPrepare.motionVectorScale = {static_cast<float>(kRenderWidth), static_cast<float>(kRenderHeight)};
+        hudPrepare.depth = ffxApiGetResourceDX12(frames[1].depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        hudPrepare.motionVectors = ffxApiGetResourceDX12(frames[1].motion.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        if (!context.configure(&hudConfigure.header) || !context.prepare(&hudPrepare.header)) return false;
+
+        sedici::fg::HudSource hud{hudTexture.Get(), D3D12_RESOURCE_STATE_COMMON};
+        if (!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, &hud)) {
+            std::fprintf(stderr, "HUD composite generation failed\n");
+            return false;
+        }
+
+        D3D12_TEXTURE_COPY_LOCATION from{};
+        from.pResource = output.Get();
+        from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION to{};
+        to.pResource = readback.Get();
+        to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        to.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        to.PlacedFootprint.Footprint.Width = kDisplayWidth;
+        to.PlacedFootprint.Footprint.Height = kDisplayHeight;
+        to.PlacedFootprint.Footprint.Depth = 1;
+        to.PlacedFootprint.Footprint.RowPitch = outputRowPitch;
+        state.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+        if (!state.submit() || !context.track_submission(state.fence.Get(), state.fenceValue)) return false;
+
+        std::vector<uint8_t> composite(static_cast<size_t>(kDisplayWidth) * kDisplayHeight * 4);
+        void* hudMapped = nullptr;
+        if (FAILED(readback->Map(0, nullptr, &hudMapped))) return false;
+        for (uint32_t y = 0; y < kDisplayHeight; ++y) {
+            std::memcpy(composite.data() + static_cast<size_t>(y) * kDisplayWidth * 4,
+                        static_cast<const uint8_t*>(hudMapped) + static_cast<size_t>(y) * outputRowPitch,
+                        static_cast<size_t>(kDisplayWidth) * 4);
+        }
+        readback->Unmap(0, nullptr);
+
+        size_t inside = 0, insideWhite = 0;
+        for (uint32_t y = y0 + 1; y < y1 - 1; ++y) {
+            for (uint32_t x = x0 + 1; x < x1 - 1; ++x) {
+                const size_t index = (static_cast<size_t>(y) * kDisplayWidth + x) * 4;
+                ++inside;
+                if (composite[index] > 216 && composite[index + 1] > 216 && composite[index + 2] > 216) {
+                    ++insideWhite;
+                }
+            }
+        }
+        const double preserved = inside ? static_cast<double>(insideWhite) / inside : 0.0;
+        const bool ok = preserved > 0.95;
+        std::printf("%-18s hud preservation %.1f%%\n", config.name, preserved * 100.0);
+        if (!ok) std::fprintf(stderr, "HUD layer did not survive compositing\n");
+        return ok;
+    }
+
     return true;
 }
 
@@ -723,6 +814,357 @@ int check_contract(Device& state)
     return failures;
 }
 
+// Output pacing is a pure decision, so it is checked without a clock.
+bool check_pacing()
+{
+    int failures = 0;
+    auto expect = [&failures](bool condition, const char* what) {
+        std::printf("%s %s\n", condition ? "PASS" : "FAIL", what);
+        if (!condition) ++failures;
+    };
+
+    sedici::fg::PacingInput input;
+    input.cycleStarted = false;
+    input.generatedReady = true;
+    auto plan = sedici::fg::plan_present(input);
+    expect(plan.presentGenerated && plan.firstWait == 0.0,
+           "the first cycle presents immediately and holds nothing back");
+
+    input.cycleStarted = true;
+    input.interval = 1.0 / 60.0;
+    input.lastCycle = 10.0;
+    input.now = 10.0 + input.interval;
+    plan = sedici::fg::plan_present(input);
+    expect(plan.presentGenerated, "an on-time cycle presents the midpoint before the real frame");
+    expect(plan.firstWait == 0.0, "an on-time cycle does not wait");
+    expect(std::abs(plan.secondWait - input.interval * 0.5) < 1e-9,
+           "the real frame follows the midpoint by half an interval");
+
+    input.now = 10.0;
+    plan = sedici::fg::plan_present(input);
+    expect(plan.firstWait <= input.interval * 0.5 + 1e-9,
+           "an early cycle waits at most half an interval");
+
+    input.now = 10.0 + 3.0 * input.interval;
+    plan = sedici::fg::plan_present(input);
+    expect(plan.firstWait == 0.0, "a late cycle presents without waiting");
+
+    input.generatedReady = false;
+    plan = sedici::fg::plan_present(input);
+    expect(!plan.presentGenerated && plan.secondWait == 0.0,
+           "without a midpoint the real frame is never held");
+
+    input.interval = 0.0;
+    input.generatedReady = true;
+    plan = sedici::fg::plan_present(input);
+    expect(plan.secondWait > 0.0 && plan.secondWait <= 0.5,
+           "an invalid interval falls back to a bounded pacing value");
+    return failures == 0;
+}
+
+struct TestGenerator {
+    uint32_t calls = 0;
+};
+
+// Stand-in for the real generator. Presentation is what is under test here, so
+// the sink only has to be a well-formed, empty recording; the real host records
+// fg::Context into the same output resource.
+bool record_solid(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
+                  ID3D12Resource* output, D3D12_RESOURCE_STATES state)
+{
+    (void)state;
+    auto* generator = static_cast<TestGenerator*>(user);
+    if (!generator || !list || !output || !real) return false;
+    ++generator->calls;
+    return true;
+}
+
+// One generated frame is shown per cycle starting with the second: the midpoint
+// for a pair cannot be shown before the pair exists.
+bool check_generated_window(Device& state)
+{
+    const wchar_t* className = L"SediciFgGenerated";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici generated presentation", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 320;
+        desc.Height = 180;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+        ComPtr<sedici::fg::Swapchain> wrapped;
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped))) return false;
+
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.NumDescriptors = 1;
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        ComPtr<ID3D12DescriptorHeap> uavHeap;
+        if (FAILED(state.device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&uavHeap)))) return false;
+        TestGenerator generator{0};
+        sedici::fg::GenerateSink sink{&generator, &record_solid, nullptr};
+        wrapped->set_generator(sink);
+
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        const UINT cycles = 6;
+        for (UINT cycle = 0; cycle < cycles; ++cycle) {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            ComPtr<ID3D12Resource> buffer;
+            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
+                       D3D12_RESOURCE_STATE_COPY_DEST);
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_PRESENT);
+            if (!state.submit()) return false;
+            if (FAILED(wrapped->Present(1, 0))) return false;
+            if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) return false;
+        }
+
+        std::printf("generated presentation: %u recordings, %llu shown, %llu skipped\n",
+                    generator.calls,
+                    static_cast<unsigned long long>(wrapped->generated_presents()),
+                    static_cast<unsigned long long>(wrapped->skipped_generates()));
+        if (generator.calls != cycles) return false;
+        if (wrapped->generated_presents() != cycles - 1) return false;
+        if (wrapped->skipped_generates() != 0) return false;
+        UINT presented = 0;
+        if (FAILED(wrapped->GetLastPresentCount(&presented))) return false;
+        if (presented != 2 * cycles - 1) return false;
+
+        // Clearing the sink must stop generated presentation without stalling
+        // real frames.
+        wrapped->set_generator(sedici::fg::GenerateSink{});
+        for (UINT cycle = 0; cycle < 2; ++cycle) {
+            if (FAILED(wrapped->Present(1, 0))) return false;
+        }
+        if (FAILED(wrapped->GetLastPresentCount(&presented)) || presented != 2 * cycles + 1) return false;
+
+        wrapped->set_generator(sedici::fg::GenerateSink{});
+        return true;
+    }();
+
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s generated presentation: one midpoint per cycle, bounded, sink removable\n",
+                ok ? "PASS" : "FAIL");
+    return ok;
+}
+
+// The production path end to end: a wrapped swapchain, an FFX-shaped frame
+// generation session bound to it, and generated frames coming out of Sedici's
+// own presentation schedule. Only the five DLL exports are still not routed.
+bool check_session_window(Device& state)
+{
+    const wchar_t* className = L"SediciFgSession";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici session", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = kDisplayWidth;
+        desc.Height = kDisplayHeight;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+
+        sedici::fg::WrapHandle handle;
+        if (!handle.create(native.Get(), state.queue.Get()) || !handle.swapchain()) {
+            std::printf("session: wrap failed\n");
+            return false;
+        }
+
+        sedici::fg::Session session;
+        ffxCreateBackendDX12Desc backend{};
+        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backend.device = state.device.Get();
+        ffxCreateContextDescFrameGeneration create{};
+        create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        create.header.pNext = &backend.header;
+        create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+        create.displaySize = {kDisplayWidth, kDisplayHeight};
+        create.maxRenderSize = {kRenderWidth, kRenderHeight};
+        create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        if (!session.create(&create.header)) {
+            std::printf("session: create failed: %s\n", session.context().last_error());
+            return false;
+        }
+
+        // One pair of frames, uploaded once; the session only needs their data.
+        FrameTextures frames[2];
+        for (int index = 0; index < 2; ++index) {
+            const auto display = make_scene(kScenes[0], static_cast<float>(index),
+                                            kDisplayWidth, kDisplayHeight);
+            const auto render = make_scene(kScenes[0], static_cast<float>(index),
+                                           kRenderWidth, kRenderHeight);
+            frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
+                                                 kDisplayWidth, kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
+            frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
+                                                 kRenderWidth, kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
+            frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
+                                                  kRenderWidth, kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
+            if (!frames[index].color || !frames[index].depth || !frames[index].motion) return false;
+
+            const auto colorBytes = quantise(display.color);
+            const auto motionBytes = pack_ffx_motion(render.motion);
+            const auto colorPitch = align_to(kDisplayWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+            const auto renderPitch = align_to(kRenderWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+            const auto motionPitch = align_to(kRenderWidth * 8, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+
+            auto colorStaging = create_buffer(state.device.Get(), colorPitch * kDisplayHeight,
+                                              D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+            auto depthStaging = create_buffer(state.device.Get(), renderPitch * kRenderHeight,
+                                              D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+            auto motionStaging = create_buffer(state.device.Get(), motionPitch * kRenderHeight,
+                                               D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+            if (!colorStaging || !depthStaging || !motionStaging) return false;
+
+            if (FAILED(state.allocator->Reset()) ||
+                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), colorBytes.data(),
+                   kDisplayWidth, kDisplayHeight, 4);
+            upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), render.depth.data(),
+                   kRenderWidth, kRenderHeight, 4);
+            upload(state.list.Get(), frames[index].motion.Get(), motionStaging.Get(), motionBytes.data(),
+                   kRenderWidth, kRenderHeight, 8);
+            if (!state.submit()) return false;
+        }
+
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        const uint32_t cycles = 5;
+        for (uint32_t cycle = 0; cycle < cycles; ++cycle) {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            const uint32_t source = cycle % 2;
+            if (FAILED(state.allocator->Reset()) ||
+                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+
+            ffxConfigureDescFrameGeneration configure{};
+            configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+            configure.frameGenerationEnabled = true;
+            configure.swapChain = handle.swapchain();
+            configure.HUDLessColor = ffxApiGetResourceDX12(frames[source].color.Get(),
+                                                           FFX_API_RESOURCE_STATE_COMMON);
+            configure.frameID = cycle;
+
+            ffxDispatchDescFrameGenerationPrepare prepare{};
+            prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+            prepare.frameID = cycle;
+            prepare.commandList = state.list.Get();
+            prepare.renderSize = {kRenderWidth, kRenderHeight};
+            prepare.motionVectorScale = {static_cast<float>(kRenderWidth),
+                                         static_cast<float>(kRenderHeight)};
+            prepare.depth = ffxApiGetResourceDX12(frames[source].depth.Get(),
+                                                  FFX_API_RESOURCE_STATE_COMMON);
+            prepare.motionVectors = ffxApiGetResourceDX12(frames[source].motion.Get(),
+                                                          FFX_API_RESOURCE_STATE_COMMON);
+            prepare.unused_reset = source == 0;
+            if (!session.configure(&configure.header)) {
+                std::printf("session: configure failed: %s\n", session.context().last_error());
+                return false;
+            }
+            if (!session.prepare(&prepare.header)) {
+                std::printf("session: prepare failed: %s\n", session.context().last_error());
+                return false;
+            }
+
+            // Stand in for the game's own rendering of this frame.
+            ComPtr<ID3D12Resource> buffer;
+            if (FAILED(handle.swapchain()->GetBuffer(handle.swapchain()->GetCurrentBackBufferIndex(),
+                                                     IID_PPV_ARGS(&buffer)))) return false;
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
+                       D3D12_RESOURCE_STATE_RENDER_TARGET);
+            transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+                       D3D12_RESOURCE_STATE_PRESENT);
+            if (!state.submit()) return false;
+
+            if (FAILED(handle.swapchain()->Present(1, 0))) {
+                std::printf("session: present failed\n");
+                return false;
+            }
+            std::printf("session: cycle %u generated %llu shown %llu skipped %llu\n", cycle,
+                        static_cast<unsigned long long>(session.context().frames_generated()),
+                        static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
+                        static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+        }
+
+        if (session.context().frames_generated() != cycles) {
+            std::printf("session: generated %llu of %u\n",
+                        static_cast<unsigned long long>(session.context().frames_generated()), cycles);
+            std::printf("session: context last error '%s'\n", session.context().last_error());
+            return false;
+        }
+        if (handle.wrapper()->generated_presents() != cycles - 1) {
+            std::printf("session: presented %llu of %u, skipped %llu\n",
+                        static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
+                        cycles - 1,
+                        static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+            return false;
+        }
+        if (handle.wrapper()->skipped_generates() != 0) return false;
+
+        // Turning frame generation off must stop generation without breaking
+        // presentation, and destruction must respect GPU retirement.
+        ffxConfigureDescFrameGeneration off{};
+        off.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        off.frameGenerationEnabled = false;
+        off.swapChain = handle.swapchain();
+        off.frameID = cycles;
+        if (!session.configure(&off.header)) return false;
+        if (FAILED(handle.swapchain()->Present(1, 0))) return false;
+        if (handle.wrapper()->generated_presents() != cycles - 1) return false;
+
+        if (!session.destroy()) return false;
+        handle.destroy();
+        return true;
+    }();
+
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s session: describe, prepare, generate and present through the wrapper\n",
+                ok ? "PASS" : "FAIL");
+    return ok;
+}
+
 bool check_window(Device& state)
 {
     std::printf("window host: creating window\n");
@@ -869,7 +1311,10 @@ int main(int argc, char** argv)
 
     const int contractFailures = check_contract(state);
     if (contractFailures != 0) ok = false;
+    ok = check_pacing() && ok;
     if (present) ok = check_window(state) && ok;
+    if (present) ok = check_generated_window(state) && ok;
+    if (present) ok = check_session_window(state) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

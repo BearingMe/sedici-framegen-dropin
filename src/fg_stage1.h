@@ -39,6 +39,14 @@ struct InputFrame {
     DXGI_FORMAT motionFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 };
 
+// Optional HUD source for a generated frame. The wrapper passes the game's
+// current backbuffer, which still carries the HUD; Stage1 already holds the
+// HUD-less copy it made for the same frame, so the difference is the HUD layer.
+struct HudSource {
+    ID3D12Resource* real = nullptr;
+    D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
+};
+
 class Stage1 {
 public:
     Stage1() = default;
@@ -67,9 +75,11 @@ public:
     // Returns false and leaves the command list untouched when the pipeline is
     // not configured or the inputs do not match the configured geometry.
     // `output` is display resolution and is returned to `outputState`.
+    // With `hud`, the HUD layer of `hud->real` is composited onto the midpoint.
     bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                   ID3D12Resource* output, bool resetHistory,
-                  D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON) noexcept;
+                  D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON,
+                  const HudSource* hud = nullptr) noexcept;
 
     const FrameParams& params() const noexcept { return m_params; }
     bool ready() const noexcept { return m_device != nullptr && m_pipelines_ready; }
@@ -115,6 +125,7 @@ private:
     bool m_history_valid = false;
     bool m_prepared = false;
     uint32_t m_current = 0;
+    float m_composite_weight = 0.0f;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_root_signature;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_lut;
@@ -128,6 +139,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_reproject;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_fill;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_warp;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_composite;
 
     Target m_decodedDepth;
     Target m_decodedMotion;
@@ -136,6 +148,7 @@ private:
     Target m_color[2];
     Target m_reprojection;
     Target m_filled;
+    Target m_midpoint;
 };
 
 } // namespace sedici::fg

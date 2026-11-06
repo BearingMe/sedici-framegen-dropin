@@ -9,10 +9,10 @@ consecutive real frames. GFFE, super-resolution, extrapolation, additional
 multipliers and a training framework are outside this phase.
 
 **Status:** P1.1 baseline recorded ([baseline](docs/findings/007-fg-baseline.md));
-P1.2/P1.3 in progress. The LUT-backed stage runs through the FFX desc adapter
-offline; a real-frame-only swapchain wrapper also runs offline. Neither is routed
-from exports, so the shipped DLL still forwards generation to AMD. The
-existing Cyberpunk implementation and recorded performance are the baseline. Do
+P1.2 complete offline; P1.3 in progress. The LUT-backed stage, HUD composite,
+bounded output schedule and a wrapper that presents a midpoint plus the real frame
+all run end to end offline, including an FFX-shaped session bound to the wrapper.
+The five exports still forward to AMD, so the shipped DLL is unchanged. Do
 not launch the game before the first deploy or require a new contract-capture
 run. Deployment and any later agent-driven launch require separate authorization.
 
@@ -54,12 +54,12 @@ numbers are not universal acceptance thresholds.
 
 ### P1.2 — Implement the DX12 first-layer generator
 
-**In progress, not integration-complete.** `src/fg_params.*` (constants), `src/fg_packing.h` (11/11/10 mirror),
-`src/fg_shaders.h` (dilate, clear, reproject, fill, warp) and `src/fg_stage1.*`
-(DX12 targets, history, dispatch chain). The FLOAT LUT is embedded; FFX scaling,
-direction and state mapping are corrected. Prepare records normalization/dilation
-into private textures on the supplied command list. Fence-protected concurrent
-submissions are still required before DLL integration.
+**Done offline.** `src/fg_params.*` (constants), `src/fg_packing.h` (11/11/10 mirror),
+`src/fg_shaders.h` (decode, dilate, clear, reproject, fill, warp, composite) and
+`src/fg_stage1.*` (DX12 targets, history, dispatch chain). The FLOAT LUT is
+embedded; FFX scaling, direction and state mapping are corrected. Prepare records
+normalization/dilation into private textures on the supplied command list, and the
+warp writes a private midpoint that a separate composite pass finishes.
 
 - Normalize depth, motion vectors, jitter and render/output coordinates; keep
   two-frame history with discontinuity, resize and FG-toggle resets.
@@ -82,16 +82,18 @@ note's ~0.15–0.30 ms analytical budget is an estimate, not an existing result.
 
 ### P1.3 — Integrate FFX and Sedici's custom schedule
 
-**In progress.** `src/fg_context.*` is a supported-subset desc adapter, not a
-complete FFX provider. `src/fg_swapchain.*` presents real frames through private
-backbuffers offline. Generated scheduling, callbacks and export routing remain.
-Depth/motion snapshots are recorded at prepare time; the current adapter remains
-single-slot. It now requires registered queue-signalled retirement fences before
-reuse/destruction, and an explicit prepare-fence wait for split generation.
-Abandoned snapshots recover after retirement, including FG off/on. The offline
-host checks compute-queue prepare followed by graphics-queue generation.
-Bounded multi-frame slots and scheduler ownership remain unfinished; this is not
-yet ready for asynchronous game integration.
+**Mostly done offline; exports not routed.** `src/fg_context.*` is a
+supported-subset desc adapter with queue-signalled retirement, abandoned-snapshot
+recovery and a bounded retirement wait before slot reuse. `src/fg_pacing.*` owns
+the output decision: midpoint first, real frame half an interval later, waits
+capped at half an interval, and a missed midpoint is dropped rather than queued.
+`src/fg_swapchain.*` presents private game-facing backbuffers, one generated frame
+per cycle with a one-cycle pipeline, and `src/fg_integration.*` binds an FFX
+session to that wrapper. The offline host runs the whole path.
+
+Remaining: route the five exports through `fg::WrapHandle`/`fg::Session` behind a
+configuration switch, define query/version answers, and decide what an unsupported
+call does once Sedici owns the context. Until then the DLL forwards to AMD.
 
 - Implement the supported game's create/configure/prepare/dispatch/query/destroy
   contract and Sedici's swapchain wrapper, retaining the five-export interface.
@@ -131,9 +133,13 @@ UV motion and the original FLOAT LUT. Times include debug-layer overhead:
 
 These are synthetic checks, not proof of in-game quality or full ABI compatibility.
 Earlier bicubic scores used a different sampler and bypassed FFX conversion;
-do not compare them as a quality regression. `--present` adds the real-frame
-wrapper window, resize and teardown. Production-size timing and generated/HUD
-presentation checks remain. A new Cyberpunk capture is not a pre-deploy gate.
+do not compare them as a quality regression. `--present` additionally checks the
+real-frame wrapper (identity, Present/Present1, TEST, resize, teardown), the
+schedule (one midpoint per cycle, capped waits, sink removal), HUD preservation
+(100% of a known HUD block survives compositing in all three scenes) and the whole
+session path (describe, prepare, generate, present, FG off, clean destroy).
+Production-size timing and in-game verification remain. A new Cyberpunk capture is
+not a pre-deploy gate.
 
 - One DX12 executable exercises the production generator and scheduler. Use a
   few short sequences covering camera motion, moving/thin geometry, disocclusion

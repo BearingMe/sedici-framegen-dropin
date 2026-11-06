@@ -108,6 +108,22 @@ bool Context::wait_prepare(ID3D12CommandQueue* queue) noexcept
     return true;
 }
 
+bool Context::wait_for_retirement(uint32_t timeoutMs) noexcept
+{
+    if (m_recorded) return false;      // not submitted yet: nothing to wait for
+    if (!m_retirement_fence) return true;
+    if (retired()) return true;
+
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event) return false;
+    const HRESULT armed = m_retirement_fence->SetEventOnCompletion(m_retirement_value, event);
+    const DWORD awaited = SUCCEEDED(armed) ? WaitForSingleObject(event, timeoutMs) : WAIT_FAILED;
+    CloseHandle(event);
+    if (awaited == WAIT_TIMEOUT) return fail("retirement timed out");
+    if (awaited != WAIT_OBJECT_0) return fail("retirement wait failed");
+    return true;
+}
+
 bool Context::destroy() noexcept
 {
     if (!retired()) return fail("destroy before GPU retirement");
@@ -211,6 +227,9 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     // A rejected prepare must never leave the preceding frame eligible.
     m_prepare_valid = false;
     if (!m_device) return fail("prepare without a context");
+    // A previously generated frame owns the single slot until it retires. Wait
+    // briefly rather than reject: the game's next prepare follows immediately.
+    if (!retired() && !m_recorded && !wait_for_retirement(50)) return fail("prepare slot is still in flight");
     if (!retired()) return fail("prepare slot is still recorded or in flight");
     // An invalidated prepare still owns its descriptors until its submission
     // retires. Only now may it be abandoned, without releasing its textures.
@@ -310,7 +329,7 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
 }
 
 bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
-                       D3D12_RESOURCE_STATES outputState) noexcept
+                       D3D12_RESOURCE_STATES outputState, const HudSource* hud) noexcept
 {
     if (!list || !output) return fail("generate without a command list or output");
     if (!m_enabled) return fail("frame generation disabled");
@@ -331,7 +350,7 @@ bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
     frame.colorState = m_hudless_state;
 
     const bool reset = m_reset_requested || !m_history_valid;
-    if (!m_stage.generate(list, frame, output, reset, outputState)) {
+    if (!m_stage.generate(list, frame, output, reset, outputState, hud)) {
         return fail("stage 1 rejected the frame");
     }
 
