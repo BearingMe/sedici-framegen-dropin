@@ -1,0 +1,420 @@
+#include "fg_stage1.h"
+
+#include <d3dcompiler.h>
+
+#include <cstdio>
+#include <string>
+
+#include "fg_shaders.h"
+#include "log.h"
+
+namespace sedici::fg {
+
+namespace {
+
+constexpr uint32_t kRootConstants = sizeof(Constants) / sizeof(uint32_t);
+constexpr uint32_t kSrvSlots = 8;
+constexpr uint32_t kUavSlots = 4;
+constexpr uint32_t kHeapSlots = 16;
+constexpr uint32_t kGroupSize = 8;
+
+uint32_t groups(uint32_t size) noexcept
+{
+    return (size + kGroupSize - 1) / kGroupSize;
+}
+
+std::string hresult_text(HRESULT result)
+{
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "0x%08lX", static_cast<unsigned long>(result));
+    return buffer;
+}
+
+void log_failure(const char* what, HRESULT result)
+{
+    log_error(std::string("frame generation: ") + what + " failed (" + hresult_text(result) + ")");
+}
+
+D3D12_RESOURCE_BARRIER transition_barrier(ID3D12Resource* resource,
+                                          D3D12_RESOURCE_STATES before,
+                                          D3D12_RESOURCE_STATES after) noexcept
+{
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter = after;
+    return barrier;
+}
+
+D3D12_RESOURCE_BARRIER uav_barrier_desc(ID3D12Resource* resource) noexcept
+{
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = resource;
+    return barrier;
+}
+
+} // namespace
+
+bool Stage1::initialize(ID3D12Device* device) noexcept
+{
+    if (!device) return false;
+    m_device = device;
+
+    D3D12_ROOT_PARAMETER parameters[3]{};
+
+    parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[0].Constants.ShaderRegister = 0;
+    parameters[0].Constants.RegisterSpace = 0;
+    parameters[0].Constants.Num32BitValues = kRootConstants;
+    parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_DESCRIPTOR_RANGE srvRange{};
+    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors = kSrvSlots;
+    srvRange.BaseShaderRegister = 0;
+    srvRange.RegisterSpace = 0;
+    srvRange.OffsetInDescriptorsFromTableStart = 0;
+
+    parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    parameters[1].DescriptorTable.pDescriptorRanges = &srvRange;
+    parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_DESCRIPTOR_RANGE uavRange{};
+    uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavRange.NumDescriptors = kUavSlots;
+    uavRange.BaseShaderRegister = 0;
+    uavRange.RegisterSpace = 0;
+    uavRange.OffsetInDescriptorsFromTableStart = 0;
+
+    parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    parameters[2].DescriptorTable.pDescriptorRanges = &uavRange;
+    parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC description{};
+    description.NumParameters = 3;
+    description.pParameters = parameters;
+    description.NumStaticSamplers = 0;
+    description.pStaticSamplers = nullptr;
+    description.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> serialized;
+    Microsoft::WRL::ComPtr<ID3DBlob> errors;
+    HRESULT result = D3D12SerializeRootSignature(&description, D3D_ROOT_SIGNATURE_VERSION_1,
+                                                 serialized.GetAddressOf(), errors.GetAddressOf());
+    if (FAILED(result)) {
+        log_failure("root signature serialization", result);
+        return false;
+    }
+
+    result = device->CreateRootSignature(0, serialized->GetBufferPointer(),
+                                         serialized->GetBufferSize(),
+                                         IID_PPV_ARGS(m_root_signature.GetAddressOf()));
+    if (FAILED(result)) {
+        log_failure("root signature creation", result);
+        return false;
+    }
+
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.NumDescriptors = kHeapSlots;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    result = device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_heap.GetAddressOf()));
+    if (FAILED(result)) {
+        log_failure("descriptor heap creation", result);
+        return false;
+    }
+    m_increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    m_pipelines_ready = compile_pipeline(shaders::kDilate, "dilate", m_dilate.GetAddressOf()) &&
+                        compile_pipeline(shaders::kClear, "clear", m_clear.GetAddressOf()) &&
+                        compile_pipeline(shaders::kReproject, "reproject", m_reproject.GetAddressOf()) &&
+                        compile_pipeline(shaders::kFill, "fill", m_fill.GetAddressOf()) &&
+                        compile_pipeline(shaders::kWarp, "warp", m_warp.GetAddressOf());
+    return m_pipelines_ready;
+}
+
+bool Stage1::compile_pipeline(const char* body, const char* name,
+                              ID3D12PipelineState** out) noexcept
+{
+    const std::string source = std::string(shaders::kCommon) + body;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> bytecode;
+    Microsoft::WRL::ComPtr<ID3DBlob> errors;
+    const HRESULT result = D3DCompile(source.data(), source.size(), "stage1.hlsl", nullptr, nullptr,
+                                      "CSMain", "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
+                                      bytecode.GetAddressOf(), errors.GetAddressOf());
+    if (FAILED(result)) {
+        const char* message = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "no message";
+        log_error(std::string("frame generation: shader ") + name + " failed: " + message);
+        return false;
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC description{};
+    description.pRootSignature = m_root_signature.Get();
+    description.CS.pShaderBytecode = bytecode->GetBufferPointer();
+    description.CS.BytecodeLength = bytecode->GetBufferSize();
+
+    const HRESULT created = m_device->CreateComputePipelineState(
+        &description, IID_PPV_ARGS(out));
+    if (FAILED(created)) {
+        log_failure(name, created);
+        return false;
+    }
+    return true;
+}
+
+bool Stage1::create_target(Target& target, DXGI_FORMAT format, uint32_t width, uint32_t height,
+                           D3D12_RESOURCE_FLAGS flags) noexcept
+{
+    D3D12_HEAP_PROPERTIES heapProperties{};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12_RESOURCE_DESC description{};
+    description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    description.Width = width;
+    description.Height = height;
+    description.DepthOrArraySize = 1;
+    description.MipLevels = 1;
+    description.Format = format;
+    description.SampleDesc.Count = 1;
+    description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    description.Flags = flags;
+
+    const HRESULT result = m_device->CreateCommittedResource(
+        &heapProperties, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(target.resource.GetAddressOf()));
+    if (FAILED(result)) {
+        log_failure("frame generation target creation", result);
+        return false;
+    }
+    target.state = D3D12_RESOURCE_STATE_COMMON;
+    return true;
+}
+
+void Stage1::release_targets() noexcept
+{
+    for (auto& target : m_depth) target = Target{};
+    for (auto& target : m_motion) target = Target{};
+    for (auto& target : m_color) target = Target{};
+    m_reprojection = Target{};
+    m_filled = Target{};
+    m_configured = false;
+}
+
+bool Stage1::create_targets() noexcept
+{
+    release_targets();
+
+    const auto uav = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const auto readOnly = D3D12_RESOURCE_FLAG_NONE;
+
+    for (int index = 0; index < 2; ++index) {
+        if (!create_target(m_depth[index], DXGI_FORMAT_R32_FLOAT, m_params.renderWidth,
+                           m_params.renderHeight, uav)) return false;
+        if (!create_target(m_motion[index], DXGI_FORMAT_R16G16_FLOAT, m_params.renderWidth,
+                           m_params.renderHeight, uav)) return false;
+        if (!create_target(m_color[index], DXGI_FORMAT_R8G8B8A8_UNORM, m_params.displayWidth,
+                           m_params.displayHeight, readOnly)) return false;
+    }
+
+    if (!create_target(m_reprojection, DXGI_FORMAT_R32_UINT, m_params.renderWidth,
+                       m_params.renderHeight, uav)) return false;
+    if (!create_target(m_filled, DXGI_FORMAT_R32_UINT, m_params.renderWidth,
+                       m_params.renderHeight, uav)) return false;
+
+    return true;
+}
+
+bool Stage1::configure(const FrameParams& params) noexcept
+{
+    if (!ready()) return false;
+    if (!valid(params)) {
+        log_error("frame generation: invalid frame parameters");
+        return false;
+    }
+
+    const bool resize = !m_configured ||
+                        params.renderWidth != m_params.renderWidth ||
+                        params.renderHeight != m_params.renderHeight ||
+                        params.displayWidth != m_params.displayWidth ||
+                        params.displayHeight != m_params.displayHeight;
+
+    m_params = params;
+    if (resize) {
+        if (!create_targets()) return false;
+        m_current = 0;
+    }
+    m_configured = true;
+    return true;
+}
+
+void Stage1::transition(ID3D12GraphicsCommandList* list, Target& target,
+                        D3D12_RESOURCE_STATES after) noexcept
+{
+    if (!target.get() || target.state == after) return;
+    const auto barrier = transition_barrier(target.get(), target.state, after);
+    list->ResourceBarrier(1, &barrier);
+    target.state = after;
+}
+
+void Stage1::transition_external(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
+                                 D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) noexcept
+{
+    if (!resource || before == after) return;
+    const auto barrier = transition_barrier(resource, before, after);
+    list->ResourceBarrier(1, &barrier);
+}
+
+void Stage1::uav_barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource) noexcept
+{
+    const auto barrier = uav_barrier_desc(resource);
+    list->ResourceBarrier(1, &barrier);
+}
+
+void Stage1::write_srv(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC description{};
+    description.Format = format;
+    description.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    description.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    description.Texture2D.MipLevels = 1;
+
+    const auto handle = m_heap->GetCPUDescriptorHandleForHeapStart();
+    m_device->CreateShaderResourceView(resource, &description,
+                                       {handle.ptr + static_cast<SIZE_T>(slot) * m_increment});
+}
+
+void Stage1::write_uav(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC description{};
+    description.Format = format;
+    description.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+
+    const auto base = m_heap->GetCPUDescriptorHandleForHeapStart();
+    const auto handle = base.ptr + static_cast<SIZE_T>(kSrvSlots + slot) * m_increment;
+    m_device->CreateUnorderedAccessView(resource, nullptr, &description, {handle});
+}
+
+void Stage1::copy_target(ID3D12GraphicsCommandList* list, Target& source,
+                         Target& destination) noexcept
+{
+    transition(list, source, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(list, destination, D3D12_RESOURCE_STATE_COPY_DEST);
+    list->CopyResource(destination.get(), source.get());
+    transition(list, destination, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+}
+
+bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline,
+                      uint32_t groupX, uint32_t groupY) noexcept
+{
+    if (!pipeline) return false;
+
+    const Constants constants = make_constants(m_params);
+
+    list->SetComputeRootSignature(m_root_signature.Get());
+    list->SetPipelineState(pipeline);
+
+    D3D12_GPU_DESCRIPTOR_HANDLE srv = m_heap->GetGPUDescriptorHandleForHeapStart();
+    D3D12_GPU_DESCRIPTOR_HANDLE uav = srv;
+    uav.ptr += static_cast<UINT64>(kSrvSlots) * m_increment;
+
+    list->SetComputeRoot32BitConstants(0, kRootConstants, &constants, 0);
+    list->SetComputeRootDescriptorTable(1, srv);
+    list->SetComputeRootDescriptorTable(2, uav);
+    list->Dispatch(groupX, groupY, 1);
+    return true;
+}
+
+bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
+                      ID3D12Resource* output, bool resetHistory,
+                      D3D12_RESOURCE_STATES outputState) noexcept
+{
+    if (!m_configured || !m_pipelines_ready || !list) return false;
+    if (!output || !frame.color || !frame.depth || !frame.motion) return false;
+    if (!(frame.colorState == D3D12_RESOURCE_STATE_COPY_SOURCE ||
+          frame.colorState == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)) {
+        return false;
+    }
+
+    const uint32_t current = m_current;
+    const uint32_t previous = current ^ 1u;
+
+    // 1. Keep a private copy of the HUD-less color: the game's resource is
+    //    recycled as soon as the frame has been consumed.
+    transition_external(list, frame.color, frame.colorState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    transition(list, m_color[current], D3D12_RESOURCE_STATE_COPY_DEST);
+    list->CopyResource(m_color[current].get(), frame.color);
+    transition(list, m_color[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition_external(list, frame.color, D3D12_RESOURCE_STATE_COPY_SOURCE, frame.colorState);
+
+    // 2. Dilate depth and motion onto the nearest surface.
+    transition_external(list, frame.depth, frame.depthState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition_external(list, frame.motion, frame.motionState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition(list, m_depth[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, m_motion[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    write_srv(0, frame.depth, DXGI_FORMAT_R32_FLOAT);
+    write_srv(1, frame.motion, DXGI_FORMAT_R16G16_FLOAT);
+    write_uav(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
+    write_uav(1, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
+    dispatch(list, m_dilate.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
+
+    uav_barrier(list, m_depth[current].get());
+    uav_barrier(list, m_motion[current].get());
+
+    transition(list, m_depth[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition(list, m_motion[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    transition_external(list, frame.depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, frame.depthState);
+    transition_external(list, frame.motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, frame.motionState);
+
+    if (resetHistory) {
+        copy_target(list, m_depth[current], m_depth[previous]);
+        copy_target(list, m_motion[current], m_motion[previous]);
+        copy_target(list, m_color[current], m_color[previous]);
+    }
+
+    // 3. Clear, splat, fill.
+    transition(list, m_reprojection, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    write_uav(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
+    dispatch(list, m_clear.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
+    uav_barrier(list, m_reprojection.get());
+
+    write_srv(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
+    write_srv(1, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
+    write_srv(2, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
+    write_uav(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
+    dispatch(list, m_reproject.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
+    uav_barrier(list, m_reprojection.get());
+    transition(list, m_reprojection, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    transition(list, m_filled, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    write_srv(0, m_reprojection.get(), DXGI_FORMAT_R32_UINT);
+    write_uav(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
+    dispatch(list, m_fill.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
+    uav_barrier(list, m_filled.get());
+
+    // 4. Warp both real frames to the midpoint and fuse.
+    transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    write_srv(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
+    write_srv(1, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(2, m_color[previous].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(3, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
+    write_srv(4, m_depth[previous].get(), DXGI_FORMAT_R32_FLOAT);
+    write_srv(5, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
+    write_srv(6, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
+    write_uav(0, output, DXGI_FORMAT_R8G8B8A8_UNORM);
+    dispatch(list, m_warp.Get(), groups(m_params.displayWidth), groups(m_params.displayHeight));
+
+    transition_external(list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, outputState);
+
+    m_current = previous;
+    return true;
+}
+
+} // namespace sedici::fg

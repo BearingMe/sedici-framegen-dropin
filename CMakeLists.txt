@@ -61,6 +61,8 @@ add_library(sedici SHARED
     src/toggles.cpp
     src/config.cpp
     src/log.cpp
+    src/fg_params.cpp
+    src/fg_stage1.cpp
     ${SEDICI_IMGUI_SOURCES}
     exports.def
 )
@@ -88,7 +90,7 @@ if(MSVC)
     target_compile_options(sedici PRIVATE /utf-8 /W4 /permissive-)
 endif()
 
-target_link_libraries(sedici PRIVATE dxgi)
+target_link_libraries(sedici PRIVATE dxgi d3d12 d3dcompiler)
 
 set_target_properties(sedici PROPERTIES
     OUTPUT_NAME amd_fidelityfx_framegeneration_dx12
