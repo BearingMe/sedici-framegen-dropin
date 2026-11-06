@@ -177,11 +177,50 @@ deliberately conservative:
 
 Neither affects `"amd"`, and neither is exercised by a game yet.
 
+## First game session: `sedici` mode crashes, `amd` mode is sound
+
+The first authorized launch exercised both modes on 2026-11-06.
+
+`fg.mode = "amd"`: healthy. 73.23 output FPS, 36.74 real FPS, limiter intervals
+27.397 ms with p99 = 27.397 and overshoot 0.001 ms, `fg=on`, overlay reporting
+150 real / 150 generated per 300 output frames. The deployed build behaves
+exactly like the previous one.
+
+`fg.mode = "sedici"`: **the game dies with `0xC0000005` about 2.2 s in**, right
+after `ffxCreateContext` returns for the swapchain wrap, and before any
+configure, query or prepare reaches Sedici:
+
+```
+[2193.852 ms] ffxCreateContext #2 ctx=0x... result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) ...
+```
+
+Reproduced three times with identical timing and no WER report. Two real bugs
+were found and fixed on the way:
+
+1. The swapchain-wrap create returned `FFX_API_RETURN_OK` but never wrote
+   `*context`, so the caller held a null handle. Now set before returning.
+2. The wrapper pointer was handed to the game without a reference, so the game's
+   `Release()` and our `ComPtr` shared one count. Now `AddRef()`ed at hand-off.
+
+Neither fixed the crash. A third run, with the swapchain deliberately left
+**unwrapped** and the game's own pointer returned unchanged, crashed identically.
+So the wrapper's DXGI surface is not the cause; the failure is tied to answering
+the wrap create at all, or to something the game does immediately afterwards that
+a returning AMD implementation supports and ours does not.
+
+What is ruled out: the swapchain wrapper (unwrapped run still crashed), a refused
+query or dispatch (none was logged before the crash), and the deployment itself
+(`amd` mode runs clean on the same binary).
+
+Next step, not yet done because it needs a system change: enable WER LocalDumps
+for `Cyberpunk2077.exe` and capture a dump for a stack. Without a stack, the
+remaining candidates — an unimplemented query the game issues without logging, or
+an expectation about the swapchain context that AMD satisfies — are guesses.
+
 ## Deployment record
 
 Deployed to the Cyberpunk `bin\x64` directory through `tools/deploy.ps1` on
 2026-11-06, with the game stopped and no launch performed.
-
 - Deployed DLL SHA256 `89A6987B2DEDB5AFC9F75BE88CF7589BBC4D7B9EDD3AFCA419E63E2290659B98`,
   identical to the Release build from commit `3fddbe4`.
 - Original `.orig` untouched at `02297BEEDD285E822D3A64F314CF00FAF378DCEC0EDC47FF0C4DD71B3A8C2F18`.
@@ -205,8 +244,6 @@ restores the `.orig` and removes `sedici.toml`.
 Metrics use linear UNORM RGB (alpha excluded) for PSNR and pooled
 8x8 uniform luma SSIM windows with stride 4, not Gaussian-window SSIM.
 
-This is a real-frame-only wrapper, not the finished FG scheduler, and is not
-routed from the five exports. Remaining: generation callbacks and routing,
-generated-frame/HUD composition, bounded output
-scheduling, version/query semantics and coordinated fallback. No deployment
-or game launch has occurred for the new path.
+The exports are now routed and a game session has run, but sedici mode crashes
+the game, so that path is not usable. md mode is unaffected and is what is
+deployed.
