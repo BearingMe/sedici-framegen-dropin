@@ -548,7 +548,7 @@ proxy marker.
 Optional offline regression checks (do not launch the game):
 
 ```powershell
-cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON
+cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
@@ -557,6 +557,15 @@ These cover config-save safety, window/vtable forwarding, callback bindings,
 live limiter/pacing, failure handling, and Mini/Full DX12 rendering with window
 replacement. GPU tests use the installed debug layer when available; they never
 download one. Their explicit GPU waits do not prove FFX's in-game queue bounds.
+
+`sedici_abi_*` load the built DLL through its five exports next to a stub
+`.orig` (forwarding, desc restoration, pacing send, async rewrite, missing
+original, malformed config) and run a combined `fg.mode = "sedici"` session with
+the Mini overlay and limiter (`sedici_abi_session`). Each run writes a new
+`build/tests/<config>/abi/<scenario>-<time>-<pid>` directory and never deletes
+anything. `sedici_fgcheck*` need `SEDICI_BUILD_FGCHECK`; known failures print
+`XFAIL` and are listed in `docs/refactor/reliability.md`. Close RTSS first:
+its overlay is injected into test windows (vrr checks are then skipped).
 
 ## Deploy and restore
 

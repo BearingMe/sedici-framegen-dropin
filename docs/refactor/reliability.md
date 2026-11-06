@@ -104,6 +104,44 @@ intermediates, skip connections, scratch, and frame-slot multiplicity in the res
 budget. Measure feature packing, inference, and reconstruction as well as analytical
 dispatches; report composition/copy/wait costs separately rather than hiding them.
 
+## Current coverage and gaps (P2.2 baseline)
+
+Status: **verified current state** as of `e745008`, plus the coverage added for
+P2.2. Coverage is listed against the groups above. "Known failure" means a check
+that fails today, tracked as expected-fail with its evidence; it must not be
+relabeled green, and an unexpected pass fails the run.
+
+| Group | Covered by | Gap |
+| --- | --- | --- |
+| Policy | `sedici_fgcheck`: QPC conversion, 2x pacing closed loop, output schedule (2x/1.75x/1.5x/1.25x, adaptive grid, hitch, < 20 fps, pause). `sedici_regression`: TOML parsing and limiter schedule. | Settings transactions (P2.6 does not exist yet); presenter latency/guard decisions are only exercised through windows, not as pure policy. |
+| ABI | `sedici_abi exports`: exactly the five named exports in the built DLL. `sedici_abi forward`: arguments, return codes (including errors) and desc bytes forwarded unchanged to a stub `.orig`; unknown descs forwarded. `sedici_abi pacing` / `async-off`: the pacing tuning send and the async rewrite as the stub sees them, with the caller's desc restored. `sedici_abi missing-orig`: every export returns an error without crashing. | Behaviour against AMD's real binary (P2.3); the stub only proves Sedici's side of the boundary. |
+| Combined session | `sedici_abi session`: fg.mode = "sedici" through the five exports with a real swapchain: FG create/wrap/configure, prepare + Present for 200 frames with the Mini overlay and a 30 fps limiter, FG off/on, resize, destroy. Evidence is the DLL's own log (vrr presenter and 2x schedule, overlay initialized, overlay metrics of ~30 real / ~60 output fps, the limiter's FG on/off label, no setup failures) plus return codes and the D3D12 debug layer. | Live limiter changes, settings save/cancel and Full-menu input need the overlay's input path, which no test drives. |
+| Lifecycle | `sedici_fgcheck --present`: wrapper resize, teardown, vrr recreation, 2x/1.5x/adaptive/overload presentation. `sedici_abi session`: FG off/on and resize through the exports. `sedici_regression`: window/input capture and restoration. | Window replacement (swapchain recreated by the game mid-session) and destroy-with-work-in-flight. |
+| Failure injection | Stub `.orig` errors; missing `.orig`; malformed TOML (`sedici_abi bad-config`); RTSS-injected fallback to "vsync"; generator refusal (fgcheck contract checks). | Allocation/submission failures, log/save failures. |
+| GPU correctness | `sedici_fgcheck`: Stage 1 PSNR/SSIM at 1/2, 1/3, 2/3 from one prepare; HUD preservation; two frames in flight with per-slot fences (debug layer); no back-to-back flips. `sedici_regression gpu-*`: overlay composition. | Chronological readback through the vrr presenter (the FLIP_SEQUENTIAL readback check only exists for the old path). |
+| Performance | Stage 1 time per scene in `sedici_fgcheck`. | Production-resolution timings; generation and presenter cost in game. |
+
+Known failures (expected-fail, `sedici_fgcheck --present`):
+
+- `generated presentation` — `"vsync"` path at `vsync` pacing in the test
+  window: 3 of 5 midpoints skipped as late. Fails identically at `a87d145`;
+  hidden until RTSS was closed (finding 009).
+- `session` — `"vsync"` path through `fg::Session`: the frame 2 midpoint reads
+  back at 16.02 dB. Same history.
+
+Documentation discrepancies found while writing the checks (for P2.1
+reconciliation, not fixed here):
+
+- The shipped `sedici.toml` says `async.mode = "off"` clears
+  `FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT` from the create flags.
+  The code stopped doing that in `6c2c180`; README describes the current
+  behaviour (only `allowAsyncWorkloads` in configure), and `sedici_abi async-off`
+  checks the README behaviour.
+
+Third-party interference: with RTSS running, vrr checks are reported as skipped
+(the wrapper refuses "vrr" under RTSS) and RTSS has drawn its overlay into test
+back buffers, which made the session check fail at frame 0 in every earlier run.
+
 ## Tooling and release evidence
 
 - Register relevant offline checks with CTest and keep fixtures isolated from game

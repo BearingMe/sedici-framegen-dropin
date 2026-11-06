@@ -325,7 +325,9 @@ and [the two-stage objective](references/papers/realtime-fg.md).
 
 ### P2.2 — Regression and integration coverage before migration
 
-**Status:** pending. Establish a trustworthy baseline, not merely more isolated
+**Status:** in progress. The baseline, gap map and known failures are recorded in
+[reliability.md](docs/refactor/reliability.md#current-coverage-and-gaps-p22-baseline);
+the remaining gaps listed there are open. Establish a trustworthy baseline, not merely more isolated
 unit checks or an arbitrary line-coverage percentage.
 
 - Build tests against the same production implementation targets. Include a

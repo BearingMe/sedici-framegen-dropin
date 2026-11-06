@@ -123,6 +123,37 @@ if(SEDICI_BUILD_TESTS)
     # Each process owns the same isolated test config beside its executable.
     set_tests_properties(sedici_regression sedici_gpu_mini sedici_gpu_full
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
+
+    # Export-level harness: the built DLL through its five exports, next to a
+    # stub "original" that records what is forwarded (tests/abi_stub.h). Each
+    # scenario runs in its own process and scratch directory.
+    add_library(sedici_abi_stub SHARED tests/abi_stub.cpp)
+    target_include_directories(sedici_abi_stub PRIVATE
+        third_party/ffx/api/include
+        third_party/ffx/framegeneration/include
+        third_party/ffx/framegeneration/include/dx12)
+    target_compile_options(sedici_abi_stub PRIVATE /utf-8 /W4 /permissive-)
+    set_target_properties(sedici_abi_stub PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_executable(sedici_abi tests/abi.cpp)
+    target_include_directories(sedici_abi PRIVATE
+        third_party/ffx/api/include
+        third_party/ffx/api/include/dx12
+        third_party/ffx/framegeneration/include
+        third_party/ffx/framegeneration/include/dx12)
+    target_compile_definitions(sedici_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_compile_options(sedici_abi PRIVATE /utf-8 /W4 /permissive-)
+    target_link_libraries(sedici_abi PRIVATE dxgi d3d12)
+    add_dependencies(sedici_abi sedici sedici_abi_stub)
+    set_target_properties(sedici_abi PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    foreach(scenario IN ITEMS exports forward pacing async-off missing-orig bad-config session)
+        add_test(NAME sedici_abi_${scenario}
+            COMMAND sedici_abi ${scenario} $<TARGET_FILE:sedici> $<TARGET_FILE:sedici_abi_stub>)
+        set_tests_properties(sedici_abi_${scenario} PROPERTIES TIMEOUT 60 LABELS "abi")
+    endforeach()
+    # The session scenario opens a window and presents; keep it alone on the GPU.
+    set_tests_properties(sedici_abi_session PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")
 endif()
 
 # Offline acceptance host for the frame generator (see MILESTONES.md, P1.4).
@@ -158,4 +189,14 @@ if(SEDICI_BUILD_FGCHECK)
     target_link_libraries(sedici_fgcheck PRIVATE dxgi d3d12 d3dcompiler)
     set_target_properties(sedici_fgcheck PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    if(SEDICI_BUILD_TESTS)
+        # Stage 1 quality, context contract and schedules; then the windowed
+        # presentation checks (known failures are reported as XFAIL, see
+        # docs/refactor/reliability.md); then routing with its own sedici.toml.
+        add_test(NAME sedici_fgcheck COMMAND sedici_fgcheck)
+        add_test(NAME sedici_fgcheck_present COMMAND sedici_fgcheck --present)
+        add_test(NAME sedici_fgcheck_routing COMMAND sedici_fgcheck --routing)
+        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing
+            PROPERTIES RUN_SERIAL TRUE TIMEOUT 300 LABELS "fgcheck;gpu")
+    endif()
 endif()
