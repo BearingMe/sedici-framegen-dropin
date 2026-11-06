@@ -6,6 +6,8 @@ namespace sedici {
 // cursor imports and is inert except during foreground Full capture.
 bool ui_input_enter(HWND hwnd) noexcept;
 void ui_input_leave(bool restore_clip) noexcept;
+void ui_input_leave_window(HWND hwnd, bool restore_clip) noexcept;
+void ui_input_disable() noexcept;
 bool ui_input_active() noexcept;
 // True when the executable's cursor imports could be intercepted. Does not
 // change capture state.

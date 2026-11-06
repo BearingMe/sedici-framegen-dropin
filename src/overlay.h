@@ -29,8 +29,9 @@
 // user context and returns its return code.
 class ScopedOverlayCallback {
 public:
-    explicit ScopedOverlayCallback(const ffxApiHeader* desc) noexcept;
+    explicit ScopedOverlayCallback(const ffxApiHeader* desc, void* context = nullptr) noexcept;
     ~ScopedOverlayCallback();
+    void complete(ffxReturnCode_t result) noexcept;
 
     ScopedOverlayCallback(const ScopedOverlayCallback&) = delete;
     ScopedOverlayCallback& operator=(const ScopedOverlayCallback&) = delete;
@@ -46,9 +47,14 @@ private:
 
     Restore m_restore[8]{};
     size_t m_count = 0;
+    void* m_context = nullptr;
+    bool m_registration_changed = false;
+    bool m_ui_registered = false;
+    bool m_timing_only = false;
 };
 
 // Called from the trampoline on every presented output frame. Records the
 // timestamp and the real/generated split, and logs output fps every 300 calls.
 // Never lets an exception escape into FFX.
 void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept;
+void overlay_on_destroy(void* context) noexcept;

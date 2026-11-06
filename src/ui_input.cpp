@@ -1,5 +1,6 @@
 #include "ui_input.h"
 #include "log.h"
+#include "live.h"
 
 #include <atomic>
 #include <cstring>
@@ -14,17 +15,21 @@ Clip g_clip = ::ClipCursor;
 std::atomic<bool> g_active{false};
 std::atomic<HWND> g_window{nullptr};
 std::mutex g_mutex;
+std::mutex g_install_mutex;
+std::atomic<bool> g_disabled{false};
 RECT g_clip_rect{};
 bool g_clip_set = false;
 bool g_installed = false;
 int g_show_adjustments = 0;
-unsigned g_suppressed_pos = 0;
-unsigned g_suppressed_clip = 0;
+std::atomic<unsigned> g_suppressed_pos{0};
+std::atomic<unsigned> g_suppressed_clip{0};
 
 bool capturing() noexcept
 {
     const HWND hwnd = g_window.load(std::memory_order_acquire);
-    return g_active.load(std::memory_order_acquire) && hwnd && GetForegroundWindow() == hwnd;
+    return !g_disabled.load(std::memory_order_acquire) &&
+           live_ui_mode() == UiMode::Full &&
+           g_active.load(std::memory_order_acquire) && hwnd && GetForegroundWindow() == hwnd;
 }
 
 BOOL WINAPI set_pos_hook(int x, int y)
@@ -38,9 +43,9 @@ BOOL WINAPI set_pos_hook(int x, int y)
 
 BOOL WINAPI clip_hook(const RECT* rect)
 {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!capturing()) return g_clip(rect);
     ++g_suppressed_clip;
-    std::lock_guard<std::mutex> lock(g_mutex);
     g_clip_set = rect != nullptr;
     if (rect) g_clip_rect = *rect;
     return TRUE;
@@ -60,6 +65,7 @@ bool replace_slot(ULONG_PTR* slot, ULONG_PTR expected, ULONG_PTR replacement) no
 
 bool install_hooks() noexcept
 {
+    std::lock_guard<std::mutex> lock(g_install_mutex);
     if (g_installed) return true;
     auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
     if (!base) return false;
@@ -102,14 +108,15 @@ bool install_hooks() noexcept
 
 bool ui_input_enter(HWND hwnd) noexcept
 {
-    if (!hwnd || GetForegroundWindow() != hwnd || !install_hooks()) return false;
+    if (g_disabled.load() || !hwnd || GetForegroundWindow() != hwnd || !install_hooks()) return false;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    // Entry/exit and ShowCursor accounting belong to the owning window thread.
+    if (GetWindowThreadProcessId(hwnd, nullptr) != GetCurrentThreadId()) return false;
+    if (g_active.load()) return g_window.load() == hwnd;
     RECT clip{};
     if (!GetClipCursor(&clip)) return false;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_clip_rect = clip;
-        g_clip_set = true;
-    }
+    g_clip_rect = clip;
+    g_clip_set = true;
     g_window.store(hwnd, std::memory_order_release);
     g_active.store(true, std::memory_order_release);
     if (!g_clip(nullptr)) {
@@ -118,7 +125,7 @@ bool ui_input_enter(HWND hwnd) noexcept
     }
     if (GetCapture() == hwnd) ReleaseCapture();
     g_show_adjustments = 0;
-    // ShowCursor's counter is process-wide. Raise it to >= 0 (visible) and
+    // Raise this input thread's ShowCursor counter to >= 0 (visible) and
     // record only the calls needed, so leaving restores the original count.
     int count = ShowCursor(TRUE);
     if (count > 0) {
@@ -136,21 +143,32 @@ bool ui_input_enter(HWND hwnd) noexcept
 
 void ui_input_leave(bool restore_clip) noexcept
 {
-    if (!g_active.exchange(false, std::memory_order_acq_rel)) return;
-    const HWND hwnd = g_window.exchange(nullptr, std::memory_order_acq_rel);
-    while (g_show_adjustments > 0) { ShowCursor(FALSE); --g_show_adjustments; }
-    if (restore_clip && hwnd && GetForegroundWindow() == hwnd) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_clip(g_clip_set ? &g_clip_rect : nullptr);
-    }
-    if (g_suppressed_pos || g_suppressed_clip) {
-        log_event(1, "sedici: overlay cursor interception released suppressed{sets=" +
-                         std::to_string(g_suppressed_pos) + " clips=" +
-                         std::to_string(g_suppressed_clip) + "}");
-    }
-    g_suppressed_pos = 0;
-    g_suppressed_clip = 0;
+    ui_input_leave_window(g_window.load(), restore_clip);
 }
+
+void ui_input_leave_window(HWND hwnd, bool restore_clip) noexcept
+{
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!hwnd || g_window.load() != hwnd || !g_active.load()) return;
+        if (GetWindowThreadProcessId(hwnd, nullptr) != GetCurrentThreadId()) return;
+        g_active.store(false, std::memory_order_release);
+        g_window.store(nullptr, std::memory_order_release);
+        while (g_show_adjustments > 0) { ShowCursor(FALSE); --g_show_adjustments; }
+        if (restore_clip && GetForegroundWindow() == hwnd)
+            g_clip(g_clip_set ? &g_clip_rect : nullptr);
+        const unsigned positions = g_suppressed_pos.exchange(0);
+        const unsigned clips = g_suppressed_clip.exchange(0);
+        if (positions || clips) {
+            log_event(1, "sedici: overlay cursor interception released suppressed{sets=" +
+                             std::to_string(positions) + " clips=" + std::to_string(clips) + "}");
+        }
+    } catch (...) {
+        // Capture is already released before diagnostic formatting can throw.
+    }
+}
+
+void ui_input_disable() noexcept { g_disabled.store(true, std::memory_order_release); }
 
 bool ui_input_active() noexcept { return capturing(); }
 

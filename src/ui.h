@@ -14,4 +14,7 @@ void ui_capture_window(HWND hwnd) noexcept;
 // Draws Mini/Full when enabled, and does nothing when the mode is Off.
 void ui_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept;
 
+// Permanent session failure: stop rendering and input capture, including hotkeys.
+void ui_disable(const char* reason) noexcept;
+
 } // namespace sedici

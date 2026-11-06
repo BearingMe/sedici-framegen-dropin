@@ -5,6 +5,7 @@
 #include "log.h"
 #include "stats.h"
 #include "timing.h"
+#include "toggles.h"
 
 #include "ffx_framegeneration.h"
 #include "ffx_api_framegeneration_dx12.h"
@@ -14,6 +15,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -25,13 +27,23 @@ using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT,
 
 constexpr size_t kMaxTargets = 8;
 
-std::atomic<PresentFn> g_present_original{nullptr};
-std::atomic<Present1Fn> g_present1_original{nullptr};
 std::atomic<void*> g_targets[kMaxTargets]{};
 std::atomic<unsigned> g_target_count{0};
 
 std::mutex g_mutex;
-std::set<void**> g_patched_vtables;
+struct OriginalPresent {
+    PresentFn present;
+    Present1Fn present1;
+};
+std::map<void**, OriginalPresent> g_patched_vtables;
+thread_local bool g_in_present = false;
+
+OriginalPresent originals(IDXGISwapChain* self)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const auto found = g_patched_vtables.find(*reinterpret_cast<void***>(self));
+    return found != g_patched_vtables.end() ? found->second : OriginalPresent{};
+}
 
 bool is_target(IDXGISwapChain* self) noexcept
 {
@@ -65,20 +77,19 @@ uint64_t qpc_now() noexcept
 
 HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval, UINT flags)
 {
-    static thread_local bool in_hook = false;
-
-    PresentFn original = g_present_original.load(std::memory_order_acquire);
+    PresentFn original = originals(self).present;
     if (!original) return E_FAIL;
 
-    if (in_hook) return original(self, sync_interval, flags);
+    if (g_in_present) return original(self, sync_interval, flags);
 
     struct Guard {
         bool& value;
         ~Guard() { value = false; }
-    } guard{in_hook};
-    in_hook = true;
+    } guard{g_in_present};
+    g_in_present = true;
 
     if (is_target(self)) {
+        if ((flags & DXGI_PRESENT_TEST) == 0) toggles_process_pacing_live();
         const uint64_t now = qpc_now();
         stats_on_present(now);
         sedici::timing_on_real_present(now);
@@ -90,20 +101,19 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval,
 HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval, UINT flags,
                                         const DXGI_PRESENT_PARAMETERS* parameters)
 {
-    static thread_local bool in_hook = false;
-
-    Present1Fn original = g_present1_original.load(std::memory_order_acquire);
+    Present1Fn original = originals(self).present1;
     if (!original) return E_FAIL;
 
-    if (in_hook) return original(self, sync_interval, flags, parameters);
+    if (g_in_present) return original(self, sync_interval, flags, parameters);
 
     struct Guard {
         bool& value;
         ~Guard() { value = false; }
-    } guard{in_hook};
-    in_hook = true;
+    } guard{g_in_present};
+    g_in_present = true;
 
     if (is_target(self)) {
+        if ((flags & DXGI_PRESENT_TEST) == 0) toggles_process_pacing_live();
         const uint64_t now = qpc_now();
         stats_on_present(now);
         sedici::timing_on_real_present(now);
@@ -112,7 +122,7 @@ HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval
     return original(self, sync_interval, flags, parameters);
 }
 
-bool patch_vtable(void** vtable) noexcept
+bool patch_vtable(void** vtable)
 {
     if (!vtable) return false;
 
@@ -126,9 +136,15 @@ bool patch_vtable(void** vtable) noexcept
         return false;
     }
 
+    // Allocate bookkeeping before publishing either hook. Each implementation
+    // keeps its own original; recreating a swapchain cannot change old targets.
+    const auto entry = g_patched_vtables.emplace(vtable, OriginalPresent{
+        reinterpret_cast<PresentFn>(present), reinterpret_cast<Present1Fn>(present1)}).first;
+
     DWORD old_present = 0;
     DWORD old_present1 = 0;
     if (!VirtualProtect(&vtable[8], sizeof(void*), PAGE_READWRITE, &old_present)) {
+        g_patched_vtables.erase(entry);
         std::ostringstream out;
         out << "VirtualProtect failed for swapchain Present (GetLastError=" << GetLastError() << ')';
         log_error(out.str());
@@ -140,6 +156,7 @@ bool patch_vtable(void** vtable) noexcept
         present1_protected = false;
     }
     if (present1 && !present1_protected) {
+        g_patched_vtables.erase(entry);
         VirtualProtect(&vtable[8], sizeof(void*), old_present, &old_present);
         std::ostringstream out;
         out << "VirtualProtect failed for swapchain Present1 (GetLastError=" << GetLastError() << ')';
@@ -147,19 +164,13 @@ bool patch_vtable(void** vtable) noexcept
         return false;
     }
 
-    // Preserve whatever was in the slot (D3D runtime or another overlay hook).
-    g_present_original.store(reinterpret_cast<PresentFn>(present), std::memory_order_release);
-    g_present1_original.store(present1 ? reinterpret_cast<Present1Fn>(present1) : nullptr,
-                              std::memory_order_release);
+    InterlockedExchangePointer(&vtable[8], reinterpret_cast<void*>(&present_hook));
+    if (present1) InterlockedExchangePointer(&vtable[22], reinterpret_cast<void*>(&present1_hook));
 
-    vtable[8] = reinterpret_cast<void*>(&present_hook);
-    if (present1) vtable[22] = reinterpret_cast<void*>(&present1_hook);
-
-    VirtualProtect(&vtable[8], sizeof(void*), old_present, &old_present);
     if (present1) VirtualProtect(&vtable[22], sizeof(void*), old_present1, &old_present1);
+    // Slots often share a page: undo protection changes in reverse order.
+    VirtualProtect(&vtable[8], sizeof(void*), old_present, &old_present);
     FlushInstructionCache(GetCurrentProcess(), &vtable[8], sizeof(void*));
-
-    g_patched_vtables.insert(vtable);
 
     std::ostringstream out;
     out << "present timing hook installed vtable=" << std::hex << reinterpret_cast<uintptr_t>(vtable)
@@ -186,11 +197,10 @@ bool install(IDXGISwapChain* swapchain) noexcept
 
 void present_hook_maybe_install(const ffxCreateContextDescHeader* desc) noexcept
 {
-    // The limiter needs the hook even when logging is off. Milestone 1 only
-    // installed it for timing statistics, so `fps = 0` plus log level 0 still
-    // skips the hook exactly as before.
-    const bool limiter_enabled = sedici::settings().limiter.fps > 0;
-    if ((log_level() < 1 && !limiter_enabled) || !desc) return;
+    // Install while the swapchain is available, even if initially uncapped and
+    // silent: the overlay may enable the limiter later without recreating it.
+    if (!desc) return;
+    (void)sedici::settings();
 
     try {
         std::set<const ffxApiHeader*> seen;

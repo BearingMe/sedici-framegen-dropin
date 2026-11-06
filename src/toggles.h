@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ffx_api.h"
+#include <mutex>
 
 // The two behaviour switches, both resolved from sedici.toml with environment
 // overrides. See config.h and README.md.
@@ -18,10 +19,11 @@
 bool toggles_async_disable() noexcept;
 bool toggles_pacing_hybrid() noexcept;
 
-// Re-sends the pacing tuning to every tracked swapchain context after the
-// overlay changes the live mode. `hybrid` selects the configured hybrid values;
-// otherwise the SDK defaults are sent. Safe to call from the overlay thread.
+// Queue a live update. Sends occur before the application's next Present,
+// outside FFX's callback, and are serialized against context destruction.
 void toggles_apply_pacing_live() noexcept;
+void toggles_process_pacing_live() noexcept;
+std::recursive_mutex& toggles_context_lifetime_mutex() noexcept;
 
 // The return code of the most recent pacing tuning send, or INT_MIN before one.
 int toggles_last_pacing_result() noexcept;

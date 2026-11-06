@@ -474,6 +474,19 @@ There must be exactly five exports: `ffxCreateContext`, `ffxDestroyContext`,
 `ffxConfigure`, `ffxQuery`, `ffxDispatch`. No helper exports, including the
 proxy marker.
 
+Optional offline regression checks (do not launch the game):
+
+```powershell
+cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+These cover config-save safety, window/vtable forwarding, callback bindings,
+live limiter/pacing, failure handling, and Mini/Full DX12 rendering with window
+replacement. GPU tests use the installed debug layer when available; they never
+download one. Their explicit GPU waits do not prove FFX's in-game queue bounds.
+
 ## Deploy and restore
 
 ```powershell

@@ -1,12 +1,15 @@
 #include "config_patch.h"
 
 #include <windows.h>
+#include "toml.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <locale>
+#include <stdexcept>
 #include <sstream>
 #include <string_view>
 #include <vector>
@@ -26,25 +29,24 @@ std::string trim(std::string_view text)
     return std::string(text);
 }
 
-bool iequals(std::string_view lhs, std::string_view rhs)
-{
-    if (lhs.size() != rhs.size()) return false;
-    for (size_t i = 0; i < lhs.size(); ++i) {
-        const char a = lhs[i] >= 'A' && lhs[i] <= 'Z' ? static_cast<char>(lhs[i] + 32) : lhs[i];
-        const char b = rhs[i] >= 'A' && rhs[i] <= 'Z' ? static_cast<char>(rhs[i] + 32) : rhs[i];
-        if (a != b) return false;
-    }
-    return true;
-}
-
 std::string format_number(double value)
 {
     std::ostringstream out;
+    out.imbue(std::locale::classic());
     out << std::fixed << std::setprecision(3) << value;
     std::string text = out.str();
     while (!text.empty() && text.back() == '0') text.pop_back();
     if (!text.empty() && text.back() == '.') text.pop_back();
     return text;
+}
+
+double parse_number(const std::string& text)
+{
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    double value = 0;
+    if (!(stream >> value)) throw std::runtime_error("invalid numeric setting");
+    return value;
 }
 
 std::vector<Line> split_lines(const std::string& text)
@@ -157,11 +159,13 @@ bool find_section(const std::vector<Line>& lines, std::string_view name, size_t&
     begin = lines.size();
     end = lines.size();
     for (size_t i = 0; i < lines.size(); ++i) {
-        if (iequals(section_name(lines[i].text), name)) {
+        if (section_name(lines[i].text) == name) {
             begin = i;
             end = lines.size();
             for (size_t j = i + 1; j < lines.size(); ++j) {
-                if (!section_name(lines[j].text).empty()) {
+                const std::string code = trim(std::string_view(lines[j].text).substr(
+                    0, find_comment(lines[j].text)));
+                if (!code.empty() && code.front() == '[') {
                     end = j;
                     break;
                 }
@@ -221,7 +225,7 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
 }
 
 bool config_save(const std::filesystem::path& path, const ConfigValues& values,
-                 std::string& error) noexcept
+                 std::string& error)
 {
     try {
         std::string text;
@@ -236,30 +240,60 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
 
         const std::string eol = dominant_eol(text);
         std::vector<Line> lines = split_lines(text);
+        // Validate with the real parser, not the line patcher's limited syntax.
+        // Comparing the complete result also protects unrelated multiline text,
+        // quoted/dotted keys, arrays of tables, and case-sensitive table names.
+        toml::table expected = toml::parse(text);
+        const auto expect = [&](std::string_view section, std::string_view key, auto value) {
+            if (!expected.contains(section)) expected.insert(section, toml::table{});
+            auto* table = expected.get_as<toml::table>(section);
+            if (!table) throw std::runtime_error("target section is not a table");
+            table->insert_or_assign(key, value);
+        };
 
         if (values.write_limiter_fps) {
             apply_value(lines, "limiter", "fps", format_number(values.limiter_fps), eol);
+            // The patcher emits whole numbers as TOML integers.
+            const std::string number = format_number(values.limiter_fps);
+            if (number.find('.') == std::string::npos)
+                expect("limiter", "fps", static_cast<int64_t>(values.limiter_fps));
+            else expect("limiter", "fps", parse_number(number));
         }
         if (values.write_pacing) {
             apply_value(lines, "pacing", "mode", quoted(values.pacing), eol);
+            expect("pacing", "mode", values.pacing);
         }
         if (values.write_async) {
             apply_value(lines, "async", "mode", quoted(values.async), eol);
+            expect("async", "mode", values.async);
         }
         if (values.write_log) {
             apply_value(lines, "log", "level", std::to_string(values.log_level), eol);
+            expect("log", "level", values.log_level);
         }
         if (values.write_ui_mode) {
             apply_value(lines, "ui", "mode", quoted(values.ui_mode), eol);
+            expect("ui", "mode", values.ui_mode);
         }
         if (values.write_ui_scale) {
             apply_value(lines, "ui", "scale",
                         values.ui_scale_auto ? quoted("auto") : format_number(values.ui_scale),
-                        eol);
+                         eol);
+            if (values.ui_scale_auto) expect("ui", "scale", "auto");
+            else {
+                const std::string number = format_number(values.ui_scale);
+                if (number.find('.') == std::string::npos)
+                    expect("ui", "scale", static_cast<int64_t>(values.ui_scale));
+                else expect("ui", "scale", parse_number(number));
+            }
         }
 
         std::string output = join_lines(lines);
         if (!output.empty() && output.back() != '\n') output += eol;
+        if (toml::parse(output) != expected) {
+            error = "unsupported TOML layout; original file was not changed";
+            return false;
+        }
 
         std::filesystem::path temporary = path;
         temporary += L".tmp";
@@ -286,6 +320,9 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             return false;
         }
         return true;
+    } catch (const toml::parse_error&) {
+        error = "invalid or unsupported TOML layout; original file was not changed";
+        return false;
     } catch (...) {
         error = "unexpected failure while saving sedici.toml";
         return false;

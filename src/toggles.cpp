@@ -93,7 +93,7 @@ struct SwapchainRef {
     const void* pointer = nullptr;
 };
 
-SwapchainRef find_swapchain(const ffxApiHeader* desc) noexcept
+SwapchainRef find_swapchain(const ffxApiHeader* desc)
 {
     SwapchainRef ref;
     std::set<const ffxApiHeader*> seen;
@@ -129,7 +129,7 @@ SwapchainRef find_swapchain(const ffxApiHeader* desc) noexcept
     return ref;
 }
 
-bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc) noexcept
+bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc)
 {
     std::set<const ffxApiHeader*> seen;
     for (const ffxApiHeader* item = desc; item; item = item->pNext) {
@@ -149,7 +149,7 @@ bool chain_has_fg_configure_with_swapchain(const ffxApiHeader* desc) noexcept
     return false;
 }
 
-bool chain_has_fg_create(const ffxApiHeader* desc) noexcept
+bool chain_has_fg_create(const ffxApiHeader* desc)
 {
     std::set<const ffxApiHeader*> seen;
     for (const ffxApiHeader* item = desc; item; item = item->pNext) {
@@ -171,6 +171,9 @@ struct ContextPacing {
 std::mutex g_pacing_mutex;
 std::map<void*, ContextPacing> g_pacing_contexts;
 std::atomic<int> g_last_pacing_result{INT_MIN};
+std::recursive_mutex g_context_lifetime_mutex;
+std::atomic<uint64_t> g_pacing_generation{0};
+std::atomic<uint64_t> g_applied_generation{0};
 
 // Frame generation contexts, and the last state the game gave them. The set is
 // only there so destroying the last FG context clears the flag; a recycled
@@ -180,7 +183,7 @@ std::set<void*> g_fg_contexts;
 
 // Caller holds g_pacing_mutex. Returns nullptr only when the table is full and
 // the context is new, which means "do not track, do not send".
-ContextPacing* acquire_state(void* key) noexcept
+ContextPacing* acquire_state(void* key)
 {
     const auto existing = g_pacing_contexts.find(key);
     if (existing != g_pacing_contexts.end()) return &existing->second;
@@ -192,7 +195,7 @@ ContextPacing* acquire_state(void* key) noexcept
 // the caller can update its per-context state. Deliberately called without
 // g_pacing_mutex held: it enters the original DLL, and holding our own lock
 // across foreign code is a needless deadlock risk.
-ffxReturnCode_t send_pacing_tuning(ffxContext* context, bool hybrid, const char* reason) noexcept
+ffxReturnCode_t send_pacing_tuning(ffxContext* context, bool hybrid, const char* reason)
 {
     if (!context || !*context || !g_ffxConfigure) {
         g_last_pacing_result.store(static_cast<int>(FFX_API_RETURN_ERROR),
@@ -256,7 +259,7 @@ ffxReturnCode_t send_pacing_tuning(ffxContext* context, bool hybrid, const char*
     return result;
 }
 
-void record_attempt(void* key, ffxReturnCode_t result) noexcept
+void record_attempt(void* key, ffxReturnCode_t result)
 {
     std::lock_guard<std::mutex> lock(g_pacing_mutex);
     ContextPacing* state = acquire_state(key);
@@ -279,7 +282,22 @@ bool toggles_pacing_hybrid() noexcept
 
 void toggles_apply_pacing_live() noexcept
 {
+    g_pacing_generation.fetch_add(1, std::memory_order_release);
+}
+
+std::recursive_mutex& toggles_context_lifetime_mutex() noexcept
+{
+    return g_context_lifetime_mutex;
+}
+
+void toggles_process_pacing_live() noexcept
+{
     try {
+        const uint64_t generation = g_pacing_generation.load(std::memory_order_acquire);
+        if (generation == g_applied_generation.load(std::memory_order_acquire)) return;
+        std::lock_guard<std::recursive_mutex> lifetime(g_context_lifetime_mutex);
+        if (generation == g_applied_generation.load()) return;
+        g_applied_generation.store(generation, std::memory_order_release);
         const bool hybrid = toggles_pacing_hybrid();
 
         std::vector<void*> keys;

@@ -150,3 +150,36 @@ own imports, exactly as it targets the game's. All 16 checks pass:
 The DX12 Mini/Full rendering tests, the synthetic hotkey cycle, the 56-check
 harness and the five-export check still pass.
 
+## Review hardening
+
+- Bind the shader-visible SRV heap before ImGui draws. Validate device-object
+  creation explicitly, keep backend assertions active as catchable failures in
+  Release, and contain backend access violations at narrow DX12 call boundaries.
+  This does not make asynchronous GPU faults recoverable.
+- Keep each window's original procedure until `WM_NCDESTROY` has been forwarded.
+  Do not reinstall above another overlay's subclass; rebind the Win32 backend
+  when the output HWND changes.
+- A permanent overlay failure disables hotkeys and cursor suppression immediately;
+  visibility/clip cleanup is posted to the owning window thread. Cursor counters
+  are atomic and capture transitions are serialized. Full is also required for
+  cursor-call suppression, including the interval before queued cleanup runs.
+- Remove allocating helpers' `noexcept` boundaries so the outer handlers can
+  actually catch allocation/filesystem failures.
+- Install Present timing even with startup logging/limiter off, so the live
+  limiter can work later. Each patched vtable retains its own originals.
+- Give each callback/user-context pair an immutable, bounded, process-lifetime
+  binding. Rejected configure calls do not publish composition registrations.
+- Queue live pacing sends until application Present, outside FFX's callback;
+  serialize sends against context destruction and recheck tracked contexts there.
+- Respect TOML case and array-table boundaries; parse and compare the entire
+  patched document against the intended semantic result before replacing the
+  original. Unsupported layouts fail without changing the file.
+- Decode mouse coordinates as signed and update mapping dimensions before
+  consuming input. Serialize access to the shared ImGui renderer.
+
+`SEDICI_BUILD_TESTS=ON` adds repository-owned regression and Mini/Full DX12 tests.
+The GPU tests submit twelve frames and replace the window halfway through, using
+the installed DX12 debug layer when available. They fence each test submission:
+passing them is **not** evidence that FFX bounds outstanding callback submissions
+to ImGui's four upload-buffer slots. That in-game lifetime assumption remains
+unverified; increasing the slot count would not prove correctness either.

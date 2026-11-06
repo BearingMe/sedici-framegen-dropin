@@ -116,7 +116,7 @@ std::mutex g_mutex;
 State g_state;
 
 // Caller holds g_mutex.
-bool initialize_locked() noexcept
+bool initialize_locked()
 {
     if (g_state.initialized) return !g_state.disabled;
     g_state.initialized = true;
@@ -195,7 +195,7 @@ void spin_until(uint64_t deadline) noexcept
     while (qpc_now() < deadline) YieldProcessor();
 }
 
-std::string activation_line_locked(bool fg_active) noexcept
+std::string activation_line_locked(bool fg_active)
 {
     const sedici::LimiterSettings& limiter = sedici::settings().limiter;
     const double fps = sedici::live_limiter_fps();
@@ -208,7 +208,7 @@ std::string activation_line_locked(bool fg_active) noexcept
     return out.str();
 }
 
-std::string stats_line_locked(bool fg_active) noexcept
+std::string stats_line_locked(bool fg_active)
 {
     const double fps = sedici::live_limiter_fps();
 

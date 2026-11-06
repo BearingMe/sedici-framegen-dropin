@@ -39,6 +39,6 @@ struct ConfigValues {
 // formatting are preserved. Missing keys are appended to the end of their
 // section, and missing sections are appended to the file.
 bool config_save(const std::filesystem::path& path, const ConfigValues& values,
-                 std::string& error) noexcept;
+                 std::string& error);
 
 } // namespace sedici

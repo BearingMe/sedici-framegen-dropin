@@ -81,6 +81,7 @@ target_compile_definitions(sedici PRIVATE
     WIN32_LEAN_AND_MEAN
     UNICODE
     _UNICODE
+    IMGUI_USER_CONFIG="imgui_config.h"
 )
 
 if(MSVC)
@@ -93,3 +94,25 @@ set_target_properties(sedici PROPERTIES
     OUTPUT_NAME amd_fidelityfx_framegeneration_dx12
     PREFIX ""
 )
+
+option(SEDICI_BUILD_TESTS "Build the offline Windows regression checks" OFF)
+if(SEDICI_BUILD_TESTS)
+    enable_testing()
+    get_target_property(SEDICI_TEST_SOURCES sedici SOURCES)
+    list(REMOVE_ITEM SEDICI_TEST_SOURCES src/dllmain.cpp exports.def)
+    add_executable(sedici_regression tests/regression.cpp ${SEDICI_TEST_SOURCES})
+    get_target_property(SEDICI_TEST_INCLUDES sedici INCLUDE_DIRECTORIES)
+    get_target_property(SEDICI_TEST_DEFINES sedici COMPILE_DEFINITIONS)
+    target_include_directories(sedici_regression PRIVATE ${SEDICI_TEST_INCLUDES})
+    target_compile_definitions(sedici_regression PRIVATE ${SEDICI_TEST_DEFINES})
+    target_compile_options(sedici_regression PRIVATE /utf-8 /W4 /permissive-)
+    target_link_libraries(sedici_regression PRIVATE dxgi d3d12)
+    set_target_properties(sedici_regression PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_test(NAME sedici_regression COMMAND sedici_regression)
+    add_test(NAME sedici_gpu_mini COMMAND sedici_regression gpu-mini)
+    add_test(NAME sedici_gpu_full COMMAND sedici_regression gpu-full)
+    # Each process owns the same isolated test config beside its executable.
+    set_tests_properties(sedici_regression sedici_gpu_mini sedici_gpu_full
+        PROPERTIES RUN_SERIAL TRUE)
+endif()
