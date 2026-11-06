@@ -110,7 +110,15 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             return true;
         }
         *wrap->swapchain = owned->swapchain();
+        // Handing the pointer to the game transfers a reference to it. Without
+        // this the game's Release() and our own ComPtr share a single count, and
+        // the wrapper is destroyed with a live owner still holding the address.
+        (*wrap->swapchain)->AddRef();
         owned->wrapper()->set_present_hook(g_present_hook);
+        // The game needs a handle for this context too: it passes it back to
+        // configure (UI registration) and destroy. Returning OK with a null
+        // handle left the caller dereferencing null immediately afterwards.
+        *context = owned.get();
         g_owned.emplace(owned.get(), Owned{Kind::Wrap, nullptr, std::move(owned)});
         *result = FFX_API_RETURN_OK;
         log_route("created swapchain wrapper", "");

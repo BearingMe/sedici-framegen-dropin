@@ -75,7 +75,6 @@ void WrapHandle::destroy() noexcept
     m_registered = false;
     m_wrapper.Reset();
 }
-
 IDXGISwapChain4* WrapHandle::swapchain() const noexcept
 {
     return m_wrapper ? static_cast<IDXGISwapChain4*>(m_wrapper.Get()) : nullptr;
