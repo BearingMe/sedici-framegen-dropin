@@ -8,10 +8,12 @@ Start with 1080p output and 2× interpolation: one generated midpoint between
 consecutive real frames. GFFE, super-resolution, extrapolation, additional
 multipliers and a training framework are outside this phase.
 
-**Status:** planned; the current DLL forwards generation to AMD. The existing
-Cyberpunk implementation and recorded performance are the baseline. Do not
-launch the game before the first deploy or require a new contract-capture run.
-Deployment and any later agent-driven launch require separate authorization.
+**Status:** P1.1 complete ([baseline](docs/findings/007-fg-baseline.md)); P1.2 in
+progress — the analytical stage is implemented as HLSL and a DX12 pipeline, with
+no FFX integration yet, so the shipped DLL still forwards generation to AMD. The
+existing Cyberpunk implementation and recorded performance are the baseline. Do
+not launch the game before the first deploy or require a new contract-capture
+run. Deployment and any later agent-driven launch require separate authorization.
 
 ### Current FFX implementation
 
@@ -25,6 +27,10 @@ Deployment and any later agent-driven launch require separate authorization.
 | Vendored API declarations | [FFX provenance](third_party/ffx/README.md): SDK 2.4.0, FG 4.0.2, DX12 swapchain 4.0.0; headers only, not the installed FSR 3.1 binary's implementation |
 
 ### P1.1 — Establish the baseline from existing evidence
+
+**Done.** [007-fg-baseline.md](docs/findings/007-fg-baseline.md) records the
+implementation state, the observed Cyberpunk contract, the measured reference
+runs and the open items.
 
 - Consolidate existing call flow, known input conventions, UI composition and
   measured cadence. Separate observations from assumptions and unresolved fields.
@@ -46,6 +52,10 @@ run G is one reference: 74.0 output FPS, 13.513 ms average interval, 14.667 ms p
 numbers are not universal acceptance thresholds.
 
 ### P1.2 — Implement the DX12 first-layer generator
+
+**In progress.** Landed: `src/fg_params.*` (constant block), `src/fg_packing.h`
+(11/11/10 reprojection mirror), `src/fg_shaders.h` (dilate, clear, reproject,
+fill, warp) and `src/fg_stage1.*` (DX12 targets, history, dispatch chain).
 
 - Normalize depth, motion vectors, jitter and render/output coordinates; keep
   two-frame history with discontinuity, resize and FG-toggle resets.
