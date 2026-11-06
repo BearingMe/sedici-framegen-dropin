@@ -38,6 +38,7 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     describe_call(FfxExportKind::Create, desc, result, created);
 
     if (result == FFX_API_RETURN_OK) {
+        overlay_after_create(created, desc);
         present_hook_maybe_install(desc);
         toggles_after_create(context, desc);
     }

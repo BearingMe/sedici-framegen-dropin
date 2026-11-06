@@ -12,6 +12,7 @@
 #include "ffx_api_framegeneration_dx12.h"
 
 #include <windows.h>
+#include <algorithm>
 #include <dxgi.h>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
@@ -81,14 +82,31 @@ void config_checks(const std::filesystem::path& path)
     values.limiter_fps = 36.5;
     check(sedici::config_save(path, values, error), "fractional FPS saves with comments");
     check(read(path).find("fps = 36.5") != std::string::npos, "fractional FPS survives patch");
+
+    values.limiter_fps = 36.9999;
+    values.write_ui_scale = true;
+    values.ui_scale_auto = false;
+    values.ui_scale = 0.9999f;
+    check(sedici::config_save(path, values, error), "numbers rounding upward to integers can be saved");
+    const std::string rounded = read(path);
+    check(rounded.find("fps = 37\n") != std::string::npos,
+          "FPS semantic validation uses the rounded integer");
+    check(rounded.find("scale = 1\n") != std::string::npos,
+          "scale semantic validation uses the rounded integer");
 }
 
 constexpr UINT marker = WM_APP + 77;
 int destroyed = 0;
+bool release_clip_on_capture_changed = false;
+int capture_changes = 0;
 LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
 {
     if (msg == marker) return GetWindowLongPtrW(hwnd, GWLP_USERDATA);
     if (msg == WM_NCDESTROY) ++destroyed;
+    if (msg == WM_CAPTURECHANGED && release_clip_on_capture_changed) {
+        ++capture_changes;
+        ClipCursor(nullptr);
+    }
     return DefWindowProcW(hwnd, msg, w, l);
 }
 WNDPROC above_original = nullptr;
@@ -230,8 +248,13 @@ void window_checks()
     ShowWindow(b, SW_SHOW);
     SetForegroundWindow(b);
     if (GetForegroundWindow() == b) {
+        release_clip_on_capture_changed = true;
+        SetCapture(b);
+        check(GetCapture() == b, "game owns mouse capture before Full entry");
         sedici::live_set_ui_mode(sedici::UiMode::Full);
         SendMessageW(b, WM_APP + 1, 0, 0);
+        release_clip_on_capture_changed = false;
+        check(capture_changes > 0, "capture-change handler can reenter ClipCursor without deadlock");
         check(sedici::ui_input_active(), "Full capture enters on the owning window thread");
     } else {
         std::puts("NOTE foreground unavailable; active capture failure check skipped");
@@ -253,6 +276,10 @@ struct FakeSwapchain { void** vtable; };
 int presents_a = 0;
 int presents_b = 0;
 int pacing_calls = 0;
+using Present = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+Present overlay_original = nullptr;
+HRESULT STDMETHODCALLTYPE overlay_present(IDXGISwapChain* self, UINT sync, UINT flags)
+{ return overlay_original(self, sync, flags); }
 HRESULT STDMETHODCALLTYPE present_a(IDXGISwapChain*, UINT, UINT) { ++presents_a; return S_FALSE; }
 HRESULT STDMETHODCALLTYPE present_b(IDXGISwapChain*, UINT, UINT) { ++presents_b; return DXGI_STATUS_OCCLUDED; }
 HRESULT STDMETHODCALLTYPE present1_a(IDXGISwapChain*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*)
@@ -284,13 +311,40 @@ void present_checks()
     desc.swapchain = &pb;
     present_hook_maybe_install(&desc.header);
     check(va[8] != reinterpret_cast<void*>(&present_a), "Present installs with startup log=0 and fps=0");
-    using Present = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
     using Present1 = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
     check(reinterpret_cast<Present>(va[8])(pa, 0, 0) == S_FALSE, "first vtable keeps its Present original");
     check(reinterpret_cast<Present>(vb[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED, "second vtable keeps its Present original");
     check(reinterpret_cast<Present1>(va[22])(pa, 0, 0, nullptr) == S_FALSE, "first vtable keeps its Present1 original");
     check(reinterpret_cast<Present1>(vb[22])(pb, 0, 0, nullptr) == DXGI_STATUS_OCCLUDED, "second vtable keeps its Present1 original");
     check(presents_a == 2 && presents_b == 2, "all Present calls forward exactly once");
+
+    static void* cloned_a[23]{};
+    static void* cloned_b[23]{};
+    std::copy_n(va, 23, cloned_a);
+    std::copy_n(vb, 23, cloned_b);
+    overlay_original = reinterpret_cast<Present>(cloned_b[8]);
+    cloned_b[8] = reinterpret_cast<void*>(&overlay_present);
+    a.vtable = cloned_a;
+    b.vtable = cloned_b;
+    check(reinterpret_cast<Present>(cloned_a[8])(pa, 0, 0) == S_FALSE,
+          "copied Sedici Present forwards without the original vtable address");
+    check(reinterpret_cast<Present1>(cloned_a[22])(pa, 0, 0, nullptr) == S_FALSE,
+          "copied Sedici Present1 retains its forwarding target");
+    check(reinterpret_cast<Present>(cloned_b[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED,
+          "another overlay can chain Sedici from a replacement vtable");
+    desc.swapchain = &pa;
+    present_hook_maybe_install(&desc.header);
+    desc.swapchain = &pb;
+    present_hook_maybe_install(&desc.header);
+    check(reinterpret_cast<Present>(cloned_a[8])(pa, 0, 0) == S_FALSE,
+          "recapturing a copied hook pair does not wrap it again");
+    check(reinterpret_cast<Present>(cloned_b[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED,
+          "recapturing a mixed overlay chain still forwards once");
+    check(reinterpret_cast<Present1>(cloned_b[22])(pb, 0, 0, nullptr) == DXGI_STATUS_OCCLUDED,
+          "mixed Present1 hook chain retains the correct original");
+    check(presents_a == 5 && presents_b == 5, "cloned and chained vtables forward exactly once");
+    a.vtable = va;
+    b.vtable = vb;
     sedici::live_set_limiter_fps(1000);
     reinterpret_cast<Present>(va[8])(pa, 0, 0);
     LARGE_INTEGER before{}, after{}, frequency{};
@@ -299,7 +353,7 @@ void present_checks()
     reinterpret_cast<Present>(va[8])(pa, 0, 0);
     QueryPerformanceCounter(&after);
     sedici::live_set_limiter_fps(0);
-    check(presents_a == 4, "limiter can be enabled live after silent uncapped startup");
+    check(presents_a == 7, "limiter can be enabled live after silent uncapped startup");
     check(static_cast<double>(after.QuadPart - before.QuadPart) / frequency.QuadPart >= 0.0005,
           "live limiter actually delays Present after silent uncapped startup");
 
@@ -369,6 +423,75 @@ void callback_checks()
               "rejected UI registration cannot change composition policy");
     }
 }
+
+void composition_checks()
+{
+    // Registration is sent to the swapchain context, not the FG context.
+    void* swap_context = reinterpret_cast<void*>(0x6789);
+    void* fg_context = reinterpret_cast<void*>(0x789A);
+    auto* swapchain = reinterpret_cast<IDXGISwapChain4*>(0x4567);
+    ffxCreateContextDescFrameGenerationSwapChainWrapDX12 create{};
+    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+    create.swapchain = &swapchain;
+    overlay_after_create(swap_context, &create.header);
+    ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 registration{};
+    registration.header.type =
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
+    registration.uiResource.resource = reinterpret_cast<void*>(1);
+    {
+        ScopedOverlayCallback patch(&registration.header, swap_context);
+        patch.complete(FFX_API_RETURN_OK);
+    }
+    ffxConfigureDescFrameGeneration fg{};
+    fg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+    fg.swapChain = swapchain;
+    {
+        ScopedOverlayCallback patch(&fg.header, fg_context);
+        check(fg.presentCallback == nullptr, "separate FG context leaves registered UI composition to FFX");
+    }
+    FfxFrameGenerationConfig legacy{};
+    legacy.header.type = FFX_API_FRAME_GENERATION_CONFIG;
+    legacy.swapChain = swapchain;
+    {
+        ScopedOverlayCallback patch(&legacy.header, fg_context);
+        check(legacy.presentCallback == nullptr, "legacy FG configure resolves UI by swapchain identity");
+    }
+    fg.swapChain = reinterpret_cast<void*>(0xABCD);
+    {
+        ScopedOverlayCallback patch(&fg.header, fg_context);
+        check(fg.presentCallback != nullptr, "UI registration does not affect another swapchain");
+    }
+    fg.swapChain = swapchain;
+    registration.uiResource.resource = nullptr;
+    {
+        ScopedOverlayCallback patch(&registration.header, swap_context);
+        patch.complete(FFX_API_RETURN_ERROR);
+    }
+    {
+        ScopedOverlayCallback patch(&fg.header, fg_context);
+        check(fg.presentCallback == nullptr, "rejected UI deregistration retains FFX composition");
+    }
+    {
+        ScopedOverlayCallback patch(&registration.header, swap_context);
+        patch.complete(FFX_API_RETURN_OK);
+    }
+    {
+        ScopedOverlayCallback patch(&fg.header, fg_context);
+        check(fg.presentCallback != nullptr, "accepted UI deregistration restores the no-UI callback path");
+    }
+    registration.uiResource.resource = reinterpret_cast<void*>(1);
+    {
+        ScopedOverlayCallback patch(&registration.header, swap_context);
+        patch.complete(FFX_API_RETURN_OK);
+    }
+    overlay_on_destroy(swap_context);
+    overlay_after_create(swap_context, &create.header);
+    {
+        ScopedOverlayCallback patch(&fg.header, fg_context);
+        check(fg.presentCallback != nullptr, "recycled swapchain context does not inherit an old UI registration");
+    }
+    overlay_on_destroy(swap_context);
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -395,6 +518,7 @@ int main(int argc, char** argv)
             present_checks();
             callback_checks();
             window_checks();
+            composition_checks();
         }
     } catch (const std::exception& error) {
         check(false, error.what());

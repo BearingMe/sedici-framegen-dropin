@@ -57,4 +57,7 @@ private:
 // timestamp and the real/generated split, and logs output fps every 300 calls.
 // Never lets an exception escape into FFX.
 void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept;
+// Called after successful swapchain creation to relate registration contexts
+// to the swapchain identity referenced by frame-generation configure calls.
+void overlay_after_create(void* context, const ffxCreateContextDescHeader* desc) noexcept;
 void overlay_on_destroy(void* context) noexcept;

@@ -47,9 +47,36 @@ CallbackBinding* binding_for(FfxApiPresentCallbackFunc callback, void* context)
     return binding;
 }
 
-struct Registration { void* context = nullptr; bool ui = false; bool used = false; };
+struct Registration {
+    void* context = nullptr; // swapchain context used by REGISTERUIRESOURCE
+    void* swapchain = nullptr; // identity used by the separate FG configure
+    bool ui = false;
+    bool used = false;
+};
 std::array<Registration, 32> g_registrations{};
 std::mutex g_registration_mutex;
+
+// Caller holds g_registration_mutex. Preserve swapchain identity when a UI
+// registration arrives; the FG and swapchain configure calls use different contexts.
+Registration* registration_slot(void* context)
+{
+    Registration* empty = nullptr;
+    for (auto& registration : g_registrations) {
+        if (registration.used && registration.context == context) return &registration;
+        if (!registration.used && !empty) empty = &registration;
+    }
+    return empty;
+}
+
+bool registered_ui_for_swapchain(void* swapchain)
+{
+    if (!swapchain) return false;
+    std::lock_guard<std::mutex> lock(g_registration_mutex);
+    for (const auto& registration : g_registrations)
+        if (registration.used && registration.swapchain == swapchain && registration.ui)
+            return true;
+    return false;
+}
 
 // Set when a callback Sedici installed could not compose safely. The next
 // configure then leaves the callback null and FFX's default takes over.
@@ -282,7 +309,9 @@ ScopedOverlayCallback::ScopedOverlayCallback(const ffxApiHeader* desc, void* con
                 if (d->presentCallback == &overlay_trampoline) break;
 
                 const bool game_callback = d->presentCallback != nullptr;
-                if (!game_callback && (m_ui_registered || g_composition_failed.load())) {
+                const bool ui_registered = m_registration_changed ? m_ui_registered
+                    : m_ui_registered || registered_ui_for_swapchain(d->swapChain);
+                if (!game_callback && (ui_registered || g_composition_failed.load())) {
                     m_timing_only = true;
                     log_mode_once(2, "sedici: overlay present callback left to FFX (separate UI "
                                      "resource registered or composition unavailable)");
@@ -311,7 +340,9 @@ ScopedOverlayCallback::ScopedOverlayCallback(const ffxApiHeader* desc, void* con
                 if (d->presentCallback == &overlay_trampoline) break;
 
                 const bool game_callback = d->presentCallback != nullptr;
-                if (!game_callback && (m_ui_registered || g_composition_failed.load())) {
+                const bool ui_registered = m_registration_changed ? m_ui_registered
+                    : m_ui_registered || registered_ui_for_swapchain(d->swapChain);
+                if (!game_callback && (ui_registered || g_composition_failed.load())) {
                     m_timing_only = true;
                     log_mode_once(2, "sedici: overlay present callback left to FFX (separate UI "
                                      "resource registered or composition unavailable)");
@@ -351,15 +382,12 @@ void ScopedOverlayCallback::complete(ffxReturnCode_t result) noexcept
     try {
         if (m_registration_changed) {
             std::lock_guard<std::mutex> lock(g_registration_mutex);
-            Registration* slot = nullptr;
-            for (auto& registration : g_registrations) {
-                if (registration.used && registration.context == m_context) {
-                    slot = &registration;
-                    break;
-                }
-                if (!registration.used && !slot) slot = &registration;
+            Registration* slot = registration_slot(m_context);
+            if (slot) {
+                slot->context = m_context;
+                slot->ui = m_ui_registered;
+                slot->used = true;
             }
-            if (slot) *slot = Registration{m_context, m_ui_registered, true};
             else g_composition_failed.store(true);
             if (m_ui_registered || !slot)
                 sedici::ui_disable("a separate UI resource was registered or tracking is full");
@@ -367,6 +395,41 @@ void ScopedOverlayCallback::complete(ffxReturnCode_t result) noexcept
         if (m_timing_only) sedici::ui_disable("FFX or the game owns UI composition");
     } catch (...) {
         sedici::ui_disable("could not record the UI composition state");
+    }
+}
+
+void overlay_after_create(void* context, const ffxCreateContextDescHeader* desc) noexcept
+{
+    if (!context) return;
+    try {
+        void* swapchain = nullptr;
+        for (size_t i = 0; desc && i < kMaxChainItems; ++i, desc = desc->pNext) {
+            IDXGISwapChain4** output = nullptr;
+            switch (desc->type) {
+            case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12:
+                output = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainWrapDX12*>(desc)->swapchain;
+                break;
+            case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12:
+                output = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainNewDX12*>(desc)->swapchain;
+                break;
+            case FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12:
+                output = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainForHwndDX12*>(desc)->swapchain;
+                break;
+            default: break;
+            }
+            if (output && *output) { swapchain = *output; break; }
+        }
+        if (!swapchain) return;
+        std::lock_guard<std::mutex> lock(g_registration_mutex);
+        Registration* slot = registration_slot(context);
+        if (slot) *slot = Registration{context, swapchain, false, true};
+        else {
+            g_composition_failed.store(true);
+            sedici::ui_disable("swapchain composition tracking is full");
+        }
+    } catch (...) {
+        g_composition_failed.store(true);
+        sedici::ui_disable("could not track the swapchain for UI composition");
     }
 }
 

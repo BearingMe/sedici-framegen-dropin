@@ -114,5 +114,5 @@ if(SEDICI_BUILD_TESTS)
     add_test(NAME sedici_gpu_full COMMAND sedici_regression gpu-full)
     # Each process owns the same isolated test config beside its executable.
     set_tests_properties(sedici_regression sedici_gpu_mini sedici_gpu_full
-        PROPERTIES RUN_SERIAL TRUE)
+        PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
 endif()

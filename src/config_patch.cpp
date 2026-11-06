@@ -256,7 +256,7 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             // The patcher emits whole numbers as TOML integers.
             const std::string number = format_number(values.limiter_fps);
             if (number.find('.') == std::string::npos)
-                expect("limiter", "fps", static_cast<int64_t>(values.limiter_fps));
+                expect("limiter", "fps", static_cast<int64_t>(std::stoll(number)));
             else expect("limiter", "fps", parse_number(number));
         }
         if (values.write_pacing) {
@@ -283,7 +283,7 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             else {
                 const std::string number = format_number(values.ui_scale);
                 if (number.find('.') == std::string::npos)
-                    expect("ui", "scale", static_cast<int64_t>(values.ui_scale));
+                    expect("ui", "scale", static_cast<int64_t>(std::stoll(number)));
                 else expect("ui", "scale", parse_number(number));
             }
         }

@@ -14,10 +14,12 @@
 #include <dxgi.h>
 
 #include <atomic>
+#include <array>
 #include <mutex>
 #include <map>
 #include <set>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -26,6 +28,7 @@ using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT,
                                                const DXGI_PRESENT_PARAMETERS*);
 
 constexpr size_t kMaxTargets = 8;
+constexpr size_t kMaxHookImplementations = 32;
 
 std::atomic<void*> g_targets[kMaxTargets]{};
 std::atomic<unsigned> g_target_count{0};
@@ -35,15 +38,9 @@ struct OriginalPresent {
     PresentFn present;
     Present1Fn present1;
 };
-std::map<void**, OriginalPresent> g_patched_vtables;
+std::map<void**, size_t> g_patched_vtables;
+std::array<OriginalPresent, kMaxHookImplementations> g_originals{};
 thread_local bool g_in_present = false;
-
-OriginalPresent originals(IDXGISwapChain* self)
-{
-    std::lock_guard<std::mutex> lock(g_mutex);
-    const auto found = g_patched_vtables.find(*reinterpret_cast<void***>(self));
-    return found != g_patched_vtables.end() ? found->second : OriginalPresent{};
-}
 
 bool is_target(IDXGISwapChain* self) noexcept
 {
@@ -75,10 +72,12 @@ uint64_t qpc_now() noexcept
     return static_cast<uint64_t>(value.QuadPart);
 }
 
+template<size_t Index>
 HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval, UINT flags)
 {
-    PresentFn original = originals(self).present;
-    if (!original) return E_FAIL;
+    // The hook function itself identifies the immutable forwarding target.
+    // Another overlay can copy/replace self's vtable and chain this same hook.
+    PresentFn original = g_originals[Index].present;
 
     if (g_in_present) return original(self, sync_interval, flags);
 
@@ -98,11 +97,11 @@ HRESULT STDMETHODCALLTYPE present_hook(IDXGISwapChain* self, UINT sync_interval,
     return original(self, sync_interval, flags);
 }
 
+template<size_t Index>
 HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval, UINT flags,
                                         const DXGI_PRESENT_PARAMETERS* parameters)
 {
-    Present1Fn original = originals(self).present1;
-    if (!original) return E_FAIL;
+    Present1Fn original = g_originals[Index].present1;
 
     if (g_in_present) return original(self, sync_interval, flags, parameters);
 
@@ -122,6 +121,21 @@ HRESULT STDMETHODCALLTYPE present1_hook(IDXGISwapChain* self, UINT sync_interval
     return original(self, sync_interval, flags, parameters);
 }
 
+template<size_t... Index>
+constexpr auto present_hooks(std::index_sequence<Index...>)
+{
+    return std::array<PresentFn, sizeof...(Index)>{&present_hook<Index>...};
+}
+
+template<size_t... Index>
+constexpr auto present1_hooks(std::index_sequence<Index...>)
+{
+    return std::array<Present1Fn, sizeof...(Index)>{&present1_hook<Index>...};
+}
+
+constexpr auto kPresentHooks = present_hooks(std::make_index_sequence<kMaxHookImplementations>{});
+constexpr auto kPresent1Hooks = present1_hooks(std::make_index_sequence<kMaxHookImplementations>{});
+
 bool patch_vtable(void** vtable)
 {
     if (!vtable) return false;
@@ -136,10 +150,24 @@ bool patch_vtable(void** vtable)
         return false;
     }
 
+    // A cloned table may already contain one of our complete hook pairs. Do
+    // not wrap that pair again or consume another immutable implementation.
+    for (size_t i = 0; i < g_patched_vtables.size(); ++i) {
+        if (present == reinterpret_cast<void*>(kPresentHooks[i]) &&
+            (!present1 || present1 == reinterpret_cast<void*>(kPresent1Hooks[i])))
+            return true;
+    }
+    if (g_patched_vtables.size() == g_originals.size()) {
+        log_error("present timing hook capacity reached; leaving this vtable unchanged");
+        return false;
+    }
+
     // Allocate bookkeeping before publishing either hook. Each implementation
     // keeps its own original; recreating a swapchain cannot change old targets.
-    const auto entry = g_patched_vtables.emplace(vtable, OriginalPresent{
-        reinterpret_cast<PresentFn>(present), reinterpret_cast<Present1Fn>(present1)}).first;
+    const size_t index = g_patched_vtables.size();
+    const auto entry = g_patched_vtables.emplace(vtable, index).first;
+    g_originals[index] = OriginalPresent{
+        reinterpret_cast<PresentFn>(present), reinterpret_cast<Present1Fn>(present1)};
 
     DWORD old_present = 0;
     DWORD old_present1 = 0;
@@ -164,8 +192,8 @@ bool patch_vtable(void** vtable)
         return false;
     }
 
-    InterlockedExchangePointer(&vtable[8], reinterpret_cast<void*>(&present_hook));
-    if (present1) InterlockedExchangePointer(&vtable[22], reinterpret_cast<void*>(&present1_hook));
+    InterlockedExchangePointer(&vtable[8], reinterpret_cast<void*>(kPresentHooks[index]));
+    if (present1) InterlockedExchangePointer(&vtable[22], reinterpret_cast<void*>(kPresent1Hooks[index]));
 
     if (present1) VirtualProtect(&vtable[22], sizeof(void*), old_present1, &old_present1);
     // Slots often share a page: undo protection changes in reverse order.

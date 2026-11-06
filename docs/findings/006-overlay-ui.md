@@ -183,3 +183,24 @@ the installed DX12 debug layer when available. They fence each test submission:
 passing them is **not** evidence that FFX bounds outstanding callback submissions
 to ImGui's four upload-buffer slots. That in-game lifetime assumption remains
 unverified; increasing the slot count would not prove correctness either.
+
+### Review follow-up: reentrancy and forwarding identity
+
+- Full entry finishes its cursor bookkeeping, then unlocks before calling
+  `ReleaseCapture`. The game's synchronous `WM_CAPTURECHANGED` handler can call
+  the intercepted `ClipCursor` without deadlocking or losing cleanup state.
+- Each installed Present/Present1 hook pair has a fixed forwarding target encoded
+  by its hook function, rather than looking up the object's current vtable.
+  Copied vtables and another overlay chaining a saved Sedici hook keep forwarding
+  correctly. The bounded implementation pool leaves new tables unchanged if full.
+- Successful swapchain creation records its context-to-swapchain association.
+  Separate-UI registration stays keyed by the swapchain context, while both modern
+  and legacy FG configure resolve it through their `swapChain` identity. Rejected
+  registration changes are ignored and destruction clears the association.
+- Numeric Save validation parses the formatted integer instead of truncating the
+  original value, including FPS and fixed scales that round up to an integer.
+
+The repository checks pass: 57 general checks plus 14 Mini and 14 Full DX12
+checks, with no debug-layer errors. The existing 56-check harness also passes;
+the DLL still exports exactly five functions. These tests do not resolve the
+in-game GPU-lifetime assumption described above.

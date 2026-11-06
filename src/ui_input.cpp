@@ -109,7 +109,7 @@ bool install_hooks() noexcept
 bool ui_input_enter(HWND hwnd) noexcept
 {
     if (g_disabled.load() || !hwnd || GetForegroundWindow() != hwnd || !install_hooks()) return false;
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::unique_lock<std::mutex> lock(g_mutex);
     // Entry/exit and ShowCursor accounting belong to the owning window thread.
     if (GetWindowThreadProcessId(hwnd, nullptr) != GetCurrentThreadId()) return false;
     if (g_active.load()) return g_window.load() == hwnd;
@@ -123,7 +123,6 @@ bool ui_input_enter(HWND hwnd) noexcept
         g_active.store(false, std::memory_order_release);
         return false;
     }
-    if (GetCapture() == hwnd) ReleaseCapture();
     g_show_adjustments = 0;
     // Raise this input thread's ShowCursor counter to >= 0 (visible) and
     // record only the calls needed, so leaving restores the original count.
@@ -137,6 +136,12 @@ bool ui_input_enter(HWND hwnd) noexcept
             ++g_show_adjustments;
         }
     }
+    // Publish all bookkeeping before releasing capture: ReleaseCapture sends
+    // WM_CAPTURECHANGED synchronously, and the game's handler may call our
+    // ClipCursor hook or leave Full. Neither may run under this mutex.
+    lock.unlock();
+    if (GetCapture() == hwnd) ReleaseCapture();
+    if (!capturing()) return false;
     SetCursor(LoadCursorW(nullptr, IDC_ARROW));
     return true;
 }
