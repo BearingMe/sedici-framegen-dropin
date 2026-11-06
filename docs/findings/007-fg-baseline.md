@@ -9,7 +9,8 @@ with `[fg] present = "vblank"`. The user confirms the FPS regression is fixed an
 that the tearing is gone: the last capture shows 74.9 presents/s with every frame
 displayed 13.31-13.40 ms, one refresh each. Startup artifacts and shutdown
 retirement remain open. Phase 1 is not accepted.
-See [vblank presentation](#vblank-presentation-removes-the-remaining-tearing).
+See [vblank presentation](#vblank-presentation-removes-the-remaining-tearing) and
+[008](008-fg-tearing.md), the dedicated finding on the tearing cause.
 
 ## Existing implementation
 
