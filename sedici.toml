@@ -75,8 +75,9 @@ mode = "amd"
 #           actually finished on the GPU and shown from Sedici's own thread,
 #           so the screen gets evenly spaced frames. Lower latency than vsync,
 #           works with [limiter]. Keep the real FPS under half the refresh.
+#           The default. Falls back to "vsync" while RTSS is running.
 # "game"  - use the game's own settings and timing. Lowest latency, but tears.
-present = "vsync"
+present = "vrr"
 
 # Only used with present = "vrr". Stops a frame from being shown while the
 # screen is still drawing the previous one, which is what a tear is.

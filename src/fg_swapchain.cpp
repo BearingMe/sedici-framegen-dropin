@@ -130,7 +130,7 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
         // Never fail the game's wrap over this: present the safe way.
         log_error("fg: \"vrr\" present unavailable (" + why + "); falling back to \"vsync\"");
     }
-    // `[fg] present = "vsync"` (default) takes one vertical blank per output,
+    // `[fg] present = "vsync"` takes one vertical blank per output,
     // which is what stopped mid-scan tearing in the game session (finding 008).
     // Legacy A/B switch: `SEDICI_FG_SYNC=0/1` overrides "vsync"/"game".
     object->m_force_sync = chosen.present == Present::Vsync;

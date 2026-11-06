@@ -526,7 +526,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     case Read::WrongType:
         problem_at(problems, *entry, "fg.present",
                    std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"vsync\"");
+                       " - using default \"vrr\"");
         break;
     case Read::Ok:
         if (FrameGenerationSettings::Present parsed{}; parse_present(value, parsed)) {
@@ -535,7 +535,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
         } else {
             problem_at(problems, *entry, "fg.present",
                        "unknown value \"" + value +
-                           "\" (expected \"vsync\", \"vrr\" or \"game\") - using default \"vsync\"");
+                           "\" (expected \"vsync\", \"vrr\" or \"game\") - using default \"vrr\"");
         }
         break;
     }

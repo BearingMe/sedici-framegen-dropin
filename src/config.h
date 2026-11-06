@@ -151,8 +151,9 @@ struct FrameGenerationSettings {
         // "vrr": present from a dedicated thread and queue with the game's own
         // flags, timing each flip from when its image is finished on the GPU, so
         // a variable-refresh display receives evenly spaced flips. Combined with
-        // `tear_guard`. Falls back to "vsync" if the native chain cannot be
-        // moved to Sedici's present queue.
+        // `tear_guard`. The default: with "scanline" it was tear-free in the game
+        // session (finding 008). Falls back to "vsync" if the native chain
+        // cannot be recreated on Sedici's present queue or RTSS is injected.
         Vrr,
     };
 
@@ -171,7 +172,7 @@ struct FrameGenerationSettings {
 
     FrameGenerationMode mode = FrameGenerationMode::Amd;
     Source mode_source = Source::Default;
-    Present present = Present::Vsync;
+    Present present = Present::Vrr;
     Source present_source = Source::Default;
     TearGuard tear_guard = TearGuard::Scanline;
     Source tear_guard_source = Source::Default;

@@ -106,7 +106,7 @@ configuration produced 20 real fps and a 13.3 / 38.3 ms display pattern. The
 working combination is `SyncInterval=1` **without** the limiter, with the game
 capping itself at or below half the panel refresh.
 
-## Resolution
+## Resolution (superseded by `"vrr"` below)
 
 `[fg] present = "vblank"` (default): the wrapper presents both outputs with
 `SyncInterval=1` and without `DXGI_PRESENT_ALLOW_TEARING`, so each output takes its
@@ -186,6 +186,38 @@ same anchor error, still visible once VRR stops hiding it behind vsync.
   therefore falls back to `"vsync"` while `RTSSHooks64.dll` is loaded, unless
   `SEDICI_FG_ALLOW_RTSS=1`.
 
-Offline only so far: `sedici_fgcheck --present` (RTSS closed or allowed) runs 40
-frames through the presenter at ~35 fps with tearing flags, a resize and
-teardown. Nothing on this path has run in the game.
+Offline: `sedici_fgcheck --present` (RTSS closed or allowed) runs 40 frames
+through the presenter at ~35 fps with tearing flags, a resize and teardown.
+
+### Game sessions: guard off vs scan-line guard
+
+Authorized sessions on the same test location, 2560x1080 on the 75 Hz FreeSync
+panel ("AMD Optimized"), `limiter.fps = 36.5`, RTSS closed, 30 s captures:
+
+| Configuration | presents/s | 12.5-14.5 ms | < 12.5 ms | < 10 ms | median `DisplayedTime` | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `"game"`, limiter 36.5 (earlier) | 73.0 | 0.5% | 49.5% | 14.4% | 14.6 ms | tears |
+| `"vrr"`, `tear_guard = "off"` | 73.0 | 3.8% | 46.9% | 19.3% | 14.3 ms | tears |
+| `"vrr"`, `tear_guard = "scanline"` | 72.8 | 85.1% | 0.9% | 0.5% | 13.55 ms | **no tearing, user-confirmed** |
+| `"vsync"`, in-game cap ~37.5 (earlier) | 74.9 | 100% | 0% | 0% | 13.35 ms | no tearing, limiter unusable |
+
+- With the scan-line guard, midpoint and real frame are even on screen
+  (13.8 / 13.2 ms per parity, previously 10.3 / 16.9). Steady 300-frame
+  windows logged `short_gaps=0/600`, `gap_min_ms=13.32`; the guard held
+  590-600 of 600 flips for ~2.7 ms each, all at the end of the scan.
+- VRR was active, including on "AMD Optimized": 51% of scan-line frames lasted
+  13.5-20 ms with none at two refreshes (26.7 ms), which a fixed 75 Hz panel
+  cannot show without tearing. Switching FreeSync to "On" changed nothing in
+  the log. `idle_in_blank` stayed `0/0` only because at ~73 fps no gap exceeds
+  one refresh by 0.5 ms, so it never samples; it is not evidence either way.
+- Remaining: a few windows still logged up to 24/600 near back-to-back flips
+  (gaps under 1 ms) during 16-35 ms GPU stalls, i.e. hitches rather than steady
+  tearing.
+- Unexplained: with the guard off, `Present` calls were evenly spaced
+  (13.7 / 13.7 ms) yet the screen still showed 10.3 / 16.9 ms, so every second
+  flip lands later than its call. The scan-line guard hides this; the cause is
+  open.
+
+`[fg] present = "vrr"` with `tear_guard = "scanline"` is now the shipped
+default. `"vsync"` remains the fallback and the choice for fixed-refresh
+displays.
