@@ -202,6 +202,7 @@ a modified desc.
 | Key | Type | Default | Valid values | Effect |
 |---|---|---|---|---|
 | `mode` | string | `"amd"` | `"amd"`, `"sedici"` | `amd` forwards every frame generation call to the original DLL, exactly as before. `sedici` uses Sedici's own generator and swapchain wrapper for the whole process |
+| `present` | string | `"vblank"` | `"vblank"`, `"game"` | `vblank` presents both outputs with `SyncInterval=1` and without `ALLOW_TEARING`, so each takes its own vertical blank: tear-free, at the cost of up to one refresh of latency and a real rate at or below half the panel refresh. `game` passes the game's own `SyncInterval` and flags through unchanged (tearing allowed), which is lower latency but lets flips land mid-scan |
 
 The choice is read once per process and cannot change mid-process:
 a frame generation context cannot be handed to AMD after Sedici has owned it.
@@ -209,12 +210,15 @@ Under `sedici`, an unsupported call on a Sedici-owned context is refused and log
 rather than forwarded, and output pacing belongs to Sedici's wrapper alone.
 
 `sedici` remains experimental. An authorized Cyberpunk gameplay capture measured
-72 output fps with a 36 fps in-game cap, after correcting context registration,
-native depth views and a pacing regression. This is not full acceptance: tearing,
-paired display-change timing, startup artifacts, shutdown retirement and some
-overlay/limiter integration remain unresolved. See
-[the current findings](docs/findings/007-fg-baseline.md#current-pair-gameplay-validation-and-remaining-issues).
-The default remains `amd`. Any context AMD still owns keeps working normally even
+74.9 output fps with every frame displayed 13.31-13.40 ms (one refresh each) and
+no tearing reported, using `present = "vblank"` with the game's own ~36.5 fps cap.
+Earlier measurements with the game's tearing flags showed mid-scan tearing, and
+with the pacing fix but no vblank presentation half the frames were truncated to
+~0.2 ms. Not yet accepted: startup artifacts, shutdown retirement and some
+overlay/limiter integration. See
+[the current findings](docs/findings/007-fg-baseline.md#vblank-presentation-removes-the-remaining-tearing).
+The default `fg.mode` remains `amd`. Any context AMD still owns keeps working
+normally even
 in `sedici` mode, because only handles Sedici created are routed to Sedici.
 
 ### `[limiter]`

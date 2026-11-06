@@ -4,12 +4,12 @@ Baseline and chronological integration findings for Mob-FGSR on
 `experiment/cobalt-otter`. The initial sections describe the pre-deployment
 baseline; later sections record authorized game sessions and superseding fixes.
 
-**Current status (2026-11-06):** the entry-budget/current-pair build is deployed.
-The user confirms the FPS regression is fixed, and the gameplay capture records
-steady 72 output fps with a 36 fps in-game cap. CPU submission pacing improved,
-but display-change events still bunch in pairs. Tearing and artifacts during game
-startup remain reported and unresolved. Phase 1 is not accepted. See
-[current validation and open issues](#current-pair-gameplay-validation-and-remaining-issues).
+**Current status (2026-11-06):** the entry-budget/current-pair build is deployed
+with `[fg] present = "vblank"`. The user confirms the FPS regression is fixed and
+that the tearing is gone: the last capture shows 74.9 presents/s with every frame
+displayed 13.31-13.40 ms, one refresh each. Startup artifacts and shutdown
+retirement remain open. Phase 1 is not accepted.
+See [vblank presentation](#vblank-presentation-removes-the-remaining-tearing).
 
 ## Existing implementation
 
@@ -493,15 +493,14 @@ that every earlier camera-pan ghosting or HUD issue is gone.
 
 Outstanding issues, with confidence distinguished:
 
-1. **GPU/presentation bunching remains measured.** Exactly 1,078/2,156 reported
-   display-change intervals are below 1 ms; most others are near 27-29 ms. CPU
-   timing improved, but evenly spaced CPU calls did not produce evenly spaced
-   display-change events. GPU queue/readiness versus actual scanout needs further
-   investigation. This is not proof of the precise scanout/VRR failure mechanism.
-2. **Tearing remains user-observed.** The capture still permits tearing. Being
-   inside the VRR range does not alone establish tear-free presentation. No VSync
-   or present-flag override has been applied, and an unconditional GPU wait is
-   not yet justified by a latency/performance measurement.
+1. **GPU/presentation bunching.** *Resolved by `present = "vblank"`:* the last
+   capture displays every frame for one refresh (13.31-13.40 ms) with no
+   sub-refresh intervals. On the tearing path the pairing is real and the
+   mechanism is documented above; it is retained as the `"game"` option.
+2. **Tearing.** *Resolved by `present = "vblank"` in the last session:* the user
+   reports no tearing, and the capture shows a 13.33 ms cadence. The mechanism,
+   the failed CPU-side arming experiment and the cost (latency, half-refresh
+   ceiling) are recorded above. The `"game"` option still tears by design.
 3. **Startup artifacts remain user-observed, cause unproven.** Investigate initial
    history seeding, FG/menu transitions, current colour/depth/motion/HUD identity
    and resource validity. Do not label this a solved shader or motion-vector bug,
@@ -534,6 +533,253 @@ Verification scope and reproducibility:
 is restored. Tearing/startup artifacts and the other acceptance items remain
 open. No further deploy, launch or configuration change was performed while
 documenting this result; another test/deploy remains an explicit user decision.
+
+## Tearing and paired display-change investigation
+
+No code change is made by this section: it records the candidate causes and the
+documented behaviour each one depends on, plus the smallest diagnostic that can
+separate them.
+
+### Measured evidence, re-derived from the accepted capture
+
+`captures/2026-11-06-sedici-currentpair-cap36.csv` has 2,156 rows, all with
+`SyncInterval=0`, `PresentFlags=512` (`DXGI_PRESENT_ALLOW_TEARING`),
+`AllowsTearing=1`, `PresentMode=Hardware: Independent Flip`.
+
+`MsBetweenPresents` is 13.83 ms median (min 9.82, max 27.02), so the two presents
+per cycle really are spaced roughly half a real interval apart in CPU time. The
+display events are not: reconstructing `TimeInSeconds + msUntilDisplayed` gives a
+strictly alternating pattern (1,078 of 2,155 intervals below 1 ms; alternation
+ratio 1.000), a pair about **0.2-0.25 ms apart** followed by a **26.2-27.9 ms**
+gap. `msUntilDisplayed` alternates too: about 3.5-4.1 ms for the second present of
+a pair and 17.6-18.3 ms for the first, and the two differ by one present interval.
+
+So each cycle's two presents are consumed by the display within 0.2 ms of each
+other, roughly 3.5 ms after the *second* one is submitted, and then nothing is
+displayed for the next ~27.5 ms. Half a screen frame at 75 Hz is finished in
+about 0.2/13.3 of a scan, so the first image of each pair can only be scanned for
+the top ~1.5% of the panel (about 16 rows at 1080p) before being replaced.
+
+The AMD reference capture `captures/005/2026-11-05-D.csv` is the control: same
+two-presents-per-cycle structure (73 fps, 36.5 limiter), 2,189 rows, **zero**
+display-change intervals below 1 ms and a ~13.6 ms median, with
+`msUntilDisplayed` mostly 0.3-4.3 ms. `UntilDisplayed` there never alternates by a
+full present interval. Two presentations per prepare therefore do not by
+themselves produce paired display events; this build's presentation path does.
+
+### Documented behaviour the candidates rest on
+
+- Flip-model `SyncInterval=0` is documented as "cancel the remaining time on the
+  previously presented frame and discard this frame if a newer frame is queued"
+  ([IDXGISwapChain::Present](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-present)),
+  with the accompanying queue example in which the runtime "terminates frame A
+  early" because a newer queued frame has sync interval 0. A present that lands
+  mid-scan therefore truncates what is on screen instead of waiting for the next
+  vertical blank.
+- Tearing is the documented mechanism behind variable refresh: "Variable refresh
+  rate displays require tearing to be enabled, this is also known as 'vsync-off'
+  support"
+  ([Variable refresh rate displays](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/variable-refresh-rate-displays)),
+  and `AllowsTearing=1` is documented as "1 if partial frames might be displayed
+  on the screen"
+  ([PresentMon console metrics](https://github.com/GameTechDev/PresentMon/blob/main/README-ConsoleApplication.md)).
+  A truncated frame is therefore *permitted* to appear as a tear, not as a
+  complete earlier frame.
+- `MsBetweenDisplayChange` is documented as "how long the previous frame was
+  displayed before this Present() was displayed", so a 0.2 ms value is a claim
+  that the previous image was on screen for only 0.2 ms.
+- Present statistics are the documented way to tell "presented" from
+  "displayed": `PresentRefreshCount` equals `SyncRefreshCount` only when the app
+  presents "on every vsync", and a later-than-expected `PresentRefreshCount` is
+  the documented glitch test
+  ([DXGI flip model](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-flip-model)).
+  Two presents mapped to one refresh count is exactly the observed pairing.
+- AMD's swapchain exposes pacing options that gate how a present is timed,
+  including `allowWaitForSingleObjectOnFence` and the
+  `averageFrametime - variance*varianceFactor - safetyMarginInMs` target, with a
+  documented table showing the generated present at ~16.55 ms and the real frame
+  at 33.33 ms
+  (`third_party/ffx/framegeneration/include/ffx_framegeneration_api_types.h`).
+  Those timings are CPU timing, not display-consumption guarantees.
+
+### Metadata capture: half the frames are displayed for ~0.2 ms
+
+`captures/2026-11-06-sedici-tearmeta-cap36.csv` is the same test window (30 s,
+PID 4456, `fg.mode="sedici"`, limiter off, 36 fps in-game cap, anti-lag off
+because the game makes it mutually exclusive with the cap) captured with
+PresentMon's default 2.x metric set, which reports `DisplayedTime`. The AMD
+bundled PresentMon build rejects `--v2_metrics` and `--write_display_metadata`,
+so `PresentId` and layer metadata are not available in this capture.
+
+2,129 rows, all `SyncInterval=0`, `PresentFlags=512`, `AllowsTearing=1`,
+`PresentMode=Hardware: Independent Flip` (12 `Composed: Flip` and 6
+`Hardware Composed: Independent Flip` rows occur in transitions).
+`FrameTime` median is 13.836 ms, so the CPU presents are evenly spaced as
+designed. `DisplayedTime` is not:
+
+| `DisplayedTime` | count | share | median |
+| --- | ---: | ---: | ---: |
+| under 1 ms | 1,043 | 49.5% | 0.206 ms |
+| 1-20 ms | 9 | 0.4% | - |
+| 20 ms or more | 1,054 | 50.0% | 27.614 ms |
+
+The sequence alternates: 27.25, 0.22, 26.89, 0.19, 28.37, 0.22, ... Pair totals
+have a 27.83 ms median, so one pair of presents occupies one real-frame period
+and only one of the two images is on screen for that period. Every second frame
+gets about 0.2 ms of scanout. That is the reported tear: the image changes a
+fraction of a millisecond after the scan starts, so the band above the switch is
+from one frame and everything below it from another. Five frames of 2,106 were
+displayed for a normal single refresh (12-14.5 ms).
+
+This capture established that half the frames are truncated but not why. The GPU
+probe below supplies the cause; the earlier plan to test the 36.5 limiter is no
+longer the discriminating step.
+
+### GPU probe: the midpoint is not rendered yet when the real frame is presented
+
+`captures/2026-11-06-sedici-gpuprobe-cap36.csv` repeats the same window (PID
+36064) with a diagnostic-only build (`261AD5C5...`) that adds two non-blocking
+samples and never changes what is presented. The wrapping log reports the game's
+chain as
+
+```
+fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes
+```
+
+`2112` is `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`,
+with `SetMaximumFrameLatency(1)`. The wrapper never reads that setting and never
+waits on the object.
+
+Per 300-cycle window the probe counts how often the midpoint copy's fence was
+still unsignalled at the moment the real frame was presented, and how often a
+cycle had to wait in `drain()` for the previous cycle to retire:
+
+| window | `mid_not_ready` | `drain_waits` |
+| --- | ---: | ---: |
+| 3,600-3,900 | 295/300 | 0/300 |
+| 4,200-4,500 | 296/298 | 2/300 |
+| 4,500-4,800 | 298/300 | 0/300 |
+| 4,800-5,100 | 295/300 | 0/300 |
+| 5,100-5,400 | 296/300 | 0/300 |
+
+So in about **98% of cycles the midpoint image did not exist on the GPU when the
+real frame was presented**, while the previous cycle had always retired
+(`drain_waits` near zero). The two outputs therefore become presentable within
+the same ~0.2 ms, the first is displayed for ~0.2 ms, and PresentMon's
+distribution is unchanged from the previous capture (50.0% below 1 ms, short
+median 0.198 ms, long median 27.576 ms, pair total 27.793 ms).
+
+This supersedes the queue-coalescing reading: the pairs are not two ready images
+being held by DXGI. The midpoint copy is queued behind the game's own
+still-executing frame on the same direct queue, so it only completes around the
+next application Present. Because the real Present is timed from CPU entry
+(`realDeadline = entry + interval/2`), and the GPU is roughly one frame behind
+the CPU, the "half interval later" CPU deadline lands exactly when the midpoint
+becomes ready. The schedule is half an interval apart in submission time and
+zero apart in GPU/completion time.
+
+Consequence for the fix: spacing the two `Present` calls in CPU time cannot
+separate them on screen while generation is recorded after the game's frame on
+its queue. Either the pair must be presented from a state where both images are
+already complete (a one-cycle-deep pipeline), or the midpoint must be presented
+as soon as its fence signals through a path that does not coincide with the real
+Present.
+
+### Vblank presentation removes the remaining tearing
+
+The probe left one symptom: with the tearing path (`SyncInterval=0` +
+`ALLOW_TEARING`) the two flips were unevenly spaced, and the user reported tears
+that had moved from the top of the screen to random middle/bottom positions. The
+top tear was the 0.2 ms truncation; the random tears are flips landing mid-scan,
+which is permitted by the game's flags.
+
+Experiments, all in the same gameplay location:
+
+| Configuration | presents/s | DisplayedTime | Outcome |
+| --- | ---: | --- | --- |
+| in-game cap 36, no RT | 72.0 | 27.6 / 0.2 ms | half of all frames truncated; tearing at the top |
+| limiter 36.5 + RT | 73.0 | 20.96 / 6.43 ms | no truncation, still uneven, tearing |
+| limiter 30 | 60.0 | 20.4 / 13.0 ms | every frame gets a refresh, ~7 ms residual offset |
+| limiter 36.5, RT off | 73.0 | p25/p50/p75 10.55/14.59/16.86 | best tearing-path result; random tears remained |
+| `SEDICI_FG_ALIGN=1` + limiter 36.5 | 62.4 | spread 9-21 ms | arming hit its deadline (`5/600` misses) but the display was still not refresh-quantised, and waiting in `Present` cost 4 ms/frame; real rate fell to 31 |
+| `SEDICI_FG_SYNC=1`, limiter 36.5 | 40.0 | 13.3 / 38.3 ms | limiter wait and vblank blocks stacked; 20 real fps |
+| `SEDICI_FG_SYNC=1`, limiter off, in-game cap ~37.5 | **74.9** | **13.31-13.40 ms, 100%** | tear-free, user-confirmed, performance normal |
+
+Two conclusions, both measured rather than inferred:
+
+- CPU-side vblank arming with `GetFrameStatistics` does not work here: the
+  reported `SyncQPCTime` is the vblank of the last *displayed* flip, not a
+  prediction for a newly queued one, and waiting inside `Present` steals the
+  game's frame budget. The switch remains available (`SEDICI_FG_ALIGN=1`) but is
+  off and not recommended.
+- Forcing `SyncInterval=1` while Sedici also paces with the limiter stacks two
+  waits and collapses the rate. With the limiter off and the game capping itself
+  just under the panel's half-rate, each pair costs exactly two refreshes and the
+  cadence is exact.
+
+The shipped option is `[fg] present`, default `"vblank"`: the wrapper presents
+both outputs with `SyncInterval=1` and without `DXGI_PRESENT_ALLOW_TEARING`.
+`"game"` keeps the old pass-through behaviour for lower latency. `SEDICI_FG_SYNC`
+still overrides it for A/B runs.
+
+Trade-offs recorded with the option: up to one refresh of added latency, and the
+real rate must sit at or below half the panel refresh (36-37.5 fps on the 75 Hz
+test display). Above that, the pair cannot each own a vblank and the schedule will
+skip frames.
+
+### Candidate causes, strongest first
+
+1. **Both outputs become GPU-ready together.** *Confirmed by the GPU probe:*
+   the midpoint copy's fence was unsignalled at the real Present in ~98% of
+   cycles. With `SyncInterval=0` the runtime then truncates the first image, which
+   is the measured 0.2 ms flash and the reported tear near the top of the screen.
+   The queue-depth and phase explanations are superseded: the frames are not
+   ready, so no scheduling of the two Present calls in CPU time can separate them.
+2. **The midpoint is effectively not displayed.** *Confirmed by the metadata
+   capture:* half of all presented frames are on screen for ~0.2 ms and the other
+   half for ~27.6 ms, so the visible update rate is ~36 Hz with a 0.2 ms sliver,
+   not 72 Hz. Whether the sliver or the held image is the generated frame is still
+   open; either way the interpolated cadence the design promises is not reaching
+   the panel as two equal-quality 13.9 ms images.
+3. **Queue/present backpressure differs from AMD's swapchain.** AMD shows no
+   pairing at the same cadence, so something in Sedici's wrapper lets both
+   presents be in flight when the display samples them (buffer count of the
+   game's chain, missing fence/queue gate before the second present, or the
+   generated texture's state transition serialising behind the real copy).
+   Confidence: medium as the reason the *pairing* happens at all, separate from
+   why pairing tears.
+4. **VRR is not retiming this presentation.** Tearing is legal here by design, so
+   without VRR actually stretching the refresh to the present, presents land
+   wherever the scan is. The 75 Hz fixed-cadence alternative would show a beat
+   every ~14 presents, not a 50% pairing, so this explains the visibility of
+   tears at candidate 1's boundary rather than the pairing itself. Confidence:
+   low as a root cause, plausible as an amplifier.
+5. **Two presents per cycle on a chain configured for one frame in flight.**
+   The game set `FRAME_LATENCY_WAITABLE_OBJECT` with `SetMaximumFrameLatency(1)`.
+   Sedici presents twice per game frame into that chain without consulting the
+   object or the latency setting. The probe shows the previous cycle always
+   retired, so this is not the observed blocker, but it is an unhandled
+   configuration that should be honoured if the schedule is reworked.
+5. **Measurement artefact.** PresentMon's tearing/VRR support is documented as
+   experimental in the capture application (`--p2c-allow-tearing`), so the
+   display-change timestamps could be inferred rather than measured. This cannot
+   explain the difference from the AMD capture by itself, because both were
+   captured with the same tool and flags. Confidence: low.
+
+### Diagnostics used
+
+The AMD bundled `PresentMon-x64.exe` on this machine only accepts `--v1_metrics`
+(v1 columns) or its default 2.x set, and rejects `--v2_metrics` and
+`--write_display_metadata`, so `PresentId` and layer metadata were unavailable.
+`tools/capture.ps1` takes `-PresentMonArgs` (and accepts `default`) so a capture
+can choose the metric set; `DisplayedTime` from the default set produced the
+per-frame durations above.
+
+The cause came from the DLL side instead: a diagnostic-only build logged the
+native chain description once and, without waiting or changing the schedule,
+sampled whether the midpoint copy's fence had signalled before the real Present.
+That probe answered the question the capture could not, and it required no
+change to pacing, present flags, VSync, RTSS or configuration.
 
 ## Deployment record
 

@@ -496,6 +496,30 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
         }
         break;
     }
+
+    entry = section_key(root, "fg", "present");
+    switch (read_string(entry, value)) {
+    case Read::Missing:
+        break;
+    case Read::WrongType:
+        problem_at(problems, *entry, "fg.present",
+                   std::string("expected a string, got ") + type_name(entry->type()) +
+                       " - using default \"vblank\"");
+        break;
+    case Read::Ok:
+        if (iequals(value, "game")) {
+            fg.present = FrameGenerationSettings::Present::Game;
+            fg.present_source = Source::File;
+        } else if (iequals(value, "vblank")) {
+            fg.present = FrameGenerationSettings::Present::Vblank;
+            fg.present_source = Source::File;
+        } else {
+            problem_at(problems, *entry, "fg.present",
+                       "unknown value \"" + value +
+                           "\" (expected \"game\" or \"vblank\") - using default \"vblank\"");
+        }
+        break;
+    }
 }
 
 void read_limiter(const toml::table& root, LimiterSettings& limiter,
@@ -846,6 +870,9 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.async.mode_source},
         {"fg.mode", config.fg.mode == FrameGenerationMode::Sedici ? "\"sedici\"" : "\"amd\"",
          config.fg.mode_source},
+        {"fg.present",
+         config.fg.present == FrameGenerationSettings::Present::Vblank ? "\"vblank\"" : "\"game\"",
+         config.fg.present_source},
         {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},

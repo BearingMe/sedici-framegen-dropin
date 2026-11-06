@@ -97,9 +97,11 @@ Open before this can be called verified: which queries Cyberpunk issues (the rou
 currently refuses all queries on a Sedici-owned context and logs them), and
 whether the game accepts the wrapped swapchain in every path it uses. The prior
 deployed pacing candidate regressed to 18 fps; the replacement entry-budget and
-chronological-output implementation restored 72 output fps in gameplay, but
-GPU/display bunching and reported tearing/startup artifacts remain. `fg.mode` still
-defaults to `"amd"` and forwards to AMD unless deliberately switched for a session.
+chronological-output implementation restored 72 output fps in gameplay. Tearing
+is now resolved by `[fg] present = "vblank"` (default): 74.9 output fps with every
+frame displayed for one 13.33 ms refresh and the user reporting no tears. Startup
+artifacts and shutdown retirement remain. `fg.mode` still defaults to `"amd"` and
+forwards to AMD unless deliberately switched for a session.
 
 - Implement the supported game's create/configure/prepare/dispatch/query/destroy
   contract and Sedici's swapchain wrapper, retaining the five-export interface.
@@ -190,10 +192,13 @@ passes a sustained closed-loop simulation and native GPU-buffer chronology/HUD
 checks and was deployed/launched with authorization. The authorized 30-second
 gameplay capture records 72.0 fps, present-interval SD 0.845 ms and p99 16.307 ms,
 but half its display-change intervals remain below 1 ms, alternating with roughly
-28 ms gaps. The user confirms the regression is fixed, with some tearing and
-artifacts during initial game boot still present. Even GPU/display cadence,
-startup quality and clean teardown are not accepted. See
-[current validation/open issues](docs/findings/007-fg-baseline.md#current-pair-gameplay-validation-and-remaining-issues).
+28 ms gaps. Follow-up probes traced that to the midpoint not being GPU-ready when
+the real frame was presented (98% of cycles), and to flips landing mid-scan with
+the game's tearing flags. `[fg] present = "vblank"`, now the default, presents both
+outputs with SyncInterval=1 and without ALLOW_TEARING: the last capture records
+74.9 fps with every frame displayed 13.31-13.40 ms and the user reports no tearing
+and normal performance. Startup artifacts and clean teardown remain open. See
+[vblank presentation](docs/findings/007-fg-baseline.md#vblank-presentation-removes-the-remaining-tearing).
 
 - With deployment authorization and the game stopped, deploy through the existing
   safety script. Preserve `.orig` and the user's configuration.

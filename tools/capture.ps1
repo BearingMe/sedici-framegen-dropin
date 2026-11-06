@@ -5,7 +5,11 @@ param(
     [string]$ProcessName = 'Cyberpunk2077',
     [int]$WaitSeconds = 600,
     [string]$PresentMon,
-    [string]$OutDir
+    [string]$OutDir,
+    # Extra PresentMon flags, space or comma separated, because `powershell -File`
+    # flattens array parameters. When supplied they replace the default metric set,
+    # e.g. -PresentMonArgs "--write_display_metadata -track_frame_type".
+    [string]$PresentMonArgs = ''
 )
 
 # Waits for the game, captures one PresentMon CSV of the process, then copies
@@ -101,11 +105,18 @@ $arguments = @(
     '--timed', "$Seconds",
     '--terminate_after_timed',
     '--no_console_stats',
-    # Stable column names: msBetweenPresents and msBetweenDisplayChange.
-    '--v1_metrics',
     '--session_name', $sessionName,
     '--stop_existing_session'
 )
+$extra = $PresentMonArgs.Trim()
+if ($extra -ieq 'default') {
+    # PresentMon 2.x default metric set (adds DisplayedTime on newer builds).
+} elseif ($extra.Length -gt 0) {
+    $arguments += @($extra -split '[\s,]+' | Where-Object { $_ })
+} else {
+    # Stable column names: msBetweenPresents and msBetweenDisplayChange.
+    $arguments += '--v1_metrics'
+}
 
 $stdoutPath = Join-Path $OutDir "$base.presentmon.stdout.txt"
 $stderrPath = Join-Path $OutDir "$base.presentmon.stderr.txt"

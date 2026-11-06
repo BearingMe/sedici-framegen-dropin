@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "log.h"
+#include "config.h"
 
 namespace sedici::fg {
 
@@ -76,6 +77,38 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     }
     if (SUCCEEDED(hr)) hr = object->initialize_buffers();
     if (FAILED(hr)) { delete object; return hr; }
+    // Test-only: allow a vsync-locked A/B without touching the game's config.
+    // Present mode: `[fg] present = "vblank"` (default) takes one vertical blank
+    // per output, which is what stopped mid-scan tearing in the game session.
+    // `SEDICI_FG_SYNC=0/1` overrides it for A/B runs.
+    object->m_force_sync = sedici::settings().fg.present ==
+        sedici::FrameGenerationSettings::Present::Vblank;
+    {
+        wchar_t syncEnv[8]{};
+        if (GetEnvironmentVariableW(L"SEDICI_FG_SYNC", syncEnv, 8) > 0)
+            object->m_force_sync = syncEnv[0] == L'1';
+        wchar_t alignEnv[8]{};
+        if (GetEnvironmentVariableW(L"SEDICI_FG_ALIGN", alignEnv, 8) > 0 && alignEnv[0] == L'1')
+            object->m_align_vblank = true;
+    }
+    // Record the native chain as the game created it. Two presents per cycle are
+    // driven into this chain, so its depth and latency setting bound how many can
+    // be in flight; the values are logged once and never used to change behaviour.
+    try {
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        UINT latency = 0;
+        if (SUCCEEDED(object->m_native->GetDesc1(&desc))) {
+            (void)object->m_native->GetMaximumFrameLatency(&latency);
+            const bool waitable = object->m_native->GetFrameLatencyWaitableObject() != nullptr;
+            log_event(1, "fg: native chain buffers=" + std::to_string(desc.BufferCount) +
+                " size=" + std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
+                " flags=" + std::to_string(desc.Flags) +
+                " max_latency=" + std::to_string(latency) +
+                " waitable=" + (waitable ? "yes" : "no") +
+                " force_sync=" + (object->m_force_sync ? "yes" : "no") +
+                " align_vblank=" + (object->m_align_vblank ? "yes" : "no"));
+        }
+    } catch (...) {}
     // Timer availability affects precision, never whether wrapping succeeds.
     object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr,
         CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -168,8 +201,7 @@ HRESULT Swapchain::drain() noexcept
     return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
 }
 
-void Swapchain::wait_until(double deadline, double maxWait) noexcept
-{
+void Swapchain::wait_until(double deadline, double maxWait) noexcept{
     const double now = now_seconds();
     if (!std::isfinite(deadline) || !(maxWait > 0.0)) return;
     const double remaining = std::clamp(deadline - now, 0.0, std::min(maxWait, 0.05));
@@ -193,6 +225,38 @@ void Swapchain::wait_until(double deadline, double maxWait) noexcept
         }
     }
     while (now_seconds() < target) YieldProcessor();
+}
+
+double Swapchain::vblank_deadline(double now) noexcept
+{
+    if (!m_align_vblank || !ticks_per_second()) return now;
+    DXGI_FRAME_STATISTICS stats{};
+    if (SUCCEEDED(m_native->GetFrameStatistics(&stats))) {
+        const double stamp = ticks_to_seconds(static_cast<uint64_t>(stats.SyncQPCTime.QuadPart), ticks_per_second());
+        if (!m_have_vblank) {
+            m_have_vblank = true;
+            m_vblank_count = stats.SyncRefreshCount;
+            m_vblank_qpc = static_cast<uint64_t>(stats.SyncQPCTime.QuadPart);
+        } else if (stats.SyncRefreshCount != m_vblank_count) {
+            const uint32_t steps = stats.SyncRefreshCount - m_vblank_count;
+            const double epoch = ticks_to_seconds(m_vblank_qpc, ticks_per_second());
+            if (steps && stamp > epoch) {
+                const double period = (stamp - epoch) / steps;
+                if (period > 0.004 && period < 0.05) m_vblank_period = period;
+            }
+            m_vblank_count = stats.SyncRefreshCount;
+            m_vblank_qpc = static_cast<uint64_t>(stats.SyncQPCTime.QuadPart);
+        }
+    }
+    if (!m_have_vblank) return now;
+    const double epoch = ticks_to_seconds(m_vblank_qpc, ticks_per_second());
+    const double period = m_vblank_period;
+    // Arm shortly before the next blank so the flip lands at the scan start.
+    constexpr double margin = 0.0012;
+    const double lead = now + margin;
+    double target = epoch;
+    if (lead >= epoch) target = epoch + std::ceil((lead - epoch) / period) * period;
+    return target - margin;
 }
 
 HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept
@@ -279,7 +343,15 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
     if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_fence->GetCompletedValue() < m_fence_value)
         return DXGI_ERROR_WAS_STILL_DRAWING;
+    const double drainStart = now_seconds();
     HRESULT hr = drain();
+    ++m_drain_samples;
+    const double drainMs = (now_seconds() - drainStart) * 1000.0;
+    if (drainMs > 0.25) {
+        ++m_drain_waits;
+        m_drain_wait_sum += drainMs;
+        m_drain_wait_max = std::max(m_drain_wait_max, drainMs);
+    }
     if (FAILED(hr)) return hr;
 
     // The limiter caps the game's real frames. This is the one place that sees
@@ -288,6 +360,9 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     if (m_present_hook) m_present_hook(now_ticks());
 
     const double now = now_seconds();
+    // Test-only A/B: SyncInterval=1 cannot be combined with ALLOW_TEARING.
+    const UINT outSync = m_force_sync ? 1u : sync;
+    const UINT outFlags = m_force_sync ? (flags & ~static_cast<UINT>(DXGI_PRESENT_ALLOW_TEARING)) : flags;
     // Snapshot colour/HUD and generate from THIS prepare before any native
     // Present or sleep can let the application recycle its inputs. The preceding
     // real frame is already on screen; the next outputs must be midpoint(N-1,N)
@@ -306,12 +381,22 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
 
     double cycleStartedAt = 0.0;
     bool presentedGenerated = false;
+    uint64_t midCopyFence = 0;
 
     if (plan.presentGenerated) {
         hr = blit(m_generated.Get(), &m_generated_state);
         if (SUCCEEDED(hr)) {
+            // Diagnostic signal: marks the midpoint copy, so the sample below can
+            // say whether the GPU had produced that image before the real Present.
+            if (SUCCEEDED(m_queue->Signal(m_fence.Get(), ++m_fence_value))) midCopyFence = m_fence_value;
+            if (m_align_vblank) {
+                const double target = vblank_deadline(now_seconds());
+                wait_until(target, 0.05);
+                ++m_align_samples;
+                if (now_seconds() > target + 0.0005) ++m_align_misses;
+            }
             cycleStartedAt = now_seconds();
-            hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+            hr = params ? m_native->Present1(outSync, outFlags, params) : m_native->Present(outSync, outFlags);
             if (FAILED(hr)) return hr;
             m_generated_ready = false;
             ++m_generated_presents;
@@ -324,12 +409,23 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
             wait_until(plan.realDeadline, m_pacing.interval * 0.5);
     }
 
+    if (midCopyFence) {
+        ++m_mid_checks;
+        if (m_fence->GetCompletedValue() < midCopyFence) ++m_mid_not_ready;
+    }
+
     auto* real = m_buffers[m_game_index].Get();
     D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
     hr = blit(real, &realState);
     if (FAILED(hr)) return hr;
+    if (m_align_vblank) {
+        const double target = vblank_deadline(now_seconds());
+        wait_until(target, 0.05);
+        ++m_align_samples;
+        if (now_seconds() > target + 0.0005) ++m_align_misses;
+    }
     const double realSubmittedAt = now_seconds();
-    hr = params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+    hr = params ? m_native->Present1(outSync, outFlags, params) : m_native->Present(outSync, outFlags);
 
     // Retire our copy AND any work DXGI queues for Present. A fence before
     // Present is insufficient for releasing native buffers on resize.
@@ -351,10 +447,21 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
                     " skipped=" + std::to_string(m_skipped_generates) +
                     " interval_ms=" + std::to_string(m_pacing.interval * 1000.0) +
                     " cpu_gap_ms{avg=" + std::to_string(m_gap_samples ? m_gap_sum / m_gap_samples : 0.0) +
-                    " min=" + std::to_string(m_gap_min) + " max=" + std::to_string(m_gap_max) + "}");
+                    " min=" + std::to_string(m_gap_min) + " max=" + std::to_string(m_gap_max) + "}" +
+                    " mid_not_ready=" + std::to_string(m_mid_not_ready) + "/" + std::to_string(m_mid_checks) +
+                    " drain_waits=" + std::to_string(m_drain_waits) + "/" + std::to_string(m_drain_samples) +
+                    " drain_wait_ms{avg=" + std::to_string(m_drain_waits ? m_drain_wait_sum / m_drain_waits : 0.0) +
+                    " max=" + std::to_string(m_drain_wait_max) + "}" +
+                    " align_misses=" + std::to_string(m_align_misses) + "/" + std::to_string(m_align_samples));
             } catch (...) {}
             m_gap_samples = 0;
             m_gap_sum = m_gap_min = m_gap_max = 0.0;
+            m_mid_checks = m_mid_not_ready = 0;
+            m_drain_samples = 0;
+            m_drain_waits = 0;
+            m_drain_wait_sum = m_drain_wait_max = 0.0;
+            m_align_samples = 0;
+            m_align_misses = 0;
         }
         m_generated_ready = false; // Never carry a midpoint past its own real frame.
         m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());

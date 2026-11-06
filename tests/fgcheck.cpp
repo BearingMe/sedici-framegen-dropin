@@ -1576,7 +1576,7 @@ int main(int argc, char** argv)
         }
         {
             std::ofstream fixture(config);
-            fixture << "[fg]\nmode = \"sedici\"\n[log]\nlevel = 0\n";
+            fixture << "[fg]\nmode = \"sedici\"\npresent = \"game\"\n[log]\nlevel = 0\n";
             if (!fixture) return 1;
         }
         (void)sedici::settings();

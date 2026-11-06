@@ -107,6 +107,9 @@ private:
     HRESULT drain() noexcept;
     void wait_until(double deadline, double maxWait) noexcept;
     HRESULT blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceState) noexcept;
+    // Absolute QPC deadline for arming a flip just before the next vertical
+    // blank. Returns `now` when frame statistics are unavailable.
+    double vblank_deadline(double now) noexcept;
     HRESULT present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept;
     void record_generated() noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
@@ -132,6 +135,20 @@ private:
     D3D12_RESOURCE_STATES m_generated_state = D3D12_RESOURCE_STATE_COMMON;
     GenerateSink m_sink{};
     void (*m_present_hook)(uint64_t) = nullptr;
+    // Test-only A/B (`SEDICI_FG_SYNC=1`): present with SyncInterval=1 and drop
+    // DXGI_PRESENT_ALLOW_TEARING, to prove whether tearing is flip-phase
+    // misalignment. Off by default; the game's own flags are used otherwise.
+    bool m_force_sync = false;
+    // Opt-in (`SEDICI_FG_ALIGN=1`): arm each Present shortly before a vertical
+    // blank using DXGI_FRAME_STATISTICS, so the flip takes effect at the start
+    // of a scan instead of partway through one. Keeps SyncInterval=0.
+    bool m_align_vblank = false;
+    bool m_have_vblank = false;
+    uint32_t m_vblank_count = 0;
+    uint64_t m_vblank_qpc = 0;
+    double m_vblank_period = 1.0 / 75.0;
+    uint32_t m_align_samples = 0;
+    uint32_t m_align_misses = 0;
     bool m_generated_ready = false;
     uint64_t m_generated_presents = 0;
     uint64_t m_skipped_generates = 0;
@@ -147,6 +164,16 @@ private:
     double m_gap_sum = 0.0;
     double m_gap_min = 0.0;
     double m_gap_max = 0.0;
+
+    // Diagnostic-only evidence, never used to decide what to present:    // - whether the GPU finished the midpoint copy before the real frame was
+    //   presented, which distinguishes "queued by DXGI" from "not rendered yet";
+    // - how often a cycle had to wait for the previous real copy to retire.
+    uint64_t m_mid_checks = 0;
+    uint64_t m_mid_not_ready = 0;
+    uint32_t m_drain_samples = 0;
+    uint64_t m_drain_waits = 0;
+    double m_drain_wait_sum = 0.0;
+    double m_drain_wait_max = 0.0;
 };
 
 } // namespace sedici::fg

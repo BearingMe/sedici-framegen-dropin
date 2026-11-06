@@ -137,8 +137,22 @@ enum class FrameGenerationMode {
 };
 
 struct FrameGenerationSettings {
+    // How the wrapper presents its two outputs per cycle.
+    enum class Present {
+        // Use the game's own SyncInterval and flags, including ALLOW_TEARING.
+        // Lowest latency, but a flip can land mid-scan and tear.
+        Game,
+        // Present with SyncInterval=1 and without ALLOW_TEARING, so each output
+        // takes its own vertical blank. Tear-free in game sessions; costs up to
+        // one refresh of latency and expects a real rate at or below half the
+        // panel refresh.
+        Vblank,
+    };
+
     FrameGenerationMode mode = FrameGenerationMode::Amd;
     Source mode_source = Source::Default;
+    Present present = Present::Vblank;
+    Source present_source = Source::Default;
 };
 
 struct Settings {
