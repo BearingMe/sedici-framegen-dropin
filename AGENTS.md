@@ -42,6 +42,8 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   state, and the frame-generation-active label used by the limiter.
 - `src/describe.*` — desc-chain walking and per-type logging.
 - `src/present_hook.*` — optional `Present`/`Present1` vtable hook.
+- `src/overlay.*` — inactive callback prototype; it must not be installed until
+  it preserves FFX's output copy and UI composition.
 - `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
   plus QPC spin, scheduling, and per-300-frame accuracy stats.
 - `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
