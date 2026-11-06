@@ -1,5 +1,25 @@
 # Experiment milestones
 
+## Phase overview
+
+- **Phase 1:** establish the analytical generator and custom presentation path;
+  retain the implementation history and evidence below. Component-level results
+  are not proof that generation, overlay, limiter, and settings work together.
+- **Phase 2:** audit, document, cover, and incrementally rebuild that integration
+  around explicit ownership, a pinned official AMD binary fallback, coherent live
+  settings, and useful diagnostics. The first gate is audit/documentation, the
+  second is test coverage, and only then does structural migration begin.
+- **Later delivery:** implement and validate residual inference against
+  [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
+  the boundary, not quietly absorb model training, inference optimization, and
+  quality/performance acceptance into a small refactor task.
+
+The Phase 1 entries include historical implementation/status snapshots. Later
+evidence in [008](docs/findings/008-fg-tearing.md) and
+[009](docs/findings/009-output-multipliers.md) supersedes some presentation details;
+Phase 2 begins by reconciling them with the actual code. Starting Phase 2 does not
+retroactively mark the remaining Phase 1 acceptance requirements complete.
+
 ## Phase 1 — Mob-FGSR with custom scheduling in Cyberpunk
 
 **Goal:** deploy a working drop-in replacement for AMD FSR 3.1 frame generation,
@@ -217,3 +237,318 @@ and normal performance. Startup artifacts and clean teardown remain open. See
 **Done:** a usable deployed Cyberpunk build with Mob-FGSR and custom scheduling,
 or a specific blocker and safe rollback. Offline images alone do not complete
 Phase 1. GFFE residual inference is deferred to a later phase.
+
+## Phase 2 — Reliable runtime and incremental architecture refactor
+
+**Goal:** make the existing generator, frame cap, overlay, settings, and fallback
+operate as one maintainable product rather than independently working components.
+Use a session-owned runtime with explicit lifecycle, backend/context ownership,
+GPU retirement, acknowledged settings, and bounded diagnostics/recovery.
+
+**Status:** planned. The direction is recorded in
+[docs/refactor](docs/refactor/README.md); the
+[documentation improvement plan](docs/refactor/planning/README.md) is the first
+work package, not completed acceptance. No milestone below is complete merely
+because its proposed structure has been documented.
+
+**Scope:** retain and validate the analytical implementation while migrating its
+integration. Add an official pinned AMD **binary** backend, not AMD's full source
+implementation. Keep compatibility forwarding distinct from that backend. Prepare
+the HUD-less feature/composition boundary for Stage 2 without claiming to deliver
+the trained residual network in this phase.
+
+### Sizing and execution rules
+
+This is a substantial engineering phase, not a file-moving exercise. Sizes below
+describe uncertainty and breadth, **not calendar estimates**:
+
+- **Large:** several reviewable changes with discovery, implementation or analysis,
+  focused verification, and documentation. Not one cleanup commit.
+- **Very large:** a cross-cutting ownership or timing change requiring smaller
+  sub-gates, failure-path work, and integrated regression verification. Do not
+  estimate it as routine extraction before the relevant spike/tests exist.
+
+| Milestone | Size | Prerequisites |
+| --- | --- | --- |
+| P2.1 Audit and documentation | Large | Existing code, findings, refactor proposals |
+| P2.2 Regression and integration coverage | Large | P2.1 contracts and evidence map |
+| P2.3 AMD binary feasibility and fallback contract | Large; uncertainty may expand scope | P2.1, P2.2 test seams |
+| P2.4 Session, context, and callback ownership | Very large | P2.2, relevant P2.3 decisions |
+| P2.5 GPU submission, frame slots, and retirement | Very large | P2.4 ownership boundary |
+| P2.6 Settings transactions and TOML migration | Very large | P2.1 schema decisions, P2.4 owner |
+| P2.7 Real-frame admission and output pacing | Very large | P2.5 retirement, P2.6 application path |
+| P2.8 Composition, overlay, and input integration | Very large | P2.5-P2.7 contracts |
+| P2.9 Bundled AMD backend and safe packaging | Very large | P2.3 feasibility, P2.4-P2.8 integration |
+| P2.10 Errors, diagnostics, and watchdog hardening | Large; cross-cutting | Contracts begin in P2.1; infrastructure begins in P2.2-P2.4 |
+| P2.11 Integrated acceptance and Stage 2 handoff | Large | P2.4-P2.10 accepted |
+
+The numbering is a dependency guide, not a reason to postpone all error handling
+until P2.10. Instrument and test each migrated slice as it lands. P2.3 discovery
+may proceed alongside coverage development after P2.1; no production migration
+may bypass the coverage gate. Re-scope dependent work if the binary investigation
+invalidates an assumed interface or presentation model.
+
+For each implementation slice, record the responsibility changing owner, behavior
+preserved, intentional fixes, acceptance evidence, and a safe rollback. Remove the
+superseded path after acceptance; do not keep two authoritative settings stores,
+registries, or lifecycle managers. Preserve existing user work and verified
+algorithms. Separate mechanical moves from behavior changes where practical.
+
+### P2.1 — Audit and documentation
+
+**Status:** pending. Audit the implementation before treating the proposed tree
+as an implementation specification. This milestone does not move or fix code.
+
+- Trace both backend paths from the five exports through contexts, callbacks,
+  prepare/generation, Present, settings, overlay, limiter, and shutdown.
+- Inventory ownership, thread/lock boundaries, outstanding GPU work, public and
+  hidden settings, error handling, and test entry points. Identify what tests
+  bypass or serialize and distinguish missing integration from algorithm defects.
+- Reconcile code, current configuration, README, milestone snapshots, and findings.
+  Separate verified behavior, historical evidence, reported failures, assumptions,
+  and unresolved questions. Existing claims are not fresh validation results.
+- Improve the architecture, file-structure, TOML, reliability, and planning documents
+  with decided/proposed/unresolved status, enforceable boundaries, lifecycle
+  transitions, setting application semantics, and a dependency-ordered migration.
+- Record expensive unknowns as explicit investigation tasks, including AMD binary
+  capabilities, context recreation, and queue/composition interoperability. Settle
+  contracts needed for the next slice; do not invent answers to unblock a diagram.
+
+**Acceptance:** a developer can identify an upcoming slice's owner, allowed
+dependencies, observable behavior, failure policy, tests, and unresolved blockers
+without guessing. Produce a prioritized gap/evidence map and reviewable contracts.
+No implementation estimate assumes that an unverified AMD interface exists.
+
+**References:** [refactor decisions](docs/refactor/README.md),
+[documentation plan](docs/refactor/planning/README.md), findings 002/005/006/007/008/009,
+and [the two-stage objective](references/papers/realtime-fg.md).
+
+### P2.2 — Regression and integration coverage before migration
+
+**Status:** pending. Establish a trustworthy baseline, not merely more isolated
+unit checks or an arbitrary line-coverage percentage.
+
+- Build tests against the same production implementation targets. Include a
+  focused check of the actual DLL entry points and exactly five exports; do not
+  validate only a source list that omits the integration boundary.
+- Protect valid behavior with characterization tests: compatibility forwarding,
+  arguments/results, descriptor restoration, input restoration, and existing
+  analytical image correctness. Do not freeze known bugs as correct behavior.
+- Extend the small offline DX12 host to exercise generation, Mini/Full overlay,
+  real-frame cap changes, settings acknowledgement/save/cancel, and metrics together.
+  Add focused resize, FG-toggle, window replacement, and teardown scenarios.
+- Test pure policy with controlled time and injected outcomes. Exercise genuinely
+  in-flight resources rather than waiting for the GPU after every frame. Cover
+  initialization, submission, settings, logging, and persistence failures.
+- Register relevant checks with CTest, isolate fixtures from game files, and record
+  validation availability and third-party overlay interference. Keep a few composed
+  scenarios rather than a broad GPU option matrix or dozens of new GPU tests.
+
+**Acceptance:** reproducible passing characterization checks plus explicit failing
+product-acceptance cases for known integration defects. A failing case is tracked,
+not silently skipped or relabeled green. Migration cannot regress protected behavior
+or add unexplained failures. Record which gaps remain before starting P2.4.
+
+### P2.3 — Investigate the official AMD binary and fallback boundaries
+
+**Status:** pending. This is a compatibility investigation with a go/no-go gate,
+not just a `LoadLibrary` task. Use a separately obtained/approved official artifact;
+never acquire runtime DLLs automatically during build or test.
+
+- Identify the exact version, architecture, hash, origin, dependencies, and
+  redistribution obligations. Validate the five-export ABI and relevant descriptors
+  against the binary, not only the newer vendored headers.
+- Verify private loading under the intended filename/path, dependency resolution,
+  coexistence with the proxy and `.orig`, and correct ownership of every handle.
+- Establish supported generation/query/callback and UI-composition interfaces.
+  Determine whether AMD can feed Sedici's presenter or must retain AMD-owned
+  scheduling/composition. Do not stack two output schedulers.
+- Specify pre-ownership fallback, unavailable resources, real-frame degradation,
+  and recreation/restart behavior. Include separate FG/swapchain creation order
+  and failures after a native chain has been consumed or replaced.
+
+**Acceptance:** documented binary/compatibility evidence and a testable integration
+contract, or a specific blocker requiring a revised design. Seamless mid-session
+handoff is not promised without proof of coordinated draining and recreation.
+Re-estimate P2.4/P2.8/P2.9 after this gate; stubs cannot establish binary compatibility.
+
+### P2.4 — Establish session, context, and callback ownership
+
+**Status:** pending. Split this into lookup/identity, lifecycle transitions, and
+callback lifetime sub-gates; it is not a rename of `fg_route` or `fg_integration`.
+
+- Introduce one logical session relating FG contexts, swapchain contexts, backend
+  identity, game-facing buffers, and effective status. Keep ABI dispatch thin.
+- Provide lifetime-safe registry access and explicit callback registration,
+  reentrancy, detach, and destruction contracts. Do not hold registry locks across
+  backend calls, external callbacks, or GPU waits.
+- Represent probing, history warmup, active/degraded/suspended operation, draining,
+  and stopped/device-lost behavior. Define accepted work and observable results at
+  each transition, including partially initialized sessions.
+- Publish coherent backend/FG/status identity on both paths. Never route a handle
+  to a binary or implementation that did not create it.
+
+**Acceptance:** production-path tests cover separate context creation order,
+failed/partial initialization, FG toggles, callback detachment, and destruction.
+No dangling registry lookup or callback may reach a destroyed owner. The old
+authoritative lifetime/status bookkeeping is removed after its replacement passes.
+
+### P2.5 — Make GPU submission and retirement explicit
+
+**Status:** pending. Treat allocation/descriptor ownership, queue ordering, and
+resize/shutdown retirement as separate sub-gates with their own failure checks.
+
+- Attach resources, allocator memory, descriptor ranges, scratch, and output images
+  to explicit frame slots and queue-signalled retirement tokens.
+- Specify dependencies between game capture, generation, composition, and present
+  queues. A resource barrier or COM reference is not proof of execution ordering
+  or GPU completion; borrowed game command lists cannot be deferred arbitrarily.
+- Return meaningful submission acceptance/rejection; do not advance buffer/history
+  ownership after silently dropping a job. Handle partial recording/submission.
+- Stop admission before resize or teardown, retain outstanding resources, and
+  define bounded waits/recovery. Timeout is not permission to free in-flight memory
+  or CPU-signal fictitious completion. Include device loss and abandoned work.
+
+**Acceptance:** multiple frames in flight, failed submission, resize, FG reset, and
+teardown pass focused lifetime checks with the installed DX12 validation facilities.
+Document bounded retention/recovery on timeout. Do not claim success by serializing
+every frame, leaking without bounds, filtering warnings, or ignoring retirement errors.
+
+### P2.6 — Implement coherent settings and safe TOML migration
+
+**Status:** pending. Parsing, live application, UI acknowledgement, and persistence
+are a coordinated change, not a parser cleanup. Agree the schema before switching it.
+
+- Finalize supported user-facing keys, defaults, bounds, units, backend capability,
+  application timing, and any retained override/deprecation policy.
+- Apply complete validated candidates through revisioned requests and acknowledged
+  snapshots. Distinguish pending/rejected/recreation-required from applied values.
+  Define partial failure and concurrent request/conflict behavior.
+- Route live controls through this contract, not independent global writes and
+  manual subsystem resets. Apply cap/sync changes at safe boundaries.
+- Implement save/cancel against acknowledged state with external-edit detection,
+  comment-preserving safe persistence, and non-fatal I/O failure. Keep disk work
+  outside output callbacks. Do not add file watching unless separately required.
+- Account explicitly for legacy pacing/async controls, fractional/adaptive output,
+  and environment switches. `fg.mode = "amd"` currently identifies `.orig`; do not
+  silently reinterpret it as the bundled binary or remove opt-outs/defaults.
+
+**Acceptance:** parser, runtime, UI, and persisted values agree under successful,
+rejected, concurrent, and failed-save changes. Unknown/deprecated keys get actionable
+diagnostics. Existing configurations have a documented migration, not silent drift.
+The proposed schema in docs/refactor is not enabled until this gate is satisfied.
+
+### P2.7 — Coordinate the real-frame cap and output pacing
+
+**Status:** pending. Separate deterministic policy extraction, wait/backpressure
+integration, and production-path cadence validation. This is feedback/timing work,
+not simply reconnecting the limiter callback.
+
+- Give real-frame admission and output scheduling one consistent policy with
+  explicit clock units, GPU readiness, sync intent, elapsed budget, and overload
+  handling. Avoid compounded limiter/presenter/vsync waits and latency feedback.
+- Keep one admission per real game frame, no limiter work for TEST/off paths, and
+  correct FG-enabled/disabled behavior. A live rate change resets coherently.
+- Preserve chronological output and bounded backlog through hitches and missed
+  deadlines. Drop stale generated work rather than accumulating delayed output.
+- Define supported multiplier/adaptive combinations, their latency and real-frame
+  omission semantics, and each backend's applicability. Do not silently discard
+  existing work or equate planned output rate with physical display cadence.
+
+**Acceptance:** deterministic closed-loop tests and the integrated host cover cap
+changes, FG off/on, overload, stalls, sync policy, and supported output ratios.
+The output rate must not collapse through self-amplifying queue latency. Compare
+measured cadence and CPU/GPU wait costs with a configuration-matched baseline.
+
+### P2.8 — Separate composition and integrate overlay/input
+
+**Status:** pending. Use distinct sub-gates for HUD-less generation, output rendering,
+and window/input ownership; rendering a demo overlay does not complete this work.
+
+- Move final HUD composition out of the analytical stage. Preserve an explicit
+  HUD-less boundary for residual correction before HUD and Sedici overlay drawing.
+- Render UI on final real/generated outputs through each backend's supported
+  composition contract. Preserve caller callbacks and game UI; do not return
+  success while dropping required composition.
+- Give ImGui rendering resources explicit queue/descriptor retirement and thread
+  ownership. UI reads status snapshots and submits settings requests only.
+- Preserve hotkey behavior, cursor/clipping ownership, input restoration, coordinate
+  mapping, window replacement, and overlay-disable recovery independently of a
+  functioning GPU renderer. Remove monitor-specific control assumptions.
+
+**Acceptance:** the combined scenario validates Mini/Full operation, HUD preservation,
+cap/settings changes, resize/window replacement, FG toggles, and renderer failure
+with input returned to the game. Demonstrate both backend integrations; a direct
+`ui_on_present` unit call alone is insufficient.
+
+### P2.9 — Integrate and package the pinned AMD backend
+
+**Status:** pending. P2.3 proves feasibility; this milestone delivers the full backend
+and lifecycle integration, not just a successful binary load.
+
+- Implement the validated binary adapter, context/callback ownership, capability
+  reporting, and the agreed presentation model using the shared runtime services.
+- Exercise unavailable, incompatible, partially initialized, and rejected-resource
+  cases before publishing ownership. Keep `.orig` compatibility forwarding distinct.
+- Integrate UI, limiter, settings, and diagnostics without passing foreign handles
+  or attempting per-call takeover of a live Sedici-owned session.
+- Resolve distribution rights/notices, exact dependency/deployed paths, integrity
+  checks, and uninstall/rollback behavior. Reconcile existing deploy allowlists and
+  fallback instructions explicitly before expanding them. Preserve `.orig` and
+  existing user configuration; builds/tests must remain offline.
+
+**Acceptance:** integration tests exercise the actual selected AMD binary as well
+as failure stubs. Selection/degradation behavior is observable and consistent with
+the approved contract. Packaging has a reviewable safety/rollback plan and does not
+touch the loader/upscaler; deployment remains separately authorized.
+
+### P2.10 — Harden errors, diagnostics, and watchdog recovery
+
+**Status:** pending; cross-cutting. Establish error vocabulary and event identity
+early, emit evidence in every migrated slice, then complete recovery/overhead checks.
+
+- Use typed, checked outcomes with stable codes, underlying API results, session/
+  frame/settings identity, and explicit recovery actions. Contain exceptions at
+  foreign boundaries; allocating inside `noexcept` is not graceful failure handling.
+- Capture bounded events and recent history without synchronous file I/O in output
+  paths. Rate-limit repetition, count dropped diagnostics, and report sink failure.
+- Publish truthful metrics for real admission, output calls, GPU work, drops, waits,
+  queue depth, and requested/applied state. Label unavailable measurements; CPU
+  Present timestamps are not physical flips or input-to-photon latency.
+- Monitor progress and invariant violations without depending on the stalled
+  operation's lock. Define retry/degradation limits and avoid recovery oscillation.
+  Preserve genuine device errors; do not promise recovery from arbitrary corruption.
+
+**Acceptance:** injected log failures, queue stalls, component failures, and rejected
+settings leave bounded behavior and actionable evidence. Watchdog actions follow
+the session owner and retain GPU safety. Measure diagnostic overhead; the observer
+must not materially create the timing failures it is intended to diagnose.
+
+### P2.11 — Accept the integrated product and prepare Stage 2
+
+**Status:** pending. Reserve real effort for stabilization and acceptance; do not
+assume the final milestone is just rerunning an already-green command.
+
+- Run the production-boundary combined scenarios for both backends: generate,
+  open Mini/Full UI, change the cap, save/cancel, resize/replace the window, toggle
+  FG, exercise declared fallback, and destroy with work outstanding.
+- Verify exactly five exports, unchanged compatibility forwarding, preserved HUD,
+  restored input, bounded backlog/retirement, and consistent requested/applied state.
+  Record fixes and remaining limitations rather than hiding failing cases.
+- Recheck analytical quality and production-resolution GPU/memory/wait costs.
+  Separate validation-heavy runs from timing acceptance and state configuration
+  differences from historical captures. Paper estimates are not measured budgets.
+- Document the Stage 2 feature/model contract: tensor layout, phase/time conventions,
+  color normalization, reset, dimensions/padding, provenance, scratch, and retirement.
+  Keep neural execution before HUD; account for activation memory and all frame
+  slots, not only model weight size. Training/inference delivery needs its own plan.
+- With explicit deployment authorization, verify packaging/rollback with the game
+  stopped. Any agent-driven game launch requires separate authorization. Perform
+  the agreed focused game acceptance only when authorized; offline checks alone
+  cannot prove display cadence, external-overlay compatibility, or game ABI coverage.
+
+**Phase exit:** each selected backend meets the agreed integrated contract, known
+blockers are resolved or explicitly scope-limited and accepted, and current docs,
+tests, configuration, and diagnostic status tell the same story. Verified old paths
+have been retired where replaced. A clean directory tree, isolated test success,
+or a successful deployment alone does not complete Phase 2.
