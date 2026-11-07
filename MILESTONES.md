@@ -325,9 +325,11 @@ and [the two-stage objective](references/papers/realtime-fg.md).
 
 ### P2.2 — Regression and integration coverage before migration
 
-**Status:** in progress. The baseline, gap map and known failures are recorded in
-[reliability.md](docs/refactor/reliability.md#current-coverage-and-gaps-p22-baseline);
-the remaining gaps listed there are open. Establish a trustworthy baseline, not merely more isolated
+**Status:** complete, with explicitly accepted gaps. 18 CTest entries pass (12 `abi`
+scenarios on the real DLL plus a stub `.orig`, 3 `fgcheck`, regression and two GPU
+overlay checks) on one shared `sedici_core` object library. Baseline, known failures
+and the accepted gaps with their owning milestones are in
+[reliability.md](docs/refactor/reliability.md#current-coverage-and-gaps-p22-baseline). Establish a trustworthy baseline, not merely more isolated
 unit checks or an arbitrary line-coverage percentage.
 
 - Build tests against the same production implementation targets. Include a
@@ -353,10 +355,10 @@ or add unexplained failures. Record which gaps remain before starting P2.4.
 
 ### P2.3 — Investigate the official AMD binary and fallback boundaries
 
-**Status:** in progress. Static and runtime evidence from `sedici_amd_probe` is in
-[amd-binary.md](docs/refactor/amd-binary.md): private load, coexistence, create order,
-configure target and handle consumption are established; redistribution rights,
-mid-session handoff and post-consumption failure are open. This is a compatibility investigation with a go/no-go gate,
+**Status:** complete; gate decision recorded in
+[amd-binary.md](docs/refactor/amd-binary.md#gate-decision) (review pending). **GO** for
+an AMD backend using the installed, hash-pinned copy; **NO** to AMD feeding Sedici's
+presenter and to seamless handoff; **bundling blocked** on a licence review. This is a compatibility investigation with a go/no-go gate,
 not just a `LoadLibrary` task. Use a separately obtained/approved official artifact;
 never acquire runtime DLLs automatically during build or test.
 

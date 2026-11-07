@@ -1,8 +1,8 @@
 # P2.3 evidence: the official AMD frame-generation binary
 
-Status: **static and runtime evidence recorded; gate decision pending review.**
-Technically feasible; redistribution rights and mid-session handoff are the open
-blockers (see the end of this file). Nothing here is
+Status: **evidence complete; gate decision recorded below (review pending).**
+Technically feasible with the user's installed copy; **bundling is blocked on a
+licence review** that code cannot settle. Nothing here is
 inferred from the vendored 2.4.0 headers.
 
 ## Artifact (static, read-only inspection)
@@ -80,12 +80,73 @@ Consequences for the refactor:
 - **A bundled binary is feasible technically** (private load, coexistence, no
   sidecar files); **legal redistribution is not established** (see above).
 
-### Open questions the probe cannot answer
+### Failure, recreation and handoff (probe variants 9, 16, 32/33, 64, 128)
 
-- Whether AMD's output can be consumed by Sedici's presenter. The probe only shows
-  whether the present callback exposes generated frames and at what cadence; if AMD
-  keeps its own present thread the answer is the architecture note's second branch:
-  AMD retains its scheduling and Sedici must not stack a second scheduler.
-- Mid-session handoff between the two generators.
-- Failure after a native chain has been consumed. The stub tests cover Sedici's side
-  only (see [reliability.md](reliability.md)).
+| Question | Result |
+| --- | --- |
+| Destroy and recreate everything in one process | **Works.** A second full session (new device, window, chain, contexts) after complete destruction runs clean (variants 32, 33). A restart-style recreation is supported. |
+| Destroy only the FG context while the wrapped swapchain keeps presenting | **Crashes** (access violation, variant 16). The swapchain cannot outlive its FG context. |
+| Same, but quiesced first: generation disabled with `frameGenerationEnabled=false`, GPU idle, 300 ms for AMD's present thread, no Present while the FG context is absent, then recreate and reconfigure | **Works.** Generation resumed on the live swapchain: 30 callbacks over 30 frames, no errors (variant 64). This is the only supported mid-session FG replacement shape found. |
+| Wrap with a null `gameQueue` | **Crashes in AMD** (access violation, variant 9). AMD does not validate it. |
+| FG create with a 0x0 display next to a live pair | **Process abort** in AMD (fail-fast, variant 128). AMD does not validate sizes. |
+| After a successful wrap the native chain | Belongs to AMD (reference consumed). A "fallback to native presentation" after wrap needs a **new native chain**, which needs the old wrapper released first; the consumed chain is not recoverable. |
+
+Sedici's own wrapper already refuses all three hostile cases without crashing
+(`sedici_abi invalid-calls`: null queue, null swapchain slot, empty display size,
+destroyed handle, double destroy all return an error and leave the caller's chain
+intact). Because AMD does not validate, **Sedici must keep validating these before
+forwarding anything to AMD**: no foreign or zero-sized argument may reach the binary.
+
+## Integration contract (testable; for P2.4/P2.9)
+
+1. **Ownership.** One backend owns a given FG+swapchain pair for its whole life. A
+   handle belongs to the binary instance that created it; Sedici never passes a Sedici
+   handle to AMD, or an AMD handle to another instance.
+2. **Load.** AMD is loaded privately by full path under a name Sedici chooses; no
+   sidecar file is needed. Load failure, missing file or a hash that is not the
+   pinned one means the AMD backend is unavailable (never an error to the game).
+3. **Creation order, pre-ownership fallback.** Everything that can fail is probed
+   before ownership commits: argument validation (queue, swapchain slot, non-zero
+   sizes, device), provider-version query, and AMD wrap on a *copy-safe* path. A wrap
+   that succeeds consumes the caller's native chain; there is no fallback after that
+   except recreation. A refusal before consumption leaves the chain with the caller.
+4. **Descriptor shapes.** Swapchain wrap: bare descriptor only (no version or backend
+   descriptor linked). FG configure goes to the FG context. Version descriptors from
+   the 4.0.2 headers are not part of this binary's contract (providers are 3.1.6 and
+   3.1.7).
+5. **Callbacks.** AMD invokes the generation callback once per game Present and the
+   present callback twice per frame, on AMD's own thread. Callbacks must be safe after
+   `ffxDestroyContext` returns and must tolerate a destroyed FG context.
+6. **Presentation.** AMD owns scheduling and flips. Sedici's vrr presenter and its
+   `OutputSchedule` are never attached to an AMD swapchain; limiter, overlay and
+   metrics attach through the documented callbacks only.
+7. **Mid-session replacement.** Only quiesce-destroy-recreate (variant 64) or full
+   destruction and recreation (variants 32/33) are supported; swapping the generator
+   under a presenting swapchain is not. "Seamless" handoff is therefore not promised:
+   a backend change takes effect at the next swapchain recreation, or after an explicit
+   quiesce.
+8. **Destruction.** Either order works; the swapchain context may be destroyed first
+   or the FG context may be destroyed first only when the swapchain is no longer
+   presenting.
+
+Each point maps to a probe variant or a `sedici_abi` scenario, so it can be
+re-checked against a different AMD binary by re-running the probe.
+
+## Gate decision
+
+| Question | Decision |
+| --- | --- |
+| Is an AMD backend technically feasible? | **GO.** Private load, coexistence, create order, callbacks, destruction order, recreation and quiesced replacement are all demonstrated on the real binary. |
+| Can AMD feed Sedici's presenter? | **NO.** AMD flips on its own thread. Sedici keeps two backends and never stacks two schedulers. |
+| Seamless mid-session handoff? | **NO** (not promised). Next swapchain recreation, or explicit quiesce. |
+| Bundling AMD's DLL with Sedici (P2.9) | **BLOCKED.** Redistribution terms are not established; this needs a human to read AMD's FidelityFX SDK licence. Until then the AMD backend may only use the copy already on the user's machine (the game's `.orig`), pinned by hash. |
+| Pin | SHA-256 `02297BEE...2F18` (FG 4.0.1.2740, providers 3.1.6/3.1.7). Any other hash needs the probe re-run before the backend is enabled. |
+
+**Re-estimates.** P2.4: unchanged, but it must include the argument-validation
+boundary (AMD aborts on bad input). P2.8: simpler than feared (AMD keeps composition,
+Sedici attaches overlay through the present callback it already uses). P2.9: shrinks
+to "load the installed copy by hash" plus a separate, blocked "ship the DLL" item.
+
+Not covered here: behaviour with game inputs at production size and cadence (the probe
+uses a 640x360 synthetic scene), and the overlay composed through AMD's present
+callback (it only copies). Those belong to P2.8/P2.9 acceptance, not this gate.
