@@ -125,14 +125,38 @@ void Session::detach() noexcept
     m_swapchain.Reset();
 }
 
+const char* session_state_name(SessionState state) noexcept
+{
+    switch (state) {
+    case SessionState::Empty: return "empty";
+    case SessionState::Ready: return "ready";
+    case SessionState::Warmup: return "warmup";
+    case SessionState::Active: return "active";
+    case SessionState::Draining: return "draining";
+    case SessionState::Stopped: return "stopped";
+    }
+    return "unknown";
+}
+
+SessionState Session::state() const noexcept
+{
+    if (m_stopped) return SessionState::Stopped;
+    if (m_draining) return SessionState::Draining;
+    if (!m_context.ready()) return SessionState::Empty;
+    if (!m_context.enabled() || !m_swapchain) return SessionState::Ready;
+    return m_context.have_history() ? SessionState::Active : SessionState::Warmup;
+}
+
 bool Session::create(const ffxApiHeader* createDesc) noexcept
 {
+    if (m_draining || m_stopped) return false;
     if (m_context.ready()) return false;
     return m_context.create(createDesc);
 }
 
 bool Session::configure(const ffxApiHeader* configureDesc) noexcept
 {
+    if (state() == SessionState::Empty || m_draining || m_stopped) return false;
     if (!m_context.configure(configureDesc)) return false;
 
     // Find the swapchain this configure names, if any. Resolving it by identity
@@ -172,17 +196,27 @@ bool Session::configure(const ffxApiHeader* configureDesc) noexcept
 
 bool Session::prepare(const ffxApiHeader* prepareDesc) noexcept
 {
+    if (state() == SessionState::Empty || m_draining || m_stopped) return false;
     return m_context.prepare(prepareDesc);
 }
 
 bool Session::destroy() noexcept
 {
-    if (!m_context.ready()) return true;
+    if (m_stopped) return true;
+    if (!m_context.ready()) {
+        m_stopped = true;
+        return true;
+    }
     // Stop driving generation first, then let the last submitted frame retire so
-    // teardown never releases resources the GPU is still using.
+    // teardown never releases resources the GPU is still using. New work is
+    // refused from here on.
+    m_draining = true;
     detach();
     (void)m_context.wait_for_retirement(200);
-    return m_context.destroy();
+    const bool ok = m_context.destroy();
+    m_draining = false;
+    m_stopped = ok;
+    return ok;
 }
 
 } // namespace sedici::fg

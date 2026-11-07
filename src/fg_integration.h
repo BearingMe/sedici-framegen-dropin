@@ -46,6 +46,28 @@ private:
     bool m_registered = false;
 };
 
+// Observable lifecycle of a Session. Accepted work per state:
+//
+//   Empty     nothing created yet, or creation failed. Every call is refused.
+//   Ready     created; generation is off or no swapchain is bound. configure and
+//             prepare are accepted; no frames are generated.
+//   Warmup    generation on and a swapchain bound, but no motion history yet, so
+//             the next generated frame is withheld until a second prepare arrives.
+//   Active    generation on, bound, with history: frames are generated.
+//   Draining  destroy has begun: new configure/prepare are refused while the last
+//             submitted work retires.
+//   Stopped   destroyed. Every call is refused; the object can be freed.
+enum class SessionState {
+    Empty,
+    Ready,
+    Warmup,
+    Active,
+    Draining,
+    Stopped,
+};
+
+const char* session_state_name(SessionState state) noexcept;
+
 // One frame generation context plus, once configured, the swapchain it presents
 // through.
 class Session {
@@ -61,6 +83,7 @@ public:
     bool destroy() noexcept;
 
     bool ready() const noexcept { return m_context.ready(); }
+    SessionState state() const noexcept;
     Context& context() noexcept { return m_context; }
     const Context& context() const noexcept { return m_context; }
 
@@ -74,6 +97,8 @@ private:
 
     Context m_context;
     Microsoft::WRL::ComPtr<Swapchain> m_swapchain;
+    bool m_draining = false;
+    bool m_stopped = false;
 };
 
 } // namespace sedici::fg

@@ -1544,10 +1544,13 @@ bool check_session_window(Device& state)
         create.displaySize = {kDisplayWidth, kDisplayHeight};
         create.maxRenderSize = {kRenderWidth, kRenderHeight};
         create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        if (session.state() != sedici::fg::SessionState::Empty ||
+            session.configure(&create.header) || session.prepare(&create.header)) return false; // refused before create
         if (!session.create(&create.header)) {
             std::printf("session: create failed: %s\n", session.context().last_error());
             return false;
         }
+        if (session.state() != sedici::fg::SessionState::Ready) return false;
 
         // Five consecutive moving frames, not repeating/resetting one pair.
         constexpr uint32_t cycles = 5;
@@ -1733,10 +1736,14 @@ bool check_session_window(Device& state)
         off.swapChain = handle.swapchain();
         off.frameID = cycles;
         if (!session.configure(&off.header)) return false;
+        if (session.state() != sedici::fg::SessionState::Ready) return false;
         if (FAILED(handle.swapchain()->Present(1, 0))) return false;
         if (handle.wrapper()->generated_presents() != cycles - 1) return false;
 
         if (!session.destroy()) return false;
+        if (session.state() != sedici::fg::SessionState::Stopped) return false;
+        if (session.configure(&off.header) || session.prepare(&off.header)) return false; // refused after stop
+        if (!session.destroy()) return false; // idempotent
         handle.destroy();
         return true;
     }();
