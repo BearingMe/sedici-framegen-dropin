@@ -382,7 +382,8 @@ Re-estimate P2.4/P2.8/P2.9 after this gate; stubs cannot establish binary compat
 
 ### P2.4 — Establish session, context, and callback ownership
 
-**Status:** pending. Split this into lookup/identity, lifecycle transitions, and
+**Status:** complete for the Sedici path, with deferred items below (evidence:
+[finding 012](docs/findings/012-p24-ownership.md)). Split this into lookup/identity, lifecycle transitions, and
 callback lifetime sub-gates; it is not a rename of `fg_route` or `fg_integration`.
 
 - Introduce one logical session relating FG contexts, swapchain contexts, backend

@@ -1742,6 +1742,9 @@ bool check_session_window(Device& state)
 
         if (!session.destroy()) return false;
         if (session.state() != sedici::fg::SessionState::Stopped) return false;
+        // Detached: the wrapper keeps presenting and never calls the destroyed owner.
+        if (FAILED(handle.swapchain()->Present(1, 0))) return false;
+        if (handle.wrapper()->generated_presents() != cycles - 1) return false;
         if (session.configure(&off.header) || session.prepare(&off.header)) return false; // refused after stop
         if (!session.destroy()) return false; // idempotent
         handle.destroy();
@@ -1755,7 +1758,7 @@ bool check_session_window(Device& state)
     return ok;
 }
 
-bool check_routing(Device& state)
+bool check_routing(Device& state, bool wrapFirst = false)
 {
     if (!sedici::fg::routing_enabled()) return false;
     const wchar_t* className = L"SediciFgRouting";
@@ -1805,18 +1808,24 @@ bool check_routing(Device& state)
         create.displaySize = {kDisplayWidth, kDisplayHeight};
         create.maxRenderSize = {kRenderWidth, kRenderHeight};
         create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
-        if (!sedici::fg::route_create(&contexts.session, &create.header, &result) ||
-            result != FFX_API_RETURN_OK || !contexts.session) return false;
-
         IDXGISwapChain4* replacement = native.Get();
         ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
         wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
         wrap.header.pNext = &backend.header;
         wrap.swapchain = &replacement;
         wrap.gameQueue = state.queue.Get();
-        if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
-            result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) return false;
-        caller.Attach(replacement); // Adopt the reference returned to the caller.
+        const auto createSession = [&] {
+            return sedici::fg::route_create(&contexts.session, &create.header, &result) &&
+                   result == FFX_API_RETURN_OK && contexts.session;
+        };
+        const auto createWrap = [&] {
+            if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
+                result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) return false;
+            caller.Attach(replacement); // Adopt the reference returned to the caller.
+            return true;
+        };
+        // Separate contexts may be created in either order (P2.4).
+        if (wrapFirst ? !(createWrap() && createSession()) : !(createSession() && createWrap())) return false;
         if (contexts.wrap == contexts.session) return false;
 
         ffxConfigureDescFrameGeneration configure{};
@@ -1859,6 +1868,10 @@ bool check_routing(Device& state)
             }
             go = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (wrapFirst) {
+                if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
+                contexts.wrap = nullptr;
+            }
             if (!sedici::fg::route_destroy(&contexts.session, &result) ||
                 result != FFX_API_RETURN_OK) return false;
             for (auto& thread : threads) thread.join();
@@ -1867,16 +1880,18 @@ bool check_routing(Device& state)
             if (sedici::fg::route_destroy(&stale, &result)) return false; // no double destroy
             contexts.session = nullptr;
         }
-        if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
-        contexts.wrap = nullptr;
+        if (contexts.wrap) {
+            if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
+            contexts.wrap = nullptr;
+        }
         // The caller's COM reference must survive destruction of the FFX owner.
         DXGI_SWAP_CHAIN_DESC1 after{};
         return SUCCEEDED(caller->GetDesc1(&after)) && after.Width == kDisplayWidth;
     }();
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
-    std::printf("%s routing: two live handles, configure/query/dispatch, foreign handle, destroy\n",
-                ok ? "PASS" : "FAIL");
+    std::printf("%s routing: two live handles (%s), configure/query/dispatch, foreign handle, racing destroy\n",
+                ok ? "PASS" : "FAIL", wrapFirst ? "wrap-first" : "session-first");
     return ok;
 }
 
@@ -2065,7 +2080,7 @@ int main(int argc, char** argv)
         ok = knownFailure(check_session_window(state), "session",
                           "vsync path frame 2 midpoint reads back at 16 dB; fails at a87d145, finding 009") && ok;
     }
-    if (routing) ok = check_routing(state) && ok;
+    if (routing) ok = check_routing(state) && check_routing(state, true) && ok;
     // Last: overlays that hook Present (RTSS) keep using the queue of the most
     // recent swapchain, so the present queue would leak into later checks.
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x") && ok;

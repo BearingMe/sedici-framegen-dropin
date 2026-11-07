@@ -38,14 +38,21 @@ void unregister_wrapper(Swapchain* wrapper) noexcept
     }
 }
 
-Swapchain* find_wrapper(IDXGISwapChain4* pointer) noexcept
+// Returns an owning reference taken while the registry lock is held. A wrapper is
+// registered only while its WrapHandle holds a reference, and unregistered before
+// that reference is dropped, so the AddRef here can never touch a destroyed object.
+Microsoft::WRL::ComPtr<Swapchain> find_wrapper(IDXGISwapChain4* pointer) noexcept
 {
-    if (!pointer) return nullptr;
+    Microsoft::WRL::ComPtr<Swapchain> found;
+    if (!pointer) return found;
     std::lock_guard lock(g_registry_mutex);
     for (auto* candidate : g_registry) {
-        if (static_cast<IDXGISwapChain4*>(candidate) == pointer) return candidate;
+        if (static_cast<IDXGISwapChain4*>(candidate) == pointer) {
+            found = candidate;
+            break;
+        }
     }
-    return nullptr;
+    return found;
 }
 
 } // namespace
@@ -161,7 +168,7 @@ bool Session::configure(const ffxApiHeader* configureDesc) noexcept
 
     // Find the swapchain this configure names, if any. Resolving it by identity
     // keeps a recycled pointer from binding a context to a dead wrapper.
-    Swapchain* target = nullptr;
+    Microsoft::WRL::ComPtr<Swapchain> target;
     for (const ffxApiHeader* item = configureDesc; item; item = item->pNext) {
         if (item->type == FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION) {
             const auto* desc = reinterpret_cast<const ffxConfigureDescFrameGeneration*>(item);
@@ -175,12 +182,9 @@ bool Session::configure(const ffxApiHeader* configureDesc) noexcept
         }
     }
 
-    if (target != m_swapchain.Get()) {
+    if (target.Get() != m_swapchain.Get()) {
         detach();
-        if (target) {
-            target->AddRef();
-            m_swapchain.Attach(target);
-        }
+        m_swapchain = std::move(target);
     }
 
     if (m_swapchain) {

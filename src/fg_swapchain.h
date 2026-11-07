@@ -22,6 +22,13 @@ namespace sedici::fg {
 // records. `output` is display resolution, RGBA8, UAV-capable, and is presented
 // in the same cycle, before the current real frame and before any presentation
 // wait. A midpoint that misses its deadline is dropped, never kept for next time.
+//
+// Lifetime contract (P2.4): `user` is owned by whoever installed the sink and must
+// outlive it. The wrapper calls the sink only inside present(), under the same
+// mutex set_generator() takes, so once set_generator() returns, no callback is
+// running and none will start. An owner therefore detaches (installs an empty sink)
+// before it is destroyed and needs no other synchronisation. Callbacks must not
+// call back into the wrapper.
 struct GenerateSink {
     void* user = nullptr;
     // `outputState` is the state `output` is in when recording starts; the hook
