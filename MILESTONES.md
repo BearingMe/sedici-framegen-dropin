@@ -353,7 +353,10 @@ or add unexplained failures. Record which gaps remain before starting P2.4.
 
 ### P2.3 — Investigate the official AMD binary and fallback boundaries
 
-**Status:** pending. This is a compatibility investigation with a go/no-go gate,
+**Status:** in progress. Static and runtime evidence from `sedici_amd_probe` is in
+[amd-binary.md](docs/refactor/amd-binary.md): private load, coexistence, create order,
+configure target and handle consumption are established; redistribution rights,
+mid-session handoff and post-consumption failure are open. This is a compatibility investigation with a go/no-go gate,
 not just a `LoadLibrary` task. Use a separately obtained/approved official artifact;
 never acquire runtime DLLs automatically during build or test.
 

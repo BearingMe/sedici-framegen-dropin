@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -406,16 +407,34 @@ int run_session(const fs::path& amdPath, int variant)
     ffxCreateContextDescFrameGenerationSwapChainVersionDX12 scVersion{};
     scVersion.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12;
     scVersion.version = FFX_FRAMEGENERATION_SWAPCHAIN_DX12_VERSION;
-    wrap.header.pNext = &scVersion.header;
-    scVersion.header.pNext = &backend.header;
-    ffxReturnCode_t rc = s.api.create(&s.sc, &wrap.header, nullptr);
-    info(fmt("create swapchain context: rc=%u wrapped=%p native=%p", rc, static_cast<void*>(wrapped),
-             static_cast<void*>(chain.Get())));
+    // The chain shape the game uses is not recorded, so try the plausible ones.
+    ffxReturnCode_t rc = FFX_API_RETURN_ERROR_PARAMETER;
+    for (int shape = 0; shape < 4 && rc != FFX_API_RETURN_OK; ++shape) {
+        scVersion.header.pNext = nullptr;
+        wrap.header.pNext = nullptr;
+        if (shape == 0) {
+        } else if (shape == 1) {
+            wrap.header.pNext = &scVersion.header;
+        } else if (shape == 2) {
+            wrap.header.pNext = &backend.header;
+        } else {
+            wrap.header.pNext = &scVersion.header;
+            scVersion.header.pNext = &backend.header;
+        }
+        wrapped = chain.Get();
+        s.sc = nullptr;
+        rc = s.api.create(&s.sc, &wrap.header, nullptr);
+        info(fmt("create swapchain context, chain shape %d (%s%s%s): rc=%u", shape, shape == 0 ? "bare" : "",
+                 (shape == 1 || shape == 3) ? "+version " : "", (shape == 2 || shape == 3) ? "+backend" : "", rc));
+    }
+    info(fmt("wrapped=%p native=%p", static_cast<void*>(wrapped), static_cast<void*>(chain.Get())));
     pass_fail(rc == FFX_API_RETURN_OK && s.sc, "swapchain wrap context created");
     if (rc != FFX_API_RETURN_OK) return 1;
     ComPtr<IDXGISwapChain4> amdChain;
     amdChain.Attach(wrapped); // the create call hands over a reference
-    info(fmt("wrapped chain differs from native: %d", amdChain.Get() != chain.Get()));
+    // Hypothesis under test: the wrap consumes the caller's native reference.
+    if (!std::getenv("PROBE_KEEP_NATIVE_REF")) chain.Detach();
+    info("native chain reference given up to AMD (detached); the wrapped pointer may reuse its address");
 
     ffxCreateContextDescFrameGeneration fgDesc{};
     fgDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
@@ -450,11 +469,11 @@ int run_session(const fs::path& amdPath, int variant)
     cfg.HUDLessColor = ffxApiGetResourceDX12(hudless.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
     cfg.generationRect = {0, 0, W, H};
     cfg.frameID = 0;
-    rc = s.api.configure(&s.sc, &cfg.header);
-    info(fmt("configure (to the swapchain context): rc=%u", rc));
-    pass_fail(rc == FFX_API_RETURN_OK, "FG configure accepted by the swapchain context");
-    const ffxReturnCode_t misrouted = s.api.configure(&s.fg, &cfg.header);
-    info(fmt("same configure sent to the FG context instead: rc=%u", misrouted));
+    rc = s.api.configure(&s.fg, &cfg.header);
+    info(fmt("configure sent to the FG context: rc=%u", rc));
+    pass_fail(rc == FFX_API_RETURN_OK, "FG configure accepted by the FG context");
+    const ffxReturnCode_t other = s.api.configure(&s.sc, &cfg.header);
+    info(fmt("same configure sent to the swapchain context instead: rc=%u", other));
 
     ComPtr<ID3D12CommandAllocator> alloc;
     device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc));

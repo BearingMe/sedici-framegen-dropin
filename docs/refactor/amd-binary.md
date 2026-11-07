@@ -1,8 +1,8 @@
 # P2.3 evidence: the official AMD frame-generation binary
 
-Status: **static facts recorded; runtime probe written but not yet run.** The
-go/no-go gate in [MILESTONES.md](../../MILESTONES.md) (P2.3) stays open until the
-runtime section below is filled from a real `sedici_amd_probe` run. Nothing here is
+Status: **static and runtime evidence recorded; gate decision pending review.**
+Technically feasible; redistribution rights and mid-session handoff are the open
+blockers (see the end of this file). Nothing here is
 inferred from the vendored 2.4.0 headers.
 
 ## Artifact (static, read-only inspection)
@@ -38,23 +38,47 @@ Notes for the contracts:
   SDK terms before P2.9; until then Sedici must only ever use the copy already on the
   user's machine.
 
-## Runtime evidence (to be filled from `sedici_amd_probe`)
+## Runtime evidence (`sedici_amd_probe`, run on the user's machine)
 
-Run `sedici_amd_probe <copy of the .orig> --sha256 <hash above>`. It copies the file
-into its own scratch directory, never touches the game folder, and launches no game.
+Run: `sedici_amd_probe <copy of the .orig> --sha256 <hash above>`; 4 runs, last one
+all green (`RESULT OK`, five variants exit 0). The probe copies the file into its
+own scratch directory, never touches the game folder, and launches no game. The
+first three runs found probe mistakes (descriptor chain, configure target, a double
+release); those are findings below, not product defects.
 
-| Question | Probe check | Result |
-| --- | --- | --- |
-| Loads privately under another file name, dependencies resolve | `private load under a renamed file name` | pending |
-| Loads under the `.orig` name as the proxy does | `load under the '.orig' name` | pending |
-| Two instances coexist with separate state | `two copies are two independent module instances` | pending |
-| Provider versions enumerable | `GetVersions(...)` INFO lines | pending |
-| Swapchain wrap then FG create succeeds, in the game's order | `swapchain wrap context created`, `frame-generation context created after the swapchain context` | pending |
-| Configure goes to the swapchain context, not the FG context | `FG configure accepted`, misrouted INFO line | pending |
-| AMD calls the host's generation callback | `AMD invokes the host's generation callback` | pending |
-| Present callback cadence with AMD's own pacing | variants 1 and 3 INFO lines | pending |
-| Destruction order, either way round | variants 2 and 3 | pending |
-| Behaviour without a generation callback | variant 4 | pending |
+| Question | Result |
+| --- | --- |
+| Loads privately under another file name; dependencies resolve | **Yes.** `sedici_amd_a.dll` loads, five exports resolve. No file beside the DLL is needed; `dxgi`, `d3d12`, `winmm`, `version` and the VC runtime are mapped. |
+| Loads under the `.orig` name, as the proxy does today | **Yes.** |
+| Two instances coexist | **Yes.** Two copies are two modules with distinct function addresses. Freeing one leaves the other usable. The same path loaded twice returns the same instance. |
+| Provider versions | `GetVersions`: FrameGeneration **3.1.6** (id `0xf600000000c01006`), swapchain wrap **3.1.7** (id `0xf65cdd1200c01007`), one each. The file is labelled 4.0.1, but the providers inside report 3.1.x, matching AGENTS.md's "FSR 3.1". The vendored 4.0.2 headers are therefore not the binary's contract. |
+| Swapchain wrap create | Succeeds with a **bare** wrap descriptor (`swapchain` in/out + `gameQueue`). With the swapchain-version and backend descriptors linked it returned `ERROR_PARAMETER` (6) in the first run; the later shape loop found the bare form accepted, so those descriptors must not be added to a wrap create. |
+| Create order | Wrap first, then FG context: both succeed. |
+| **Wrap consumes the caller's native chain reference** | **Yes.** The caller must not release its reference after a successful wrap. With a release the process segfaults at teardown (control run, exit 139); without it all variants exit 0. The returned pointer can even equal the old address (the native object is freed and the wrapper reuses the slot), so identity checks cannot detect the handover. Sedici's own wrapper keeps this contract (`handedRefs`). |
+| **Configure target** | `ffxConfigure(FG)` with the FG configure desc is accepted by the **FG context** (rc 0). Sent to the swapchain context it returns `ERROR_PARAMETER` (6). The configure desc carries the swapchain pointer. |
+| Generation callback | AMD calls it **once per game Present, 90 of 90**, from its own thread, and the host forwards the descriptor to `ffxDispatch(FG)` (rc 0). With no generation callback AMD called nothing and presented without error. |
+| Present callback | When installed it is called **twice per game frame, 180 of 90**, 90 with `isGeneratedFrame`. Gaps between calls were bunched: median 2.0-2.8 ms, p10 0.2-0.45 ms, p90 31 ms (probe frames were a 20 ms sleep loop at about 50 fps, so the 31 ms gap is AMD queueing a pair, not a pacing measurement). |
+| Present cost on the game thread | Median 0.61 ms, max 1.2-1.5 ms with generation; 0.32 ms without (AMD presents on its own thread). |
+| Destruction order | Swapchain-then-FG and FG-then-swapchain both return OK and exit cleanly. |
+| Behaviour without a generation callback | Present succeeds, no callback, no crash. |
+
+Consequences for the refactor:
+
+- **Presentation model.** AMD's swapchain schedules its own presents on its own
+  thread and calls the host's callbacks from there. The present callback does expose
+  each output (real and generated) with `outputSwapChainBuffer`, but flipping is AMD's.
+  Sedici cannot feed its own presenter from AMD's wrapper without stacking schedulers,
+  which the architecture note forbids. **Decision input for P2.4/P2.9:** the AMD
+  backend keeps AMD-owned scheduling and composition; Sedici's vrr presenter is the
+  Sedici backend only. The two never share a swapchain.
+- **Contracts the Sedici wrapper must keep** (also verifiable offline against the stub):
+  wrap/new consumes the input reference; the FG configure is addressed to the FG
+  context; the generation callback runs on a foreign thread and must be safe after
+  `ffxDestroyContext` returns.
+- **Provider versions are 3.1.x.** Anything keyed to 4.0.x descriptor fields
+  (e.g. V2 prepare, camera info) must be probed before use, not assumed.
+- **A bundled binary is feasible technically** (private load, coexistence, no
+  sidecar files); **legal redistribution is not established** (see above).
 
 ### Open questions the probe cannot answer
 
