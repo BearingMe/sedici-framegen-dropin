@@ -154,6 +154,29 @@ if(SEDICI_BUILD_TESTS)
     endforeach()
     # The session scenario opens a window and presents; keep it alone on the GPU.
     set_tests_properties(sedici_abi_session PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")
+
+    # P2.3: drives an operator-supplied copy of the official AMD binary. The
+    # path is never fetched by the build; without it no test is registered.
+    add_executable(sedici_amd_probe tests/amd_probe.cpp)
+    target_include_directories(sedici_amd_probe PRIVATE
+        third_party/ffx/api/include
+        third_party/ffx/api/include/dx12
+        third_party/ffx/framegeneration/include
+        third_party/ffx/framegeneration/include/dx12)
+    target_compile_definitions(sedici_amd_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_compile_options(sedici_amd_probe PRIVATE /utf-8 /W4 /permissive-)
+    target_link_libraries(sedici_amd_probe PRIVATE dxgi d3d12 bcrypt)
+    set_target_properties(sedici_amd_probe PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    set(SEDICI_AMD_FG_BINARY "" CACHE FILEPATH
+        "Operator-supplied copy of the official AMD frame generation DLL for sedici_amd_probe")
+    set(SEDICI_AMD_FG_SHA256 "" CACHE STRING "Pinned SHA-256 of SEDICI_AMD_FG_BINARY")
+    if(SEDICI_AMD_FG_BINARY)
+        add_test(NAME sedici_amd_probe
+            COMMAND sedici_amd_probe "${SEDICI_AMD_FG_BINARY}" --sha256 "${SEDICI_AMD_FG_SHA256}")
+        set_tests_properties(sedici_amd_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE
+            LABELS "amd;gpu" SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 # Offline acceptance host for the frame generator (see MILESTONES.md, P1.4).
