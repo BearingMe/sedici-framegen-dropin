@@ -18,6 +18,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <thread>
+#include <chrono>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1826,10 +1829,39 @@ bool check_routing(Device& state)
         int unrelated = 0;
         ffxContext foreign = &unrelated;
         if (sedici::fg::route_query(&foreign, &unsupported, &result)) return false;
-        for (auto* context : {&contexts.session, &contexts.wrap}) {
-            if (!sedici::fg::route_destroy(context, &result) || result != FFX_API_RETURN_OK) return false;
-            *context = nullptr;
+        // Calls racing a destroy of the same handle: each either runs on the live
+        // owner or is not found and forwarded; none may reach a torn-down owner
+        // (P2.4 lease contract). The registry lock is not held across these calls.
+        {
+            const ffxContext racing = contexts.session;
+            std::atomic<bool> go{false};
+            std::atomic<int> answered{0};
+            std::vector<std::thread> threads;
+            for (int t = 0; t < 4; ++t) {
+                threads.emplace_back([&, t] {
+                    while (!go.load()) std::this_thread::yield();
+                    for (int i = 0; i < 400; ++i) {
+                        ffxContext handle = racing;
+                        ffxReturnCode_t local = FFX_API_RETURN_OK;
+                        const bool routed = (t & 1)
+                            ? sedici::fg::route_configure(&handle, &configure.header, &local)
+                            : sedici::fg::route_dispatch(&handle, &unsupported, &local);
+                        if (routed) answered.fetch_add(1);
+                    }
+                });
+            }
+            go = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (!sedici::fg::route_destroy(&contexts.session, &result) ||
+                result != FFX_API_RETURN_OK) return false;
+            for (auto& thread : threads) thread.join();
+            ffxContext stale = racing;
+            if (sedici::fg::route_configure(&stale, &configure.header, &result)) return false;
+            if (sedici::fg::route_destroy(&stale, &result)) return false; // no double destroy
+            contexts.session = nullptr;
         }
+        if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
+        contexts.wrap = nullptr;
         // The caller's COM reference must survive destruction of the FFX owner.
         DXGI_SWAP_CHAIN_DESC1 after{};
         return SUCCEEDED(caller->GetDesc1(&after)) && after.Width == kDisplayWidth;

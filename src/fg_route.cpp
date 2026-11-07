@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace sedici::fg {
 
@@ -20,14 +21,24 @@ enum class Kind {
     Wrap,
 };
 
+// One registered owner. The registry hands out shared leases, so a call that has
+// looked a handle up keeps the owner alive while it runs, and the registry lock is
+// never held across a backend call. `call` serialises calls on this owner only
+// (Session and WrapHandle are not thread-safe); `dead` is set under it by
+// destroy, so a lease obtained just before destroy cannot use a torn-down owner.
 struct Owned {
     Kind kind = Kind::Session;
     std::unique_ptr<Session> session;
     std::unique_ptr<WrapHandle> wrap;
+    std::mutex call;
+    bool dead = false;
 };
 
+using Lease = std::shared_ptr<Owned>;
+
+// Protects the map only. Never held across a backend call, a callback or a GPU wait.
 std::mutex g_owned_mutex;
-std::map<void*, Owned> g_owned;
+std::map<void*, Lease> g_owned;
 void (*g_present_hook)(uint64_t) = nullptr;
 OutputHooks g_output_hooks{};
 
@@ -52,18 +63,39 @@ void log_route(const char* what, const std::string& detail) noexcept
     }
 }
 
-// Only ever called with g_owned_mutex held.
-Owned* find_owned(void* handle) noexcept
+Lease find_owned(void* handle) noexcept
 {
     if (!handle) return nullptr;
+    std::lock_guard lock(g_owned_mutex);
     const auto it = g_owned.find(handle);
-    return it == g_owned.end() ? nullptr : &it->second;
+    return it == g_owned.end() ? nullptr : it->second;
+}
+
+// Leases for every registered owner of a kind, taken under the registry lock and
+// used after it is released.
+std::vector<Lease> wrap_leases() noexcept
+{
+    std::vector<Lease> out;
+    try {
+        std::lock_guard lock(g_owned_mutex);
+        for (auto& entry : g_owned) {
+            if (entry.second->kind == Kind::Wrap) out.push_back(entry.second);
+        }
+    } catch (...) {
+    }
+    return out;
 }
 
 ffxReturnCode_t failure(const char* reason) noexcept
 {
     log_route("rejected: ", reason);
     return FFX_API_RETURN_ERROR;
+}
+
+bool failure_result(ffxReturnCode_t* result, const char* reason) noexcept
+{
+    *result = failure(reason);
+    return true;
 }
 
 } // namespace
@@ -75,24 +107,30 @@ bool routing_enabled() noexcept
 
 void route_set_output_hooks(const OutputHooks& hooks) noexcept
 {
-    std::lock_guard lock(g_owned_mutex);
-    g_output_hooks = hooks;
-    for (auto& entry : g_owned) {
-        if (entry.second.kind == Kind::Wrap && entry.second.wrap && entry.second.wrap->wrapper()) {
-            entry.second.wrap->wrapper()->set_output_hooks(hooks);
+    {
+        std::lock_guard lock(g_owned_mutex);
+        g_output_hooks = hooks;
+    }
+    for (const Lease& owned : wrap_leases()) {
+        std::lock_guard call(owned->call);
+        if (!owned->dead && owned->wrap && owned->wrap->wrapper()) {
+            owned->wrap->wrapper()->set_output_hooks(hooks);
         }
     }
 }
 
 void route_set_present_hook(void (*hook)(uint64_t)) noexcept
 {
-    std::lock_guard lock(g_owned_mutex);
-    g_present_hook = hook;
+    {
+        std::lock_guard lock(g_owned_mutex);
+        g_present_hook = hook;
+    }
     // Already-wrapped swapchains take the hook too: the configuration is read
     // once, but the hook may be installed before or after the first wrap.
-    for (auto& entry : g_owned) {
-        if (entry.second.kind == Kind::Wrap && entry.second.wrap && entry.second.wrap->wrapper()) {
-            entry.second.wrap->wrapper()->set_present_hook(hook);
+    for (const Lease& owned : wrap_leases()) {
+        std::lock_guard call(owned->call);
+        if (!owned->dead && owned->wrap && owned->wrap->wrapper()) {
+            owned->wrap->wrapper()->set_present_hook(hook);
         }
     }
 }
@@ -108,34 +146,38 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
     if (!wrap && !frameGeneration) return false; // not a call this path can own
 
-    std::lock_guard lock(g_owned_mutex);
+    // Owners are built without the registry lock (creation touches the device),
+    // and registered only once they are complete.
+    auto owned = std::make_shared<Owned>();
     if (wrap) {
         if (!wrap->swapchain || !wrap->swapchain[0] || !wrap->gameQueue) {
             *result = failure("swapchain wrap without a swapchain or queue");
             return true;
         }
-        auto owned = std::make_unique<WrapHandle>();
+        owned->kind = Kind::Wrap;
+        owned->wrap = std::make_unique<WrapHandle>();
         IDXGISwapChain4* native = wrap->swapchain[0];
         // The wrap desc replaces the game's pointer with the wrapper, so the
         // game's reference to the native chain is handed over (AMD destroys
         // that chain and presents from its own). Only "vrr" makes use of it.
-        if (!owned->create(native, wrap->gameQueue, 1)) {
+        if (!owned->wrap->create(native, wrap->gameQueue, 1)) {
             // Nothing was replaced: the game keeps its own swapchain pointer.
             *result = failure("swapchain wrap failed");
             return true;
         }
-        owned->wrapper()->set_present_hook(g_present_hook);
-        owned->wrapper()->set_output_hooks(g_output_hooks);
-        void* handle = owned.get();
-        const auto [entry, inserted] = g_owned.emplace(handle, Owned{Kind::Wrap, nullptr, std::move(owned)});
-        if (!inserted) {
-            *result = failure("duplicate swapchain context handle");
-            return true;
+        void* handle = owned->wrap.get();
+        {
+            std::lock_guard lock(g_owned_mutex);
+            owned->wrap->wrapper()->set_present_hook(g_present_hook);
+            owned->wrap->wrapper()->set_output_hooks(g_output_hooks);
+            if (!g_owned.emplace(handle, owned).second) {
+                // Unreachable for live objects; refuse rather than overwrite.
+                owned->dead = true;
+                *result = failure("duplicate swapchain context handle");
+                return true;
+            }
         }
-        // Capture the key before moving the owner, and publish outputs only
-        // after registration. Argument evaluation may otherwise read get()
-        // after the move and register nullptr instead of the returned handle.
-        *wrap->swapchain = entry->second.wrap->swapchain();
+        *wrap->swapchain = owned->wrap->swapchain();
         // Handing the pointer to the game transfers a reference to it. Without
         // this the game's Release() and our own ComPtr share a single count, and
         // the wrapper is destroyed with a live owner still holding the address.
@@ -149,16 +191,19 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         return true;
     }
 
-    auto owned = std::make_unique<Session>();
-    if (!owned->create(desc)) {
-        *result = failure(owned->context().last_error());
+    owned->kind = Kind::Session;
+    owned->session = std::make_unique<Session>();
+    if (!owned->session->create(desc)) {
+        *result = failure(owned->session->context().last_error());
         return true;
     }
-    void* handle = owned.get();
-    const auto registration = g_owned.emplace(handle, Owned{Kind::Session, std::move(owned), nullptr});
-    if (!registration.second) {
-        *result = failure("duplicate frame generation context handle");
-        return true;
+    void* handle = owned->session.get();
+    {
+        std::lock_guard lock(g_owned_mutex);
+        if (!g_owned.emplace(handle, owned).second) {
+            *result = failure("duplicate frame generation context handle");
+            return true;
+        }
     }
     *context = handle;
     *result = FFX_API_RETURN_OK;
@@ -169,10 +214,11 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context || !desc) return false;
-    std::lock_guard lock(g_owned_mutex);
-    Owned* owned = find_owned(*context);
+    const Lease owned = find_owned(*context);
     if (!owned) return false; // AMD's context: leave it alone
 
+    std::lock_guard call(owned->call);
+    if (owned->dead) return failure_result(result, "configure on a destroyed context");
     if (owned->kind == Kind::Wrap) {
         // Sedici owns output pacing, so a request to tune AMD's swapchain pacing
         // has no meaning here. Accept it so the game's own call sequence is
@@ -189,10 +235,11 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
 bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context || !desc) return false;
-    std::lock_guard lock(g_owned_mutex);
-    Owned* owned = find_owned(*context);
+    const Lease owned = find_owned(*context);
     if (!owned) return false;
 
+    std::lock_guard call(owned->call);
+    if (owned->dead) return failure_result(result, "dispatch on a destroyed context");
     if (owned->kind == Kind::Wrap) {
         *result = failure("dispatch on the swapchain wrapper");
         return true;
@@ -210,8 +257,7 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context || !desc) return false;
-    std::lock_guard lock(g_owned_mutex);
-    Owned* owned = find_owned(*context);
+    const Lease owned = find_owned(*context);
     if (!owned) return false;
 
     // The recorded Cyberpunk contract does not establish which queries the game
@@ -227,23 +273,27 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context) return false;
 
-    // Move the object out under the lock, then destroy outside it: retirement
-    // waits for GPU work, and holding the registry lock through that wait would
-    // block every other FFX call.
-    std::unique_ptr<Owned> owned;
+    // Unregister first so no new call can find the owner, then wait for calls
+    // already running on it, then tear it down. The registry lock is not held
+    // through any of that: retirement waits for GPU work.
+    Lease owned;
     {
         std::lock_guard lock(g_owned_mutex);
         const auto it = g_owned.find(*context);
         if (it == g_owned.end()) return false;
-        owned = std::make_unique<Owned>(std::move(it->second));
+        owned = std::move(it->second);
         g_owned.erase(it);
     }
 
     bool ok = true;
-    if (owned->kind == Kind::Session) {
-        ok = owned->session ? owned->session->destroy() : true;
-    } else {
-        owned->wrap.reset();
+    {
+        std::lock_guard call(owned->call);
+        owned->dead = true;
+        if (owned->kind == Kind::Session) {
+            ok = owned->session ? owned->session->destroy() : true;
+        } else {
+            owned->wrap.reset();
+        }
     }
     // The caller's handle is left exactly as it was: the original DLL does not
     // modify it on destroy, and a game that inspects its own context afterwards
