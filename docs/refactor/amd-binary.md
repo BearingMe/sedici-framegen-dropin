@@ -134,6 +134,8 @@ re-checked against a different AMD binary by re-running the probe.
 
 ## Gate decision
 
+Evidence record and open gaps: [finding 011](../findings/011-p23-amd-binary-gaps.md).
+
 | Question | Decision |
 | --- | --- |
 | Is an AMD backend technically feasible? | **GO.** Private load, coexistence, create order, callbacks, destruction order, recreation and quiesced replacement are all demonstrated on the real binary. |
