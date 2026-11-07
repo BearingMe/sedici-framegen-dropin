@@ -5,7 +5,8 @@
 //   sedici_abi <scenario> <sedici.dll> <stub.dll>
 //
 // Scenarios: exports, forward, pacing, async-off, missing-orig, bad-config,
-// session. See docs/refactor/reliability.md, "Current coverage and gaps".
+// session, window-replace, destroy-inflight, log-failure, invalid-calls.
+// See docs/refactor/reliability.md, "Current coverage and gaps".
 // Never touches game files and never downloads anything.
 
 #include <windows.h>
@@ -77,7 +78,7 @@ struct Harness {
 // path, so the proxy's later LoadLibraryExW of the same file returns the same
 // module and the harness can script it before the first call.
 bool setup(Harness& h, const char* scenario, const fs::path& proxy, const fs::path& stub,
-           const std::string& toml, bool withStub)
+           const std::string& toml, bool withStub, bool blockLog = false)
 {
     wchar_t exe[MAX_PATH]{};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
@@ -106,6 +107,10 @@ bool setup(Harness& h, const char* scenario, const fs::path& proxy, const fs::pa
         std::ofstream out(h.dir / L"sedici.toml", std::ios::binary);
         out << toml;
         if (!out) return false;
+    }
+    if (blockLog) {
+        fs::create_directory(h.dir / L"sedici.log", error); // opening the log as a file now fails
+        if (error) return false;
     }
     h.proxy = LoadLibraryW((h.dir / kProxyName).c_str());
     if (!h.proxy) return false;
@@ -222,7 +227,7 @@ int run_forward(Harness& h)
 struct Host {
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
-    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12CommandAllocator> allocator[3]; // three lists may be in flight
     ComPtr<ID3D12GraphicsCommandList> list;
     ComPtr<ID3D12Fence> fence;
     UINT64 fenceValue = 0;
@@ -253,8 +258,10 @@ struct Host {
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         if (FAILED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue))) ||
-            FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) ||
-            FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+            FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator[0]))) ||
+            FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator[1]))) ||
+            FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator[2]))) ||
+            FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator[0].Get(), nullptr,
                                              IID_PPV_ARGS(&list))) ||
             FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) return false;
         list->Close();
@@ -264,26 +271,52 @@ struct Host {
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"SediciAbiHost";
         RegisterClassW(&wc);
-        window = CreateWindowW(wc.lpszClassName, L"Sedici export harness", WS_OVERLAPPEDWINDOW,
-                               CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-        if (window) ShowWindow(window, SW_SHOWNOACTIVATE);
-        return event && window;
+        return event && make_window();
     }
+
+    bool make_window()
+    {
+        window = CreateWindowW(L"SediciAbiHost", L"Sedici export harness", WS_OVERLAPPEDWINDOW,
+                               CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, GetModuleHandleW(nullptr),
+                               nullptr);
+        if (window) ShowWindow(window, SW_SHOWNOACTIVATE);
+        return window != nullptr;
+    }
+
+    // The game destroying its window and opening another. Only call once the
+    // swapchain on the old window has been released.
+    bool replace_window()
+    {
+        if (window) DestroyWindow(window);
+        window = nullptr;
+        return make_window();
+    }
+
+    bool wait_for(UINT64 value)
+    {
+        if (fence->GetCompletedValue() >= value) return true;
+        fence->SetEventOnCompletion(value, event);
+        return WaitForSingleObject(event, 5000) == WAIT_OBJECT_0;
+    }
+
+    bool idle() { return wait_for(fenceValue); }
 
     bool begin()
     {
-        return SUCCEEDED(allocator->Reset()) && SUCCEEDED(list->Reset(allocator.Get(), nullptr));
+        const UINT64 next = fenceValue + 1;
+        if (next > 3 && !wait_for(next - 3)) return false;
+        ComPtr<ID3D12CommandAllocator>& a = allocator[next % 3];
+        return SUCCEEDED(a->Reset()) && SUCCEEDED(list->Reset(a.Get(), nullptr));
     }
 
-    bool submit()
+    // `wait` false leaves the GPU work in flight, as the game does.
+    bool submit(bool wait = true)
     {
         if (FAILED(list->Close())) return false;
         ID3D12CommandList* lists[]{list.Get()};
         queue->ExecuteCommandLists(1, lists);
         if (FAILED(queue->Signal(fence.Get(), ++fenceValue))) return false;
-        if (fence->GetCompletedValue() >= fenceValue) return true;
-        fence->SetEventOnCompletion(fenceValue, event);
-        return WaitForSingleObject(event, 5000) == WAIT_OBJECT_0;
+        return wait ? wait_for(fenceValue) : true;
     }
 
     void pump()
@@ -623,6 +656,428 @@ int run_session(Harness& h)
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Rig: one FG context plus one wrapped swapchain on the shared Host, driven the
+// way the game drives them. The lifecycle scenarios below build on it.
+// ---------------------------------------------------------------------------
+struct Rig {
+    Harness& h;
+    Host& host;
+    static constexpr UINT kWidth = 480, kHeight = 270;
+    ffxContext fg = nullptr;
+    ffxContext wrapContext = nullptr;
+    ComPtr<IDXGISwapChain4> wrapper;
+    ComPtr<ID3D12Resource> color, depth, motion;
+    HANDLE latency = nullptr;
+    uint64_t frameId = 0;
+    int failedCalls = 0, failedPresents = 0;
+
+    Rig(Harness& harness, Host& hostRef) : h(harness), host(hostRef) {}
+    ~Rig() { if (latency) CloseHandle(latency); }
+
+    bool create(const std::string& tag)
+    {
+        ffxCreateBackendDX12Desc backend{};
+        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backend.device = host.device.Get();
+        ffxCreateContextDescFrameGeneration desc{};
+        desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        desc.header.pNext = &backend.header;
+        desc.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+        desc.displaySize = {kWidth, kHeight};
+        desc.maxRenderSize = {kWidth, kHeight};
+        desc.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        expect(h.ffx.create(&fg, &desc.header, nullptr) == FFX_API_RETURN_OK && fg, "FG context created" + tag);
+
+        ComPtr<IDXGISwapChain4> native = host.swapchain(kWidth, kHeight,
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+        expect(native != nullptr, "native swapchain" + tag);
+        if (!native || !fg) return false;
+        native->SetMaximumFrameLatency(1);
+        IDXGISwapChain4* swapchain = native.Detach();
+        IDXGISwapChain4* const original = swapchain;
+        ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+        wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+        wrap.header.pNext = &backend.header;
+        wrap.swapchain = &swapchain;
+        wrap.gameQueue = host.queue.Get();
+        expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext &&
+               swapchain && swapchain != original, "swapchain wrapped" + tag);
+        wrapper.Attach(swapchain);
+        if (!wrapper) return false;
+        color = host.texture(DXGI_FORMAT_R8G8B8A8_UNORM, kWidth, kHeight, D3D12_RESOURCE_FLAG_NONE);
+        depth = host.texture(DXGI_FORMAT_R32_FLOAT, kWidth, kHeight, D3D12_RESOURCE_FLAG_NONE);
+        motion = host.texture(DXGI_FORMAT_R16G16B16A16_FLOAT, kWidth, kHeight, D3D12_RESOURCE_FLAG_NONE);
+        latency = wrapper->GetFrameLatencyWaitableObject();
+        expect(color && depth && motion, "frame inputs" + tag);
+        return color && depth && motion;
+    }
+
+    // `wait` false leaves each frame's GPU work in flight (at most three lists,
+    // bounded by the host's allocator ring).
+    void frames(int count, bool wait, bool enabled = true)
+    {
+        for (int i = 0; i < count; ++i, ++frameId) {
+            host.pump();
+            if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
+            if (!host.begin()) { ++failedCalls; return; }
+            ffxConfigureDescFrameGeneration configure{};
+            configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+            configure.swapChain = wrapper.Get();
+            configure.frameGenerationEnabled = enabled;
+            configure.HUDLessColor = ffxApiGetResourceDX12(color.Get(), FFX_API_RESOURCE_STATE_COMMON);
+            configure.frameID = frameId;
+            if (h.ffx.configure(&fg, &configure.header) != FFX_API_RETURN_OK) ++failedCalls;
+            if (enabled) {
+                ffxDispatchDescFrameGenerationPrepare prepare{};
+                prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+                prepare.frameID = frameId;
+                prepare.commandList = host.list.Get();
+                prepare.renderSize = {kWidth, kHeight};
+                prepare.motionVectorScale = {static_cast<float>(kWidth), static_cast<float>(kHeight)};
+                prepare.depth = ffxApiGetResourceDX12(depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+                prepare.motionVectors = ffxApiGetResourceDX12(motion.Get(), FFX_API_RESOURCE_STATE_COMMON);
+                if (h.ffx.dispatch(&fg, &prepare.header) != FFX_API_RETURN_OK) ++failedCalls;
+            }
+            ComPtr<ID3D12Resource> buffer;
+            if (FAILED(wrapper->GetBuffer(wrapper->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) {
+                ++failedCalls;
+                return;
+            }
+            transition(host.list.Get(), color.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            transition(host.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+            host.list->CopyResource(buffer.Get(), color.Get());
+            transition(host.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+            transition(host.list.Get(), color.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+            if (!host.submit(wait)) { ++failedCalls; return; }
+            if (FAILED(wrapper->Present(0, DXGI_PRESENT_ALLOW_TEARING))) ++failedPresents;
+        }
+    }
+
+    // Destroys the contexts in the game's order and gives the wrapper back.
+    void destroy(const std::string& tag)
+    {
+        expect(h.ffx.destroy(&fg, nullptr) == FFX_API_RETURN_OK, "FG context destroyed" + tag);
+        expect(h.ffx.destroy(&wrapContext, nullptr) == FFX_API_RETURN_OK, "swapchain context destroyed" + tag);
+        if (latency) CloseHandle(latency);
+        latency = nullptr;
+        wrapper.Reset();
+    }
+
+    void check_clean(const std::string& tag)
+    {
+        expect(failedCalls == 0, "no failed configure/prepare/GetBuffer/submit" + tag + " (" +
+                                     std::to_string(failedCalls) + ")");
+        expect(failedPresents == 0, "every Present succeeded" + tag + " (" + std::to_string(failedPresents) + ")");
+    }
+};
+
+size_t count_of(const std::string& text, const char* needle)
+{
+    size_t n = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) ++n;
+    return n;
+}
+
+// ---------------------------------------------------------------------------
+// window-replace: the game destroys its swapchain and window mid-session and
+// opens new ones. Each generation is a full create/run/destroy cycle.
+// ---------------------------------------------------------------------------
+int run_window_replace(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    {
+        Rig first(h, host);
+        expect(first.create(" (window 1)"), "session 1 up");
+        first.frames(60, true);
+        first.check_clean(" (window 1)");
+        first.destroy(" (window 1)");
+    }
+    expect(host.idle(), "GPU idle after the first session");
+    {
+        // New swapchain on the same window, as a resolution-mode change does.
+        Rig second(h, host);
+        expect(second.create(" (same window)"), "session 2 up");
+        second.frames(60, true);
+        second.check_clean(" (same window)");
+        second.destroy(" (same window)");
+    }
+    expect(host.replace_window(), "the window is destroyed and replaced");
+    {
+        Rig third(h, host);
+        expect(third.create(" (new window)"), "session 3 up on the new window");
+        third.frames(60, true);
+        third.check_clean(" (new window)");
+        third.destroy(" (new window)");
+    }
+    expect(host.idle(), "GPU idle at the end");
+    const std::string text = h.log();
+    expect(count_of(text, "fg: context created") == 3, "log: three generator contexts were created (" +
+                                                          std::to_string(count_of(text, "fg: context created")) + ")");
+    expect(count_of(text, "fg: vrr presenter ready") == 3, "log: three presenters came up (" +
+                                                              std::to_string(count_of(text, "fg: vrr presenter ready")) + ")");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// destroy-inflight: contexts destroyed and a swapchain resized while the game's
+// own GPU work and the presenter's work are still outstanding (nothing waits
+// between frames).
+// ---------------------------------------------------------------------------
+int run_destroy_inflight(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    for (int round = 0; round < 3; ++round) {
+        const std::string tag = " (round " + std::to_string(round) + ")";
+        Rig rig(h, host);
+        expect(rig.create(tag), "session up" + tag);
+        rig.frames(45, false);
+        if (round == 1) {
+            // Resize with the previous frames still queued, no wait of our own.
+            const HRESULT hr = rig.wrapper->ResizeBuffers(0, Rig::kWidth, Rig::kHeight, DXGI_FORMAT_UNKNOWN,
+                DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+            expect(SUCCEEDED(hr), "resize with work in flight" + tag + " hr=" + std::to_string(static_cast<long>(hr)));
+            rig.frames(10, false);
+        }
+        rig.check_clean(tag);
+        // No idle here: destroy straight after the last Present.
+        rig.destroy(tag);
+        expect(host.idle(), "the GPU retires everything after destroy" + tag);
+    }
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// log-failure: sedici.log cannot be opened (a directory holds its name). The
+// game's calls must be unaffected: a full session still runs clean.
+// ---------------------------------------------------------------------------
+int run_log_failure(Harness& h)
+{
+    std::error_code ec;
+    expect(fs::is_directory(h.dir / L"sedici.log", ec), "the log path is blocked by a directory");
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    Rig rig(h, host);
+    expect(rig.create(""), "session up with logging unavailable");
+    rig.frames(60, true);
+    rig.check_clean("");
+    rig.destroy("");
+    expect(host.idle(), "GPU idle");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// invalid-calls: hostile and stale arguments on the Sedici-owned path. Each must
+// fail (or be ignored) without crashing, leave the caller's swapchain intact on
+// a refused wrap, and leave a running session working.
+// ---------------------------------------------------------------------------
+int run_invalid_calls(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = host.device.Get();
+
+    // FG create without the backend desc, and with an empty display size.
+    {
+        ffxCreateContextDescFrameGeneration desc{};
+        desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        desc.displaySize = {Rig::kWidth, Rig::kHeight};
+        desc.maxRenderSize = {Rig::kWidth, Rig::kHeight};
+        desc.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        ffxContext none = nullptr;
+        const ffxReturnCode_t rc = h.ffx.create(&none, &desc.header, nullptr);
+        std::printf("INFO FG create without a backend desc: rc=%u context=%p\n", rc, static_cast<void*>(none));
+        expect(rc != FFX_API_RETURN_OK || none != nullptr, "FG create without a backend desc returns without crashing");
+        if (rc == FFX_API_RETURN_OK && none) h.ffx.destroy(&none, nullptr);
+
+        desc.header.pNext = &backend.header;
+        desc.displaySize = {0, 0};
+        desc.maxRenderSize = {0, 0};
+        ffxContext zero = nullptr;
+        const ffxReturnCode_t zrc = h.ffx.create(&zero, &desc.header, nullptr);
+        std::printf("INFO FG create with a 0x0 display: rc=%u context=%p\n", zrc, static_cast<void*>(zero));
+        expect(true, "FG create with a 0x0 display returns without crashing");
+        if (zrc == FFX_API_RETURN_OK && zero) h.ffx.destroy(&zero, nullptr);
+    }
+
+    // A refused wrap must leave the caller's swapchain untouched.
+    {
+        ComPtr<IDXGISwapChain4> native = host.swapchain(Rig::kWidth, Rig::kHeight, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+        expect(native != nullptr, "native swapchain for the refused wraps");
+        if (!native) return 1;
+        IDXGISwapChain4* swapchain = native.Get();
+        ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+        wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+        wrap.header.pNext = &backend.header;
+        wrap.swapchain = &swapchain;
+        wrap.gameQueue = nullptr; // no queue
+        ffxContext context = nullptr;
+        const ffxReturnCode_t rc = h.ffx.create(&context, &wrap.header, nullptr);
+        std::printf("INFO wrap with no game queue: rc=%u swapchain %s\n", rc,
+                    swapchain == native.Get() ? "unchanged" : "replaced");
+        expect(rc != FFX_API_RETURN_OK, "a wrap with no game queue is refused");
+        expect(swapchain == native.Get(), "a refused wrap leaves the caller's swapchain pointer unchanged");
+        UINT index = native->GetCurrentBackBufferIndex();
+        (void)index;
+        ComPtr<ID3D12Resource> buffer;
+        expect(SUCCEEDED(native->GetBuffer(0, IID_PPV_ARGS(&buffer))), "the caller's swapchain is still usable");
+
+        wrap.swapchain = nullptr;
+        wrap.gameQueue = host.queue.Get();
+        context = nullptr;
+        const ffxReturnCode_t rc2 = h.ffx.create(&context, &wrap.header, nullptr);
+        std::printf("INFO wrap with a null swapchain slot: rc=%u\n", rc2);
+        expect(rc2 != FFX_API_RETURN_OK, "a wrap with a null swapchain slot is refused");
+    }
+
+    // A live session survives hostile prepare/configure calls, and stale handles
+    // are rejected after destroy.
+    Rig rig(h, host);
+    expect(rig.create(""), "session up");
+    rig.frames(20, true);
+    {
+        ffxDispatchDescFrameGenerationPrepare prepare{};
+        prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+        prepare.frameID = rig.frameId + 1000; // a jump in the frame id resets generation
+        const ffxReturnCode_t rc = h.ffx.dispatch(&rig.fg, &prepare.header);
+        std::printf("INFO prepare with no command list or resources: rc=%u\n", rc);
+        expect(rc != FFX_API_RETURN_OK, "a prepare with no command list or resources is refused");
+        ffxConfigureDescFrameGeneration configure{};
+        configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        configure.swapChain = nullptr;
+        const ffxReturnCode_t crc = h.ffx.configure(&rig.fg, &configure.header);
+        std::printf("INFO configure naming no swapchain: rc=%u\n", crc);
+        expect(true, "a configure naming no swapchain returns without crashing");
+        ffxDispatchDescHeader unknown{};
+        unknown.type = 0x7F5E0000ull;
+        const ffxReturnCode_t urc = h.ffx.dispatch(&rig.fg, &unknown);
+        std::printf("INFO dispatch of an unknown desc type on an owned context: rc=%u\n", urc);
+        expect(urc != FFX_API_RETURN_OK, "an unknown dispatch type on an owned context is refused");
+    }
+    rig.frames(20, true);
+    rig.check_clean(" after the hostile calls");
+
+    ffxContext stale = rig.fg;
+    rig.destroy("");
+    {
+        ffxDispatchDescFrameGenerationPrepare prepare{};
+        prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+        const ffxReturnCode_t rc = h.ffx.dispatch(&stale, &prepare.header);
+        std::printf("INFO dispatch on a destroyed FG context: rc=%u\n", rc);
+        expect(rc != FFX_API_RETURN_OK, "a destroyed context is not treated as live");
+        ffxContext again = stale;
+        const ffxReturnCode_t drc = h.ffx.destroy(&again, nullptr);
+        std::printf("INFO second destroy of the same context: rc=%u\n", drc);
+        expect(drc != FFX_API_RETURN_OK, "destroying a context twice is refused");
+    }
+    expect(host.idle(), "GPU idle");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// overlay-hotkey: the overlay's real input path. Alt+F10 goes through the
+// window's hooked procedure (Off -> Mini -> Full -> Off), Full is held while the
+// session is destroyed and the window replaced, and the cursor clip must come
+// back as it was. Save/Cancel/cap clicks are not driven: the controls have no
+// stable coordinates without a UI test seam (docs/refactor/reliability.md).
+// ---------------------------------------------------------------------------
+int run_overlay_hotkey(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    // Full input needs the host executable to import the cursor calls the
+    // overlay intercepts, as a game does. Taking their addresses creates the imports.
+    static volatile auto keepClip = &ClipCursor;
+    static volatile auto keepPos = &SetCursorPos;
+    (void)keepClip;
+    (void)keepPos;
+    RECT clipBefore{};
+    GetClipCursor(&clipBefore);
+
+    BYTE keys[256]{};
+    const auto alt_f10 = [&](HWND window) {
+        BYTE state[256]{};
+        GetKeyboardState(state);
+        state[VK_MENU] = 0x80;
+        SetKeyboardState(state);
+        SendMessageW(window, WM_SYSKEYDOWN, VK_F10, 0);
+        SendMessageW(window, WM_SYSKEYUP, VK_F10, 0);
+        state[VK_MENU] = 0;
+        SetKeyboardState(state);
+    };
+    (void)keys;
+
+    {
+        Rig rig(h, host);
+        expect(rig.create(" (session 1)"), "session up");
+        rig.frames(20, true);
+        alt_f10(host.window); // Mini
+        rig.frames(30, true);
+        const bool foreground = (SetForegroundWindow(host.window), GetForegroundWindow() == host.window);
+        std::printf("INFO foreground window available: %d\n", foreground);
+        alt_f10(host.window); // Full
+        rig.frames(90, true); // Full retries capture from the render path every half second
+        alt_f10(host.window); // Off
+        rig.frames(20, true);
+        RECT clipOff{};
+        GetClipCursor(&clipOff);
+        expect(std::memcmp(&clipOff, &clipBefore, sizeof clipOff) == 0, "cursor clip is as before after Full -> Off");
+        rig.check_clean(" (hotkey cycle)");
+
+        // Leave the session while Full is showing.
+        alt_f10(host.window); // Mini
+        alt_f10(host.window); // Full
+        rig.frames(40, true);
+        rig.destroy(" (while Full)");
+    }
+    expect(host.idle(), "GPU idle after destroying during Full");
+    RECT clipDestroyed{};
+    GetClipCursor(&clipDestroyed);
+    expect(std::memcmp(&clipDestroyed, &clipBefore, sizeof clipDestroyed) == 0,
+           "cursor clip is restored when the session ends in Full");
+
+    expect(host.replace_window(), "the window is replaced");
+    {
+        Rig rig(h, host);
+        expect(rig.create(" (session 2)"), "session up on the new window");
+        rig.frames(20, true);
+        const std::string before = h.log();
+        alt_f10(host.window);
+        rig.frames(30, true);
+        rig.check_clean(" (new window)");
+        expect(count_of(h.log(), "overlay input hook installed") > count_of(before, "overlay input hook installed") - 1,
+               "log: the hook is installed on the replacement window");
+        alt_f10(host.window);
+        alt_f10(host.window); // back to Off
+        rig.frames(10, true);
+        rig.destroy(" (new window)");
+    }
+    RECT clipEnd{};
+    GetClipCursor(&clipEnd);
+    expect(std::memcmp(&clipEnd, &clipBefore, sizeof clipEnd) == 0, "cursor clip is as before at the end");
+    expect(host.idle(), "GPU idle");
+    const std::string text = h.log();
+    std::printf("INFO Full menu unavailable message in the log: %d\n",
+                text.find("Full menu unavailable") != std::string::npos);
+    expect(text.find("overlay ImGui initialized") != std::string::npos, "log: the overlay drew during the session");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -646,6 +1101,7 @@ int main(int argc, char** argv)
         const char* toml;
         bool withStub;
         int (*run)(Harness&);
+        bool blockLog = false;
     };
     const Scenario scenarios[] = {
         {"forward", "[pacing]\nmode = \"off\"\n[async]\nmode = \"game\"\n[fg]\nmode = \"amd\"\n", true, run_forward},
@@ -657,11 +1113,27 @@ int main(int argc, char** argv)
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"mini\"\n[limiter]\nfps = 30\n",
          false, run_session},
+        {"window-replace",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[ui]\nmode = \"off\"\n", false, run_window_replace},
+        {"destroy-inflight",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[ui]\nmode = \"off\"\n", false, run_destroy_inflight},
+        {"log-failure",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[ui]\nmode = \"off\"\n", false, run_log_failure, true},
+        {"invalid-calls",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[ui]\nmode = \"off\"\n", false, run_invalid_calls},
+        {"overlay-hotkey",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n",
+         false, run_overlay_hotkey},
     };
     for (const Scenario& entry : scenarios) {
         if (scenario != entry.name) continue;
         Harness harness;
-        const bool ready = setup(harness, entry.name, proxy, stub, entry.toml, entry.withStub);
+        const bool ready = setup(harness, entry.name, proxy, stub, entry.toml, entry.withStub, entry.blockLog);
         expect(ready, std::string("scratch directory, proxy load") + (entry.withStub ? " and stub" : ""));
         if (ready) entry.run(harness);
         std::printf("%d checks, %d failed\n", g_checks, g_failures);

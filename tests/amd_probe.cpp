@@ -280,6 +280,7 @@ ffxReturnCode_t generation_callback(ffxDispatchDescFrameGeneration* params, void
 {
     Session* s = g_session;
     InterlockedIncrement(&s->generationCalls);
+    if (!s->fg) return FFX_API_RETURN_ERROR_PARAMETER; // FG context is gone (variant 16)
     const ffxReturnCode_t rc = s->api.dispatch(&s->fg, &params->header);
     s->lastGenerationRc = rc;
     if (rc != FFX_API_RETURN_OK) InterlockedIncrement(&s->generationErrors);
@@ -452,6 +453,18 @@ int run_session(const fs::path& amdPath, int variant)
     pass_fail(rc == FFX_API_RETURN_OK && s.fg, "frame-generation context created after the swapchain context");
     if (rc != FFX_API_RETURN_OK) return 1;
 
+    if (variant & 128) {
+        // A failed FG create next to a live pair must be refused and must not poison the session.
+        ffxCreateContextDescFrameGeneration bad = fgDesc;
+        bad.displaySize = {0, 0};
+        bad.maxRenderSize = {0, 0};
+        ffxContext none = nullptr;
+        const ffxReturnCode_t brc = s.api.create(&none, &bad.header, nullptr);
+        info(fmt("FG create with a 0x0 display next to a live pair: rc=%u context=%p", brc, static_cast<void*>(none)));
+        pass_fail(brc != FFX_API_RETURN_OK && !none, "AMD refuses an FG context with an empty display size");
+        if (brc == FFX_API_RETURN_OK && none) s.api.destroy(&none, nullptr);
+    }
+
     auto hudless = texture(device.Get(), W, H, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST);
     auto depth = texture(device.Get(), W, H, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
@@ -505,7 +518,8 @@ int run_session(const fs::path& amdPath, int variant)
     HRESULT lastPresent = S_OK;
     UINT presentFailures = 0;
     constexpr int kFrames = 90;
-    for (int i = 0; i < kFrames; ++i) {
+    auto drive = [&](int count) {
+    for (int i = 0; i < count; ++i) {
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
@@ -539,7 +553,7 @@ int run_session(const fs::path& amdPath, int variant)
         prep.viewSpaceToMetersFactor = 1.0f;
         prep.depth = ffxApiGetResourceDX12(depth.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
         prep.motionVectors = ffxApiGetResourceDX12(motion.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
-        const ffxReturnCode_t prc = s.api.dispatch(&s.fg, &prep.header);
+        const ffxReturnCode_t prc = s.fg ? s.api.dispatch(&s.fg, &prep.header) : FFX_API_RETURN_ERROR_PARAMETER;
         if (i < 2 || prc != FFX_API_RETURN_OK) info(fmt("frame %d prepare rc=%u", i, prc));
         barrier(list.Get(), hudless.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
         list->Close();
@@ -561,6 +575,8 @@ int run_session(const fs::path& amdPath, int variant)
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
+    };
+    drive(kFrames);
     fence->SetEventOnCompletion(fenceValue, evt);
     WaitForSingleObject(evt, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(200)); // let AMD's present thread finish
@@ -583,6 +599,45 @@ int run_session(const fs::path& amdPath, int variant)
     pass_fail(presentFailures == 0, "every Present on the AMD chain succeeded");
     if (!noGenCb) pass_fail(s.generationCalls > 0, "AMD invokes the host's generation callback");
 
+    if (variant & (16 | 64)) {
+        const bool quiesce = (variant & 64) != 0;
+        // Mid-session: drop only the FG context, keep presenting, bring a new one up.
+        const LONG genBefore = s.generationCalls;
+        if (quiesce) {
+            // Disable generation, drop the callbacks and let AMD's present thread run dry first.
+            ffxConfigureDescFrameGeneration off{};
+            off.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+            off.swapChain = amdChain.Get();
+            off.frameGenerationEnabled = false;
+            const ffxReturnCode_t orc = s.api.configure(&s.fg, &off.header);
+            info(fmt("mid-session: disable generation and clear callbacks: rc=%u", orc));
+            fence->SetEventOnCompletion(fenceValue, evt);
+            WaitForSingleObject(evt, 5000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
+        ffxContext old = s.fg;
+        const ffxReturnCode_t drc = s.api.destroy(&old, nullptr);
+        s.fg = nullptr;
+        info(fmt("mid-session: destroy FG context only: rc=%u", drc));
+        pass_fail(drc == FFX_API_RETURN_OK, "the FG context can be destroyed while the swapchain context lives");
+        if (!quiesce) drive(8);
+        info(fmt("mid-session: frames presented with no FG context: generation callbacks +%ld, Present failures so far %u",
+                 s.generationCalls - genBefore, presentFailures));
+        const ffxReturnCode_t crc = s.api.create(&s.fg, &fgDesc.header, nullptr);
+        info(fmt("mid-session: recreate FG context: rc=%u", crc));
+        pass_fail(crc == FFX_API_RETURN_OK && s.fg, "a new FG context can be created for the live swapchain");
+        const ffxReturnCode_t cfg2 = s.api.configure(&s.fg, &cfg.header);
+        info(fmt("mid-session: configure the new context: rc=%u", cfg2));
+        const LONG genMid = s.generationCalls;
+        drive(30);
+        fence->SetEventOnCompletion(fenceValue, evt);
+        WaitForSingleObject(evt, 5000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        info(fmt("mid-session: after recreation generation callbacks +%ld over 30 frames (errors=%ld)",
+                 s.generationCalls - genMid, s.generationErrors));
+        pass_fail(s.generationCalls - genMid >= 25, "generation resumes after the FG context is recreated");
+    }
+
     // Destruction order. Buffer references are released first, as a game does on resize.
     for (auto& b : backs) b.Reset();
     ffxContext first = fgFirst ? s.fg : s.sc;
@@ -594,6 +649,93 @@ int run_session(const fs::path& amdPath, int variant)
     amdChain.Reset();
     DestroyWindow(hwnd);
     info(fmt("session variant %d finished without a crash", variant));
+    return g_fail ? 1 : 0;
+}
+
+// variant 8: refused creates. A refused wrap must leave the caller's native chain
+// with the caller; a failed FG create must not poison a retry.
+int run_refusal(const fs::path& amdPath, bool nullQueue)
+{
+    info("refusal variant: refused wrap and failed FG create, then recovery");
+    Session s;
+    g_session = &s;
+    s.api = load(amdPath);
+    if (!complete(s.api)) {
+        pass_fail(false, "load for refusal");
+        return 1;
+    }
+    ComPtr<ID3D12Device> device = make_device();
+    D3D12_COMMAND_QUEUE_DESC qd{};
+    qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ComPtr<ID3D12CommandQueue> queue;
+    device->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue));
+    ComPtr<IDXGIFactory4> factory;
+    CreateDXGIFactory2(0, IID_PPV_ARGS(&factory));
+    HWND hwnd = make_window(640, 360);
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    DXGI_SWAP_CHAIN_DESC1 sd{};
+    sd.Width = 640;
+    sd.Height = 360;
+    sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.SampleDesc.Count = 1;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.BufferCount = 3;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+    ComPtr<IDXGISwapChain1> sc1;
+    const HRESULT schr = factory->CreateSwapChainForHwnd(queue.Get(), hwnd, &sd, nullptr, nullptr, &sc1);
+    ComPtr<IDXGISwapChain4> chain;
+    sc1.As(&chain);
+    info(fmt("native chain: hr=0x%08lx chain=%p", static_cast<unsigned long>(schr), static_cast<void*>(chain.Get())));
+    pass_fail(chain != nullptr, "native swapchain for the refusal variant");
+    if (!chain) return 1;
+
+    ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+    wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+    IDXGISwapChain4* slot = chain.Get();
+    wrap.swapchain = &slot;
+    ffxContext sc = nullptr;
+    ffxReturnCode_t rc = FFX_API_RETURN_OK;
+    if (nullQueue) {
+        // AMD does not validate this: the call is expected to crash the process.
+        wrap.gameQueue = nullptr;
+        rc = s.api.create(&sc, &wrap.header, nullptr);
+        info(fmt("wrap with no game queue returned rc=%u (AMD validated it)", rc));
+        return 0;
+    }
+    wrap.gameQueue = queue.Get();
+    slot = chain.Get();
+    sc = nullptr;
+    rc = s.api.create(&sc, &wrap.header, nullptr);
+    info(fmt("wrap retried with the queue: rc=%u", rc));
+    pass_fail(rc == FFX_API_RETURN_OK && sc, "the same chain can be wrapped after a refusal");
+    ComPtr<IDXGISwapChain4> wrapped;
+    wrapped.Attach(slot);
+    chain.Detach(); // consumed by the successful wrap
+
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = device.Get();
+    ffxCreateContextDescFrameGeneration fgDesc{};
+    fgDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    fgDesc.header.pNext = &backend.header;
+    fgDesc.displaySize = {0, 0};
+    fgDesc.maxRenderSize = {0, 0};
+    fgDesc.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    ffxContext fg = nullptr;
+    rc = s.api.create(&fg, &fgDesc.header, nullptr);
+    info(fmt("FG create with a 0x0 display after the wrap succeeded: rc=%u context=%p", rc, static_cast<void*>(fg)));
+    pass_fail(rc != FFX_API_RETURN_OK, "AMD refuses an FG context with an empty display size");
+    fgDesc.displaySize = {640, 360};
+    fgDesc.maxRenderSize = {640, 360};
+    fg = nullptr;
+    rc = s.api.create(&fg, &fgDesc.header, nullptr);
+    pass_fail(rc == FFX_API_RETURN_OK && fg, "a valid FG create succeeds after the failed one");
+    ffxContext a = fg, b = sc;
+    pass_fail(s.api.destroy(&a, nullptr) == FFX_API_RETURN_OK && s.api.destroy(&b, nullptr) == FFX_API_RETURN_OK,
+              "both contexts destroyed");
+    wrapped.Reset();
+    DestroyWindow(hwnd);
     return g_fail ? 1 : 0;
 }
 
@@ -633,7 +775,16 @@ int wmain(int argc, wchar_t** argv)
             wantHash = fs::path(argv[i + 1]).string();
         }
     }
-    if (variant >= 0) return run_session(amd, variant);
+    if (variant == 9) return run_refusal(amd, true);
+    if (variant >= 0) {
+        // bit 5 (32): tear everything down and bring a second session up in the same process.
+        int result = run_session(amd, variant & ~32);
+        if ((variant & 32) && result == 0) {
+            info("second session in the same process after full destruction");
+            result = run_session(amd, variant & ~32);
+        }
+        return result;
+    }
 
     const std::string have = sha256_of(amd);
     info("file: " + amd.filename().string() + fmt(" %llu bytes", static_cast<unsigned long long>(fs::file_size(amd))));
@@ -646,8 +797,23 @@ int wmain(int argc, wchar_t** argv)
 
     wchar_t exe[MAX_PATH]{};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    for (int v : {0, 1, 2, 3, 4}) {
+    for (int v : {0, 1, 2, 3, 4, 9, 16, 64, 128, 32, 33}) {
         const int code = spawn_variant(exe, amd, v);
+        if (v == 16) {
+            info(fmt("variant 16 (destroy only the FG context, keep presenting) exit code %d: %s", code,
+                     code == 0 ? "survived" : "crashes; the swapchain cannot outlive its FG context"));
+            continue;
+        }
+        if (v == 128) {
+            info(fmt("variant 128 (FG create with a 0x0 display) exit code %d: %s", code,
+                     code == 0 ? "AMD refused it" : "AMD aborts the process; Sedici must validate sizes"));
+            continue;
+        }
+        if (v == 9) {
+            info(fmt("variant 9 (wrap with a null game queue) exit code %d: %s", code,
+                     code == 0 ? "AMD validated the argument" : "AMD does not validate it; Sedici must"));
+            continue;
+        }
         pass_fail(code == 0, fmt("variant %d exit code %d", v, code));
     }
     std::printf("%s\n", g_fail ? "RESULT FAIL" : "RESULT OK");
