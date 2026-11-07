@@ -40,6 +40,10 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   fixed. A fix with no entry is incomplete. Never delete or rewrite an entry to hide a
   bug: mark it resolved with the commit. Report new bugs to the user in the same turn
   you find them.
+- **Keep the Phase 2 progress table current.** The "Phase 2 progress" table and bug
+  counts in `MILESTONES.md` are what the owner reads to see where the work stands.
+  Update them in the same commit as any change to a milestone's status, evidence or
+  open items, or to a `known-issues.md` entry, and refresh the "Last updated" date.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
 
