@@ -65,9 +65,9 @@ failure. See `src/fg_route.cpp`, `src/fg_presenter.h`, `src/fg_integration.cpp`.
 
 The existing executable-level coverage and expected failures are detailed in
 [reliability.md](reliability.md#current-coverage-and-gaps-p22-baseline). CMake
-recompiles production sources into `sedici_regression`; it does not yet share a
-production library target. `sedici_abi` loads the actual DLL plus a stub `.orig`;
-`sedici_fgcheck` compiles a selected subset. None proves the real AMD ABI.
+now builds one `sedici_core` object library shared by the DLL, `sedici_regression`
+and `sedici_fgcheck` (P2.2). `sedici_abi` loads the actual DLL plus a stub `.orig`.
+Only `sedici_amd_probe` touches the real AMD ABI, see [amd-binary.md](amd-binary.md).
 
 | Priority | Scenario and production entry point | Expected evidence / destination |
 | --- | --- | --- |
