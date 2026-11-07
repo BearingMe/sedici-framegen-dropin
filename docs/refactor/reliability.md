@@ -124,6 +124,8 @@ relabeled green, and an unexpected pass fails the run.
 
 ### P2.2 accepted gaps
 
+Evidence record: [finding 010](../findings/010-p22-coverage-gaps.md).
+
 These are the gaps that remain after P2.2. They are **accepted, not forgotten**: each
 needs a seam that does not exist yet and that production code must add in a named
 milestone; building it as a test-only hack now would test the hack.

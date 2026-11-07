@@ -329,7 +329,8 @@ and [the two-stage objective](references/papers/realtime-fg.md).
 scenarios on the real DLL plus a stub `.orig`, 3 `fgcheck`, regression and two GPU
 overlay checks) on one shared `sedici_core` object library. Baseline, known failures
 and the accepted gaps with their owning milestones are in
-[reliability.md](docs/refactor/reliability.md#current-coverage-and-gaps-p22-baseline). Establish a trustworthy baseline, not merely more isolated
+[reliability.md](docs/refactor/reliability.md#current-coverage-and-gaps-p22-baseline)
+(evidence: [finding 010](docs/findings/010-p22-coverage-gaps.md)). Establish a trustworthy baseline, not merely more isolated
 unit checks or an arbitrary line-coverage percentage.
 
 - Build tests against the same production implementation targets. Include a
