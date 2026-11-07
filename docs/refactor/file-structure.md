@@ -3,6 +3,8 @@
 Status: proposed placement map, not an inventory of existing files. Headers
 accompany implementations where needed; the tree is not a requirement to create
 empty files. Keep small responsibilities together until a split has a concrete use.
+For current owners, integration risks, and the coverage prerequisite, see the
+[P2.1 audit](audit.md); this tree is not a mandate to move files before P2.2.
 
 ```text
 sedici/

@@ -5,13 +5,13 @@ that fixes the frame pacing Cyberpunk 2077 shows with native FSR frame
 generation.
 
 Sedici takes the original DLL's name. The original is renamed to
-`amd_fidelityfx_framegeneration_dx12.dll.orig` and all five `ffx*` exports are
-forwarded with identical arguments, return values and timing. On top of that
-forwarding, it sends one optional configure call that removes a measured
-frame-time tail, optionally caps the game's real frames against a deadline, and
-writes a local log of what the game asks frame generation to do.
+`amd_fidelityfx_framegeneration_dx12.dll.orig`. By default the five `ffx*`
+exports use that original, with optional pacing tuning, async configuration
+rewrite, real-frame limiting and logging. The experimental `fg.mode = "sedici"`
+instead routes recognized frame-generation contexts to Sedici's own generator
+and swapchain wrapper. That path is not yet a proven drop-in replacement.
 
-Nothing else changes. The loader and upscaler DLLs are never touched.
+The loader and upscaler DLLs are never touched.
 
 ## What it does now
 
@@ -26,9 +26,9 @@ Nothing else changes. The loader and upscaler DLLs are never touched.
 | Overlay menu | **off** until `Alt+F10` | `[ui] mode`, `[ui] hotkey` |
 | Log level | `1` | `log.level` or `MFSRFG_LOG` |
 
-With `pacing.mode = "off"`, `async.mode = "game"` and `limiter.fps = 0`, Sedici
-forwards exactly what it forwarded in milestone 0: no extra calls, no desc
-rewrites, and no limiter work at all.
+On the default AMD path, with `pacing.mode = "off"`, `async.mode = "game"` and
+`limiter.fps = 0`, those options add no pacing call, async rewrite or limiter wait.
+This statement does not apply to Sedici-owned contexts.
 
 ### Why this specific fix
 
@@ -80,15 +80,15 @@ Budget target: **≤ 2.0 ms at 1080p** on a Radeon RX 7700 XT — 1.30–1.67 ms
 WMMA, 0.95–1.20 ms in INT8 dp4a. These are design estimates from the papers, not
 measurements.
 
-Status: **offline implementation in progress.** The LUT-backed analytical stage
-generates synthetic midpoint images through an FFX desc adapter; a separate
-real-frame-only wrapper is checked in an offline window. The exports still use
-AMD's generator; generated-frame scheduling and game integration are unfinished.
-See [the baseline and integration checkpoint](docs/findings/007-fg-baseline.md)
-and [Mob-FGSR attribution](docs/mobfgsr-attribution.md). The pacing
-fix, limiter and overlay described above still work and stay in scope; the new
-path falls back to forwarding to the `.orig` DLL whenever it is disabled,
-unsupported or fails to initialize. Constraints and open questions are in
+Status: **experimental integration in progress.** The exports can route recognized
+contexts to the LUT-backed generator and wrapper when explicitly selected. An
+offline export-level session exercises generation, Mini overlay and limiter, but
+live controls, failure paths and full compatibility remain unaccepted. Unrecognized
+calls may forward to `.orig`; a recognized Sedici creation failure currently
+returns an error rather than guaranteeing fallback. See the
+[current-state audit](docs/refactor/audit.md),
+[historical checkpoint](docs/findings/007-fg-baseline.md) and
+[Mob-FGSR attribution](docs/mobfgsr-attribution.md). Constraints are in
 [`AGENTS.md`](AGENTS.md); the delivery plan is in
 [`MILESTONES.md`](MILESTONES.md).
 
@@ -112,8 +112,9 @@ Cyberpunk2077.exe
         └── amd_fidelityfx_framegeneration_dx12.dll.orig   <- AMD's DLL
 ```
 
-1. **Forward.** Every export is passed through unchanged: same arguments, same
-   return code, same ordering. Unknown descs are forwarded untouched.
+1. **Route or forward.** The default AMD path forwards calls to `.orig` with the
+   documented optional changes. The experimental Sedici path owns recognized
+   contexts; unsupported calls on those contexts are not necessarily forwarded.
 2. **Tune once per swapchain.** After a successful `ffxCreateContext` whose
    desc chain contains a frame generation swapchain create/wrap desc, Sedici
    sends

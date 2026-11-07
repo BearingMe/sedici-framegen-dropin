@@ -2,6 +2,8 @@
 
 Status: recommended refactor baseline; paths below are proposed. See
 [decision status](README.md#decision-status) and [file structure](file-structure.md).
+The [current-state audit](audit.md) documents where the implementation differs;
+these target rules are not claims about today's lock or retirement behavior.
 
 ## System shape
 
@@ -60,7 +62,7 @@ Do not split authoritative lifecycle and fallback state between several managers
 
 ## Backend and fallback boundary
 
-- The bundled AMD binary is a pinned implementation dependency. `.orig` is the
+- The proposed bundled AMD binary is intended as a pinned implementation dependency. `.orig` is the
   game's original compatibility provider, not an interchangeable handle owner.
 - Identify which binary owns every external context; never forward a Sedici handle
   to AMD or a context from one AMD binary instance to another.
@@ -118,3 +120,50 @@ attachment through its supported contract.
 Settings transactions are specified in [configuration.md](configuration.md).
 Errors, recovery limits, and acceptance are specified in
 [reliability.md](reliability.md).
+
+## Constraints from known defects
+
+Status: **notes, not decisions.** Defects recorded in
+[known-issues.md](known-issues.md) that the target design has to account for;
+each names the entries it comes from. They are deliberately left unfixed in the
+current code.
+
+- **One rate-policy owner must see the panel and the GPU** (K1-K4). Output
+  planning today ignores the panel's maximum rate and the cost of generation; it
+  only warns. The rate-policy owner needs the panel's refresh/VRR range, the
+  real-frame cadence and the measured generation cost, and decides the
+  multiplier/pattern (for example 2x pattern when the real rate is near half the
+  target) instead of scheduling blindly and dropping afterwards.
+- **FG off is a different presentation mode, not "real frames through the
+  scheduler"** (K4). With no generated outputs the presentation path should not
+  throttle the game through the output scheduler and tear guard.
+- **Latency is a schedule property plus a measured GPU term** (K1, K6). Keep the
+  structural offset exact and derived from the schedule, and the GPU term
+  measured only when the presenter genuinely waited; queueing must never feed
+  back into either. These are pure, fake-time-testable decisions.
+- **Presentation owns the game-facing frame-latency contract** (K8). Once output
+  is presented from Sedici's thread, the waitable object and maximum frame
+  latency the game sees must be defined by the presentation owner, not forwarded
+  from the native chain.
+- **Swapchain replacement is an ownership transfer with an explicit failure
+  contract** (K11, K12, K14). Decide, per backend, whether the native chain is
+  wrapped or recreated; what reference the wrap desc hands over; what state must
+  be carried (colour space, HDR metadata, fullscreen, latency); and what the game
+  gets when replacement fails after the old chain is gone. Unsupported formats
+  must be rejected before ownership changes so the game can be served by the
+  fallback.
+- **Queue ownership must survive third-party overlays** (K13). Overlays may
+  draw from the queue they last observed and reuse it across swapchains. Queue
+  lifetime (per device, possibly process-long) and the presentation queue used
+  for each chain are part of the presentation contract, as is detection of known
+  injected overlays.
+- **Frame slots cover every consumer** (K15, K16). A frame slot holds the real
+  snapshot, generated outputs, generation command lists and overlay drawing until
+  presentation retires it; overlay work for an output that is dropped should not
+  be recorded or should be retired with the slot.
+- **Status has one source** (K18, K19, K22). FG active/inactive, effective
+  multiplier and resolved output target come from the session, updated on
+  configure, destroy and display changes, and are what the UI and limiter read.
+- **Diagnostics define their metrics** (K10). Counters such as late flips, short
+  gaps and VRR evidence need precise definitions and thresholds tied to the
+  panel, or they get misread (finding 008 correction).

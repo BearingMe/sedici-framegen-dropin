@@ -29,18 +29,17 @@ consecutive real frames. GFFE, super-resolution, extrapolation, additional
 multipliers and a training framework are outside this phase.
 
 **Status:** P1.1 baseline recorded ([baseline](docs/findings/007-fg-baseline.md));
-P1.2 complete offline; P1.3 in progress. The LUT-backed stage, HUD composite,
-bounded output schedule and a wrapper that presents a midpoint plus the real frame
-all run end to end offline, including an FFX-shaped session bound to the wrapper.
-The five exports still forward to AMD, so the shipped DLL is unchanged. Do
-not launch the game before the first deploy or require a new contract-capture
-run. Deployment and any later agent-driven launch require separate authorization.
+the LUT-backed stage and presentation wrapper have offline coverage. The default
+mode forwards to `.orig`; experimental Sedici mode routes recognized contexts via
+the exports. Later integration and its limitations are recorded in the
+[P2.1 audit](docs/refactor/audit.md) and findings 008/009. Phase 1 acceptance is
+not implied. Deployment and any agent-driven game launch require separate authorization.
 
 ### Current FFX implementation
 
 | Area | Current state / reference |
 | --- | --- |
-| Five exports and FG ownership | `src/dllmain.cpp`, `src/forward.cpp`: exports forward to `.orig`; AMD owns generation and the swapchain |
+| Five exports and FG ownership | `src/dllmain.cpp`, `src/fg_route.cpp`, `src/forward.cpp`: default `.orig` forwarding or experimental Sedici-owned recognized contexts |
 | Pacing and context lifetime | `src/toggles.cpp`: tuning sends, async override and lifetime serialization |
 | Real-frame scheduling | `src/present_hook.cpp`, `src/limiter.cpp`, `src/limiter_schedule.h`: application Present interception and opt-in real-frame limiter |
 | Output and composition | `src/overlay.cpp`, `src/overlay_compose.cpp`: output callback, real/generated timing, back-buffer copy and state restoration |
@@ -296,8 +295,9 @@ algorithms. Separate mechanical moves from behavior changes where practical.
 
 ### P2.1 — Audit and documentation
 
-**Status:** pending. Audit the implementation before treating the proposed tree
-as an implementation specification. This milestone does not move or fix code.
+**Status:** audit and documentation prepared for review; see the
+[current-state evidence and P2.2 handoff](docs/refactor/audit.md). Acceptance awaits
+review. This milestone does not move or fix code.
 
 - Trace both backend paths from the five exports through contexts, callbacks,
   prepare/generation, Present, settings, overlay, limiter, and shutdown.

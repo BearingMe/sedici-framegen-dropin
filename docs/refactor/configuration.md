@@ -3,6 +3,9 @@
 Status: proposed refactor schema and behavior. **Do not copy this example over the
 current `sedici.toml`: the current parser does not implement these names.** Existing
 defaults and opt-outs remain unchanged until an explicitly approved migration.
+Current defaults and direct environment reads are inventoried in the
+[audit](audit.md#configuration-and-diagnostic-observations); the shipped file and
+`src/config.cpp` remain authoritative for implemented parsing.
 
 ## Design decisions
 
@@ -43,6 +46,10 @@ the capability and latency contract below, rather than hidden implementation kno
 
 ## Proposed semantics
 
+All entries below are proposals, not parser guarantees. The example values are
+candidate defaults; numeric bounds and migration details remain unresolved rather
+than being silently inferred from current controls.
+
 | Key | Meaning | Application boundary |
 | --- | --- | --- |
 | `frame_generation.backend` | Requested implementation, not the game's FG on/off state | Validated session creation/recreation; pending changes remain visible |
@@ -52,6 +59,19 @@ the capability and latency contract below, rather than hidden implementation kno
 | `ui.hotkey` | Validated input binding | Acknowledged input-owner update; resolve capture safely |
 | `ui.scale` | Automatic or validated fixed UI scale | UI-owner frame boundary |
 | `logging.level` | Diagnostic verbosity, not feature enablement | Diagnostic sink update; never reset generation |
+
+| Candidate | Type / proposed default | Validation and applicability still to decide |
+| --- | --- | --- |
+| `frame_generation.backend` | enum string / `fsr3` | Allowed backends, binary availability and relationship to legacy `.orig`; P2.3/P2.6. |
+| `limiter.real_fps` | finite number in real frames/s / `0` | Upper bound and applicable backend paths; `0` disables. |
+| `presentation.sync` | enum string / `game` | Exact supported choices and backend/display capabilities. |
+| `ui.mode` | enum string / `off` | `off`, `mini`, `full`; backend overlay support must be verified. |
+| `ui.hotkey` | binding string / `alt+f10` | Accepted syntax, conflicts and window/input applicability. |
+| `ui.scale` | `auto` or finite number / `auto` | Numeric bounds and supported renderers. |
+| `logging.level` | enum string / `info` | Final level mapping, precedence and sink capabilities. |
+
+Every candidate also requires an explicit legacy-alias and override-precedence
+decision before implementation; none changes the effective startup configuration.
 
 Recommended defaults are FSR3 while the combined Sedici path remains unaccepted,
 limiter off, and UI off until requested. `sync = "game"` is a proposed predictable

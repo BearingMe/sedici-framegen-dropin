@@ -106,8 +106,9 @@ dispatches; report composition/copy/wait costs separately rather than hiding the
 
 ## Current coverage and gaps (P2.2 baseline)
 
-Status: **verified current state** as of `e745008`, plus the coverage added for
-P2.2. Coverage is listed against the groups above. "Known failure" means a check
+Status: recorded baseline as of `e745008`, plus coverage added through `f95b54d`;
+not freshly rerun during the [P2.1 audit](audit.md). Coverage is listed against the
+groups above. "Known failure" means a check
 that fails today, tracked as expected-fail with its evidence; it must not be
 relabeled green, and an unexpected pass fails the run.
 

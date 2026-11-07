@@ -31,6 +31,8 @@ and model/LUT export remain offline, outside the shipped runtime.
 | [file-structure.md](file-structure.md) | Target paths, placement rules, and migration from current files |
 | [configuration.md](configuration.md) | Proposed TOML, application semantics, defaults, and legacy migration |
 | [reliability.md](reliability.md) | Errors, watchdog behavior, diagnostics, and integrated acceptance |
+| [audit.md](audit.md) | Current code paths, ownership risks, evidence and prioritized P2.2 handoff |
+| [known-issues.md](known-issues.md) | Defects found and deliberately deferred until after the refactor, with evidence and owning milestone |
 
 ## Decision status
 
@@ -78,9 +80,10 @@ presenter handoff. Split files and introduce interfaces only for concrete needs.
 6. Accept both backends through the same product scenarios.
 7. Add the Stage 2 feature contract, model validation, and inference implementation.
 
-The first milestone is **not files moved**. It is generation, overlay, live cap
-changes, resize, backend selection/fallback, and teardown working together through
-production entry points with truthful diagnostics.
+P2.1 is audit and documentation; P2.2 establishes coverage before structural
+migration. The integrated product gate is generation, overlay, live cap changes,
+resize, backend selection/fallback, and teardown working together through
+production entry points with truthful diagnostics; it is not a file move.
 
 ## Relationship to existing instructions
 
