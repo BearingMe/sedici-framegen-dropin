@@ -29,6 +29,17 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   fixing their relative includes, and do not invent provenance.
 - Never download SDKs or runtime DLLs as part of a build or test.
 - Do not launch the game. Deployment is not launch authorization.
+- **Document every bug you find. Always.** A bug that is only fixed, only mentioned in
+  a chat, or only left in a code comment is lost. Whenever you find a defect (in
+  production code, tests, build, tools, docs, or an external binary's behaviour that
+  Sedici must design around), whether or not you fix it, you must record it in
+  `docs/refactor/known-issues.md` with a new `K` number and these fields: the problem
+  and its impact; the evidence and how it was found, marked measured, code or
+  suspected; the status (fixed with the commit hash, open, or hazard); and the owning
+  milestone. Record it in the same commit as the fix, or before moving on if it is not
+  fixed. A fix with no entry is incomplete. Never delete or rewrite an entry to hide a
+  bug: mark it resolved with the commit. Report new bugs to the user in the same turn
+  you find them.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
 

@@ -1,6 +1,6 @@
 # Known issues deferred to after the refactor
 
-Status: **recorded, not fixed.** Problems found while building the vrr presenter,
+Status: **K1 to K26 recorded, not fixed (K27 onward: see the last section).** Problems found while building the vrr presenter,
 the output multipliers and the P2.2 coverage on `experiment/cobalt-otter`
 (through `f95b54d`). The decision is to fix them on the refactored architecture,
 not to patch the current code further. Each entry names its evidence and the
@@ -57,3 +57,24 @@ expected failures are in [reliability.md](reliability.md#current-coverage-and-ga
 | K24 | RTSS injected into test processes skips the vrr checks and has corrupted readbacks; runs must close it. | Offline checks | P2.2 |
 | K25 | ~~`sedici_fgcheck` compiles a subset of production sources and `sedici_regression` recompiles them; there is no shared production library target.~~ **Resolved in P2.2:** the DLL, `sedici_regression` and `sedici_fgcheck` all compile one `sedici_core` object library; only `dllmain.cpp`/`exports.def` stay DLL-only. | CMake | P2.2 |
 | K26 | Live cap changes, Save/Cancel and Full-menu input are not driven by any test; the combined session checks Mini only. | [reliability.md](reliability.md#current-coverage-and-gaps-p22-baseline) | P2.2 |
+
+## Found during P2.2 to P2.4 (`refactor/phase-2`)
+
+Status is **fixed** (with the commit), **open**, or **hazard** (an external behaviour
+Sedici must design around, not a Sedici defect). Unlike K1 to K26, the fixed ones were
+repaired inside the milestone that found them, because they sat in the code that
+milestone was migrating; they are recorded here so the evidence is not lost.
+
+| ID | Problem | Evidence | Status / owner |
+| --- | --- | --- | --- |
+| K27 | The routing registry's mutex was held across `Session::configure`, `prepare` and `Swapchain::wrap`, which touch the device and can wait on the GPU. One slow call stalled every other FFX call. | Code `fg_route.cpp` before `372783f` | **Fixed** `372783f` (leases; the lock guards the map only). P2.4 |
+| K28 | Use-after-free race: `find_wrapper` returned a raw `Swapchain*` and `Session::configure` called `AddRef` after the registry lock was released, so a wrapper destroyed in between was touched. | Code `fg_integration.cpp` before `632a8b0`; found by review during P2.4, not reproduced | **Fixed** `632a8b0` (reference taken under the lock). P2.4 |
+| K29 | A destroy racing another call could run the call on a torn-down owner: lookup returned a pointer valid only while the lock was held. | Code; new racing-destroy check in `sedici_fgcheck --routing` | **Fixed** `372783f` (per-owner call mutex, `dead` flag, unregister before teardown). P2.4 |
+| K30 | Session state was implicit: `configure` and `prepare` were accepted before create and during teardown, and destroy twice was not defined. | Code; session checks in `sedici_fgcheck --present` | **Fixed** `ec1a6fa` (`SessionState`, refusals, idempotent destroy). P2.4 |
+| K31 | AMD's binary does not validate its inputs: a null `gameQueue` crashes it, a 0x0 display size in the FG create aborts the process, a prepare dispatched on a null FG context crashes it, and destroying only the FG context while presenting crashes it. | Measured: `sedici_amd_probe` variants 9, 16, 128; [amd-binary.md](amd-binary.md) | **Hazard.** The AMD backend must validate before forwarding. This conflicts with "forward everything" and needs an explicit rule for the AMD path. P2.4 follow-up, P2.9 |
+| K32 | Retrying a swapchain wrap after a refused wrap returned `rc=3` in the AMD probe and was never explained. | Measured: probe variant 8 (since removed) | **Open**, unexplained. P2.9 if recovery needs it |
+| K33 | `sedici_fgcheck` failed to link once the DLL and test hosts shared `sedici_core`: `g_sedici_proxy_marker` was referenced by `forward.cpp` and defined only in `dllmain.cpp`. | Build error during P2.2 | **Fixed** (marker defined in `tests/fgcheck.cpp`, commit `4525747`/`e9ea5c7`). P2.2 |
+| K34 | AMD probe bugs: wrap descriptor chain shape was wrong (`rc=6`); the consumed native chain was released twice (access violation at teardown in every variant); the variant mask `& 31` dropped bit 64 so the mid-session recreate never ran; configure was sent to the wrong context. Each looked like an AMD failure and was ours. | Probe output during P2.3; control run for the double release | **Fixed** in `6167c9c`/`e9ea5c7`. P2.3. Lesson recorded in [amd-binary.md](amd-binary.md): AMD's wrap consumes the caller's chain reference |
+| K35 | `AGENTS.md` "Branch override" still names `experiment/cobalt-otter` and covers neither `main` nor `refactor/phase-2`. Flagged by the P2.1 audit. | Doc | **Open.** Needs an owner decision on the override text |
+| K36 | The full-menu click and cursor path cannot be driven in an unattended run: it needs the host to be the foreground window, and `overlay-hotkey` records an INFO line instead. | `sedici_abi overlay-hotkey` | **Open**, accepted gap. P2.8 |
+

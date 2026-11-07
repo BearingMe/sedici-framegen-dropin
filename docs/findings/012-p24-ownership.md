@@ -13,6 +13,14 @@ later milestones. Nothing here has run in the game.
 | Lifecycle | Implicit in `ready()`, `enabled()` and `have_history()` | `SessionState` (Empty, Ready, Warmup, Active, Draining, Stopped) with defined accepted work; configure and prepare are refused when Empty, Draining or Stopped; destroy is idempotent |
 | Callback lifetime | Implicit | Documented on `GenerateSink`: the wrapper calls the sink only inside `present()` under the mutex `set_generator()` takes, so once detach returns no callback is running or will start |
 
+## Bugs found
+
+K27 (lock held across backend calls), K28 (use-after-free race in swapchain lookup),
+K29 (call racing destroy) and K30 (implicit session state) are recorded in
+[known-issues.md](../refactor/known-issues.md#found-during-p22-to-p24-refactorphase-2)
+with evidence and fix commits. K28 was found by code review and was not reproduced as a
+crash; the racing-destroy test covers K29, not K28's exact window.
+
 ## Tests
 
 - `sedici_fgcheck --routing`, run in both creation orders (session first and wrap
