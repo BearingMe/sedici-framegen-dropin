@@ -175,10 +175,49 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
 
 Swapchain::~Swapchain()
 {
-    (void)drain();
+    const HRESULT drained = drain();
+    if (FAILED(drained) && m_device && SUCCEEDED(m_device->GetDeviceRemovedReason())) {
+        // The device is alive but its work did not retire within the bounded wait.
+        // A timeout is not permission to free memory the GPU may still be using:
+        // retain every GPU object (and the presenter, which owns the native
+        // chain) for the life of the process and say so (K39). On a removed
+        // device nothing more can execute, so the normal release below is safe.
+        retain_gpu_state();
+        return;
+    }
     m_presenter.reset();
     if (m_event) CloseHandle(m_event);
     if (m_pacing_timer) CloseHandle(m_pacing_timer);
+}
+
+void Swapchain::retain_gpu_state() noexcept
+{
+    try {
+        auto* keep = new std::vector<Microsoft::WRL::ComPtr<IUnknown>>(); // leaked on purpose
+        const auto hold = [keep](auto& pointer) {
+            if (pointer) keep->emplace_back(pointer.Get());
+        };
+        hold(m_native);
+        hold(m_queue);
+        hold(m_device);
+        for (auto& v : m_allocator) hold(v);
+        for (auto& v : m_list) hold(v);
+        hold(m_generate_allocator);
+        hold(m_generate_list);
+        hold(m_fence);
+        for (auto& v : m_buffers) hold(v);
+        hold(m_generated);
+        for (auto& set : m_phase_outputs) for (auto& v : set) hold(v);
+        for (auto& v : m_snapshots) hold(v);
+        for (auto& v : m_snapshot_allocators) hold(v);
+        for (auto& v : m_snapshot_lists) hold(v);
+        for (auto& v : m_slot_generate_allocators) hold(v);
+        for (auto& v : m_slot_generate_lists) hold(v);
+        (void)m_presenter.release(); // its thread and native chain stay alive
+        log_event(1, "fg: swapchain destroyed with GPU work still in flight; "
+                     "resources retained, not freed, objects=" + std::to_string(keep->size()));
+    } catch (...) {
+    }
 }
 
 void Swapchain::set_generator(const GenerateSink& sink) noexcept

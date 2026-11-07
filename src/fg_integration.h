@@ -84,6 +84,8 @@ public:
 
     bool ready() const noexcept { return m_context.ready(); }
     SessionState state() const noexcept;
+    // True when no submitted GPU work can still reference this session.
+    bool retired() const noexcept;
     Context& context() noexcept { return m_context; }
     const Context& context() const noexcept { return m_context; }
 

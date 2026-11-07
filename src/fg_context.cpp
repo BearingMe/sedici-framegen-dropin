@@ -82,6 +82,10 @@ bool Context::fail(const char* reason) noexcept
 
 bool Context::retired() const noexcept
 {
+    // A removed device executes nothing more, so work recorded or submitted on it
+    // can never be "in flight": without this, destroy was refused forever after
+    // device loss (K38).
+    if (m_device && FAILED(m_device->GetDeviceRemovedReason())) return true;
     if (m_recorded) return false;
     if (!m_retirement_fence) return true;
     const uint64_t completed = m_retirement_fence->GetCompletedValue();

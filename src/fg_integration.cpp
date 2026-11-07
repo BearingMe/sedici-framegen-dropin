@@ -145,6 +145,11 @@ const char* session_state_name(SessionState state) noexcept
     return "unknown";
 }
 
+bool Session::retired() const noexcept
+{
+    return m_stopped || m_context.retired();
+}
+
 SessionState Session::state() const noexcept
 {
     if (m_stopped) return SessionState::Stopped;
@@ -218,8 +223,12 @@ bool Session::destroy() noexcept
     detach();
     (void)m_context.wait_for_retirement(200);
     const bool ok = m_context.destroy();
-    m_draining = false;
-    m_stopped = ok;
+    // A refused destroy (work still in flight) leaves the session Draining: it
+    // keeps refusing new work and the owner must retain it until it retires.
+    if (ok) {
+        m_draining = false;
+        m_stopped = true;
+    }
     return ok;
 }
 

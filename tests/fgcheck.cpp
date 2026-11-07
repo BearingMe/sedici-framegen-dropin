@@ -1498,7 +1498,7 @@ bool check_generated_window(Device& state)
 // generation session bound to it, and generated frames coming out of Sedici's
 // own presentation schedule. Native buffer readback verifies temporal order,
 // current-frame HUD labels, and the actual midpoint image rather than counts.
-bool check_session_window(Device& state)
+bool check_session_window(Device& state, bool loseDevice = false)
 {
     const wchar_t* className = L"SediciFgSession";
     WNDCLASSW wc{};
@@ -1681,6 +1681,35 @@ bool check_session_window(Device& state)
                         static_cast<unsigned long long>(session.context().frames_generated()),
                         static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
                          static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+
+            if (loseDevice && cycle == 1) {
+                // P2.5 device loss: with generation submitted and tracked, remove the
+                // device. Nothing may hang or crash; presenting fails or is a no-op;
+                // retirement must still let the session and wrapper be destroyed
+                // (K38), and the wrapper's teardown must not wait out its timeout.
+                ComPtr<ID3D12Device5> device5;
+                if (FAILED(state.device.As(&device5))) {
+                    std::printf("SKIP device loss: ID3D12Device5 unavailable\n");
+                    return true;
+                }
+                device5->RemoveDevice();
+                const HRESULT afterLoss = handle.swapchain()->Present(1, 0);
+                std::printf("session: present after device removal -> 0x%08lx\n",
+                            static_cast<unsigned long>(afterLoss));
+                const auto begin = std::chrono::steady_clock::now();
+                if (!session.destroy()) {
+                    std::printf("session: destroy refused after device removal: %s\n",
+                                session.context().last_error());
+                    return false;
+                }
+                if (session.state() != sedici::fg::SessionState::Stopped) return false;
+                handle.destroy();
+                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - begin).count();
+                std::printf("session: teardown after device removal took %lld ms\n",
+                            static_cast<long long>(ms));
+                return ms < 3000;
+            }
 
             // Each native image must belong to this cycle. FLIP_SEQUENTIAL
             // preserves these buffers after Present. Exclude the top-left OSD
@@ -1989,8 +2018,9 @@ bool check_window(Device& state)
 int main(int argc, char** argv)
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
-    bool keepImages = false, present = false, routing = false;
+    bool keepImages = false, present = false, routing = false, deviceLoss = false;
     for (int i = 1; i < argc; ++i) {
+        deviceLoss |= std::string(argv[i]) == "--device-loss";
         keepImages |= std::string(argv[i]) == "--images";
         present |= std::string(argv[i]) == "--present";
         routing |= std::string(argv[i]) == "--routing";
@@ -2054,6 +2084,13 @@ int main(int argc, char** argv)
                 kDisplayWidth, kDisplayHeight, kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
+    if (deviceLoss) {
+        // Own process: removing the device ends every later check on it.
+        const bool lost = check_session_window(state, true);
+        std::printf("%s device loss: session and wrapper tear down cleanly after RemoveDevice\n",
+                    lost ? "PASS" : "FAIL");
+        return lost ? 0 : 1;
+    }
     for (const auto& scene : kScenes) {
         ok = run_case(state, scene, keepImages) && ok;
     }

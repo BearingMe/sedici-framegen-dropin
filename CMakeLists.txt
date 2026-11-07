@@ -195,7 +195,9 @@ if(SEDICI_BUILD_FGCHECK)
         add_test(NAME sedici_fgcheck COMMAND sedici_fgcheck)
         add_test(NAME sedici_fgcheck_present COMMAND sedici_fgcheck --present)
         add_test(NAME sedici_fgcheck_routing COMMAND sedici_fgcheck --routing)
-        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing
+        # P2.5: RemoveDevice with generation in flight, in its own process.
+        add_test(NAME sedici_fgcheck_device_loss COMMAND sedici_fgcheck --device-loss)
+        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing sedici_fgcheck_device_loss
             PROPERTIES RUN_SERIAL TRUE TIMEOUT 300 LABELS "fgcheck;gpu")
     endif()
 endif()

@@ -164,6 +164,8 @@ private:
     HRESULT snapshot_real(uint32_t slot) noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
+    // Keeps every GPU object alive after a drain that timed out on a live device.
+    void retain_gpu_state() noexcept;
 
     std::atomic<ULONG> m_refs{1};
     std::mutex m_mutex;

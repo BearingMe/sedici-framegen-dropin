@@ -63,6 +63,46 @@ void log_route(const char* what, const std::string& detail) noexcept
     }
 }
 
+// Owners whose destroy was refused because GPU work was still in flight. Freeing
+// them would release resources the GPU is using, and a timeout is not permission
+// to do that, so they are retained until their work retires and are reaped on a
+// later call. The vector is deliberately leaked: a process that exits with work
+// still stuck must not free it either. Retention is bounded by the number of
+// destroys the game issues while the GPU is stuck; the count is logged.
+std::mutex g_parked_mutex;
+std::vector<Lease>& parked() noexcept
+{
+    static auto* list = new std::vector<Lease>();
+    return *list;
+}
+
+void reap_parked() noexcept
+{
+    try {
+        std::vector<Lease> pending;
+        {
+            std::lock_guard lock(g_parked_mutex);
+            if (parked().empty()) return;
+            pending.swap(parked());
+        }
+        std::vector<Lease> keep;
+        for (Lease& owned : pending) {
+            std::lock_guard call(owned->call);
+            if (owned->session && owned->session->retired()) {
+                (void)owned->session->destroy();
+                log_route("released a retained frame generation context", "");
+            } else {
+                keep.push_back(owned);
+            }
+        }
+        if (!keep.empty()) {
+            std::lock_guard lock(g_parked_mutex);
+            for (Lease& owned : keep) parked().push_back(std::move(owned));
+        }
+    } catch (...) {
+    }
+}
+
 Lease find_owned(void* handle) noexcept
 {
     if (!handle) return nullptr;
@@ -139,6 +179,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 {
     if (!result || !context || !desc) return false;
     if (!routing_enabled()) return false;
+    reap_parked();
 
     const auto* wrap = find_desc<ffxCreateContextDescFrameGenerationSwapChainWrapDX12>(
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12);
@@ -295,6 +336,18 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
             owned->wrap.reset();
         }
     }
+    if (!ok && owned->kind == Kind::Session) {
+        // Not retired: keep the owner (and so its resources) alive.
+        size_t retained = 0;
+        {
+            std::lock_guard lock(g_parked_mutex);
+            parked().push_back(owned);
+            retained = parked().size();
+        }
+        log_route("retaining a frame generation context until GPU work retires, retained=",
+                  std::to_string(retained));
+    }
+    reap_parked();
     // The caller's handle is left exactly as it was: the original DLL does not
     // modify it on destroy, and a game that inspects its own context afterwards
     // must see the same value. The registry entry is gone, so a later call with
