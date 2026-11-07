@@ -33,9 +33,10 @@ Notes for the contracts:
   them, but a bundled copy elsewhere would need them resolvable from its own path.
 - The 25 MB `.rdata` suggests embedded shader blobs, so no external shader files are
   expected next to the DLL. The probe's dependency check will confirm this.
-- Redistribution rights are **not established** by this inspection. The licence for
-  shipping AMD's binary inside Sedici's package must be read from AMD's FidelityFX
-  SDK terms before P2.9; until then Sedici must only ever use the copy already on the
+- Redistribution: this inspection does not establish rights. AMD's SDK licence
+  (`docs/license.md`) lists the signed DLLs under MIT and the owner has accepted
+  responsibility (`NOTICE.md`). Packaging in P2.9 must ship AMD's notice and the
+  unmodified, hash-pinned DLL; until P2.9 Sedici uses only the copy already on the
   user's machine.
 
 ## Runtime evidence (`sedici_amd_probe`, run on the user's machine)
