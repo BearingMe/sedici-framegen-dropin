@@ -39,6 +39,9 @@
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 
+// forward.cpp reports the marker; the DLL defines it in dllmain.cpp, hosts here.
+extern "C" const char g_sedici_proxy_marker[] = "SEDICI_PROXY_V1";
+
 using Microsoft::WRL::ComPtr;
 
 #pragma warning(push)

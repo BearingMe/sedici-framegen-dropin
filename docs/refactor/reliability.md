@@ -139,6 +139,8 @@ reconciliation, not fixed here):
   behaviour (only `allowAsyncWorkloads` in configure), and `sedici_abi async-off`
   checks the README behaviour.
 
+Build: the DLL, `sedici_regression` and `sedici_fgcheck` share one `sedici_core` object library, so tests exercise the same compiled production objects (all 13 CTest entries pass).
+
 Third-party interference: with RTSS running, vrr checks are reported as skipped
 (the wrapper refuses "vrr" under RTSS) and RTSS has drawn its overlay into test
 back buffers, which made the session check fail at frame 0 in every earlier run.

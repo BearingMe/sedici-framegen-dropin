@@ -55,5 +55,5 @@ expected failures are in [reliability.md](reliability.md#current-coverage-and-ga
 | --- | --- | --- | --- |
 | K23 | Offline windows are composed/windowed, never independent-flip fullscreen with VRR, so presentation checks do not represent the game's path; loop timing is dominated by 15.6 ms `Sleep` granularity (an earlier "held to panel pace" claim was this artefact). | Offline checks; finding 009 correction | P2.2 |
 | K24 | RTSS injected into test processes skips the vrr checks and has corrupted readbacks; runs must close it. | Offline checks | P2.2 |
-| K25 | `sedici_fgcheck` compiles a subset of production sources and `sedici_regression` recompiles them; there is no shared production library target. | CMake; [audit](audit.md) | P2.2 |
+| K25 | ~~`sedici_fgcheck` compiles a subset of production sources and `sedici_regression` recompiles them; there is no shared production library target.~~ **Resolved in P2.2:** the DLL, `sedici_regression` and `sedici_fgcheck` all compile one `sedici_core` object library; only `dllmain.cpp`/`exports.def` stay DLL-only. | CMake | P2.2 |
 | K26 | Live cap changes, Save/Cancel and Full-menu input are not driven by any test; the combined session checks Mini only. | [reliability.md](reliability.md#current-coverage-and-gaps-p22-baseline) | P2.2 |
