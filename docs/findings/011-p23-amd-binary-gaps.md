@@ -11,7 +11,7 @@ records the decision and what remains unproven. Nothing here ran in the game.
 | AMD backend technically feasible | GO, using the installed copy pinned by SHA-256 `02297BEE...2F18` (FG 4.0.1.2740, providers 3.1.6 / 3.1.7) |
 | AMD feeds Sedici's presenter | NO. AMD flips on its own thread; two backends, never two schedulers |
 | Seamless mid-session handoff | NO. Takes effect at next swapchain recreation or an explicit quiesce |
-| Bundling AMD's DLL (P2.9) | BLOCKED on a licence review a human must do |
+| Bundling AMD's DLL (P2.9) | UNBLOCKED: AMD's `docs/license.md` lists the signed DLLs under MIT; owner reviewed and accepted responsibility (`NOTICE.md`) |
 
 ## Facts the probe established
 
@@ -28,7 +28,7 @@ records the decision and what remains unproven. Nothing here ran in the game.
 
 | Gap | Why it is open | Closed in |
 | --- | --- | --- |
-| Licence to redistribute the DLL | Terms are not in the file; needs a human to read AMD's FidelityFX SDK licence | Before P2.9 ships the DLL |
+| Licence to redistribute the DLL | Resolved by owner decision. Residual: the file layout is ambiguous about which block covers the DLLs, and the game's 4.0.1.2740 build was not confirmed to match the SDK copy | P2.9 packaging ships AMD's notice and the pinned unmodified DLL |
 | Production-size inputs and cadence | The probe uses a 640x360 synthetic scene | P2.9 / P2.11 acceptance |
 | Overlay composed through AMD's present callback | The probe's callback only copies | P2.8 / P2.9 |
 | Any binary other than the pinned hash | Only one build was run; a different hash needs the probe re-run before enabling | Each AMD update |

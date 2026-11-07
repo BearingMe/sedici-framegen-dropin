@@ -1,8 +1,8 @@
 # P2.3 evidence: the official AMD frame-generation binary
 
 Status: **evidence complete; gate decision recorded below (review pending).**
-Technically feasible with the user's installed copy; **bundling is blocked on a
-licence review** that code cannot settle. Nothing here is
+Technically feasible with the user's installed copy; **bundling was blocked on a
+licence review**; the owner has since reviewed AMD's terms and accepted responsibility (`NOTICE.md`). Nothing here is
 inferred from the vendored 2.4.0 headers.
 
 ## Artifact (static, read-only inspection)
@@ -141,7 +141,7 @@ Evidence record and open gaps: [finding 011](../findings/011-p23-amd-binary-gaps
 | Is an AMD backend technically feasible? | **GO.** Private load, coexistence, create order, callbacks, destruction order, recreation and quiesced replacement are all demonstrated on the real binary. |
 | Can AMD feed Sedici's presenter? | **NO.** AMD flips on its own thread. Sedici keeps two backends and never stacks two schedulers. |
 | Seamless mid-session handoff? | **NO** (not promised). Next swapchain recreation, or explicit quiesce. |
-| Bundling AMD's DLL with Sedici (P2.9) | **BLOCKED.** Redistribution terms are not established; this needs a human to read AMD's FidelityFX SDK licence. Until then the AMD backend may only use the copy already on the user's machine (the game's `.orig`), pinned by hash. |
+| Bundling AMD's DLL with Sedici (P2.9) | **UNBLOCKED by owner decision.** AMD's SDK licence (`docs/license.md`) lists the signed DLLs under MIT; the owner reviewed it and accepted responsibility (see `NOTICE.md`). Packaging must ship AMD's notice and keep the DLL unmodified and hash-pinned. Before that decision the AMD backend may only use the copy already on the user's machine (the game's `.orig`), pinned by hash. |
 | Pin | SHA-256 `02297BEE...2F18` (FG 4.0.1.2740, providers 3.1.6/3.1.7). Any other hash needs the probe re-run before the backend is enabled. |
 
 **Re-estimates.** P2.4: unchanged, but it must include the argument-validation

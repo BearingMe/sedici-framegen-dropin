@@ -359,7 +359,7 @@ or add unexplained failures. Record which gaps remain before starting P2.4.
 **Status:** complete; gate decision recorded in
 [amd-binary.md](docs/refactor/amd-binary.md#gate-decision) (review pending). **GO** for
 an AMD backend using the installed, hash-pinned copy; **NO** to AMD feeding Sedici's
-presenter and to seamless handoff; **bundling blocked** on a licence review. This is a compatibility investigation with a go/no-go gate,
+presenter and to seamless handoff; bundling unblocked by the owner's licence review (`NOTICE.md`). This is a compatibility investigation with a go/no-go gate,
 not just a `LoadLibrary` task. Use a separately obtained/approved official artifact;
 never acquire runtime DLLs automatically during build or test.
 
