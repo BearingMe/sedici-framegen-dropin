@@ -280,7 +280,7 @@ the game.
 | P2.2 Regression and integration coverage | Complete, with accepted gaps | [finding 010](docs/findings/010-p22-coverage-gaps.md), [reliability](docs/refactor/reliability.md) | Menu clicks (P2.6, P2.8), GPU failure injection (P2.5), Save-time failures (P2.6), vrr presenter readback (P2.7), production-resolution performance (P2.11) |
 | P2.3 AMD binary feasibility | Complete; gate decision awaiting owner review | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | Owner review of the gate decision; production-size inputs and overlay through AMD's callback (P2.8, P2.9) |
 | P2.4 Session, context and callback ownership | Complete for the Sedici path | [finding 012](docs/findings/012-p24-ownership.md) | Backend identity and one session object (P2.9), degraded and device-lost states (P2.5), logging state changes (P2.10) |
-| P2.5 GPU submission, frame slots and retirement | Not started | None | Next milestone |
+| P2.5 GPU submission, frame slots and retirement | Complete, with accepted gaps | [finding 013](docs/findings/013-p25-gpu-retirement.md) | Fault injection on a live device (K37, K41); descriptor/scratch retirement revisited with stage 2 |
 | P2.6 Settings transactions and TOML migration | Not started | None | None yet |
 | P2.7 Real-frame admission and output pacing | Not started | None | None yet |
 | P2.8 Composition, overlay and input integration | Not started | None | None yet |
@@ -288,9 +288,9 @@ the game.
 | P2.10 Errors, diagnostics and watchdog hardening | Not started | None | None yet |
 | P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | Needs in-game runs by the owner |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 36 entries): 28 open
-(K1-K24, K26, K32, K35, K36), 1 hazard (K31, AMD does not validate its inputs), 7
-fixed or resolved (K25, K27-K30, K33, K34). Decisions waiting on the owner: how the AMD
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 41 entries): 30 open
+(K1-K24, K26, K32, K35-K37, K41), 1 hazard (K31, AMD does not validate its inputs), 10
+fixed or resolved (K25, K27-K30, K33, K34, K38-K40). Decisions waiting on the owner: how the AMD
 path validates inputs despite "forward everything" (K31), and the text of the
 `AGENTS.md` branch override (K35).
 
@@ -431,7 +431,7 @@ authoritative lifetime/status bookkeeping is removed after its replacement passe
 
 ### P2.5 — Make GPU submission and retirement explicit
 
-**Status:** pending. Treat allocation/descriptor ownership, queue ordering, and
+**Status:** complete with accepted gaps ([finding 013](docs/findings/013-p25-gpu-retirement.md)). Treat allocation/descriptor ownership, queue ordering, and
 resize/shutdown retirement as separate sub-gates with their own failure checks.
 
 - Attach resources, allocator memory, descriptor ranges, scratch, and output images
