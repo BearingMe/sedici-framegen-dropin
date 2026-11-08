@@ -1,7 +1,8 @@
 # Stage 2 feature and model contract
 
-Status: draft for owner review, written for P2.11 (2026-11-08). Nothing here is
-implemented. It fixes the interface a residual network must meet so that adding it
+Status: draft, written for P2.11 (2026-11-08). **Owner decision 2026-11-08: all AI
+integration is postponed until the current system is fully refactored and stable.**
+Nothing here is implemented and no Stage 2 work starts before that. It fixes the interface a residual network must meet so that adding it
 does not reopen Stage 1, the presenter or the retirement rules.
 
 Each item is marked **as built** (taken from the code today), **from the paper**
@@ -106,6 +107,13 @@ Each item is marked **as built** (taken from the code today), **from the paper**
   sections 2-4, tensor layout and quantisation, and a checksum the loader verifies.
 - A weights file that is missing, fails the checksum or declares another contract version
   disables Stage 2 for the session with one log line; it never fails the game call.
+- **Owner decision 2026-11-08 (licence):** use the most open licence that stays aligned
+  with Mob-FGSR's. Mob-FGSR is CC BY-NC 4.0 and has no ShareAlike clause, so Sedici's
+  own original code may carry a more open licence (proposed: MIT, as the vendored
+  Dear ImGui and toml++ are), while everything adapted from Mob-FGSR (the Stage 1
+  shaders, the LUT, and any weights trained on Mob-derived outputs) stays CC BY-NC 4.0
+  with attribution. A binary that contains the adapted parts is therefore
+  noncommercial-only. See NOTICE.md. This is a plan, not legal advice.
 - Origin of any adapted code is recorded in `docs/` before it is vendored: the GFFE
   and STSSNet architecture notes are in `references/papers/`; Mob-FGSR is CC BY-NC 4.0
   (`docs/mobfgsr-attribution.md`), and a trained model derived from its outputs inherits that

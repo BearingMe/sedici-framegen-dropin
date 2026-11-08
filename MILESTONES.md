@@ -589,6 +589,8 @@ check that needed a game run has been moved here so no earlier milestone is bloc
 Reserve real effort for stabilization and acceptance; do not assume this milestone
 is just rerunning an already-green command.
 
+**Owner decision 2026-11-08:** all AI integration (Stage 2) is postponed until the current system is fully refactored and stable. The Stage 2 contract below stays a draft and no Stage 2 code, weights or training start before then.
+
 **Offline part (agent can run):**
 
 - Run the production-boundary combined scenarios in the offline host: generate,

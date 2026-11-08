@@ -75,3 +75,16 @@ Sedici is an independent project. It is not made, endorsed or supported by AMD.
 
 Thank you to AMD for publishing the FidelityFX SDK and its API in the open, and to
 the authors above for sharing their work.
+
+## Licensing plan for Sedici itself (owner decision, 2026-11-08)
+
+The goal is the most open licence that stays aligned with Mob-FGSR's terms.
+
+- Mob-FGSR (CC BY-NC 4.0, no ShareAlike) covers the Stage 1 shaders, the resampling
+  LUT and anything derived from them, including weights trained on their outputs.
+  Those parts stay CC BY-NC 4.0 with attribution (`docs/mobfgsr-attribution.md`).
+- Sedici's own original code is intended to be MIT, like the vendored Dear ImGui and
+  toml++. Files are labelled by licence once the owner confirms the copyright holder
+  name; until then no `LICENSE` file exists and nothing is relicensed.
+- A built DLL contains the Mob-derived parts, so it is distributed noncommercially.
+- Not legal advice; have the split checked before publishing a release.
