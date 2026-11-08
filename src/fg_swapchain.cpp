@@ -46,6 +46,7 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
 {
     if (!result) return E_POINTER;
     *result = nullptr;
+    reap_retained();
     if (!native || !queue || queue->GetDesc().Type != D3D12_COMMAND_LIST_TYPE_DIRECT) return E_INVALIDARG;
     auto* object = new (std::nothrow) Swapchain;
     if (!object) return E_OUTOFMEMORY;
@@ -191,6 +192,59 @@ Swapchain::~Swapchain()
     m_presenter.reset();
     if (m_event) CloseHandle(m_event);
     if (m_pacing_timer) CloseHandle(m_pacing_timer);
+}
+
+namespace {
+std::mutex g_retained_mutex;
+Swapchain* g_retained_head = nullptr; // intrusive: parking never allocates
+std::atomic<unsigned> g_retained_count{0};
+}
+
+bool Swapchain::retirable() const noexcept
+{
+    if (!m_device || FAILED(m_device->GetDeviceRemovedReason())) return true; // nothing can run any more
+    if (FAILED(m_submission_failure)) return false; // untracked work: no token covers it
+    if (m_presenter && m_presenter->outstanding() != 0) return false;
+    return !m_fence || m_fence->GetCompletedValue() >= m_fence_value;
+}
+
+void Swapchain::park() noexcept
+{
+    note_swapchain_retention();
+    if (m_presenter) m_presenter->request_stop();
+    {
+        std::lock_guard lock(g_retained_mutex);
+        m_retained_next = g_retained_head;
+        g_retained_head = this;
+    }
+    g_retained_count.fetch_add(1, std::memory_order_release);
+    try { log_event(1, "fg: swapchain parked after a failed drain; it is released once its GPU work retires"); } catch (...) {}
+}
+
+unsigned Swapchain::retained_now() noexcept { return g_retained_count.load(std::memory_order_acquire); }
+
+void Swapchain::reap_retained() noexcept
+{
+    if (!g_retained_count.load(std::memory_order_acquire)) return;
+    for (;;) {
+        Swapchain* ready = nullptr;
+        {
+            std::lock_guard lock(g_retained_mutex);
+            for (Swapchain** link = &g_retained_head; *link; link = &(*link)->m_retained_next) {
+                if ((*link)->retirable()) {
+                    ready = *link;
+                    *link = ready->m_retained_next;
+                    ready->m_retained_next = nullptr;
+                    break;
+                }
+            }
+        }
+        if (!ready) return;
+        g_retained_count.fetch_sub(1, std::memory_order_release);
+        note_swapchain_release();
+        delete ready; // its fence has retired, so the destructor's drain returns at once
+        try { log_event(1, "fg: a parked swapchain was released after its GPU work retired"); } catch (...) {}
+    }
 }
 
 void Swapchain::retain_gpu_state() noexcept
@@ -705,6 +759,7 @@ HRESULT Swapchain::record_generated() noexcept
 
 HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
 {
+    reap_retained(); // one atomic load unless a timed-out swapchain is parked (K47)
     std::lock_guard lock(m_mutex);
     if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
     if (FAILED(m_submission_failure)) return m_submission_failure;
@@ -1006,7 +1061,14 @@ ULONG STDMETHODCALLTYPE Swapchain::AddRef() { return ++m_refs; }
 ULONG STDMETHODCALLTYPE Swapchain::Release()
 {
     const ULONG refs = --m_refs;
-    if (refs == 0) delete this;
+    if (refs == 0) {
+        const HRESULT drained = drain();
+        if (FAILED(drained) && m_device && SUCCEEDED(m_device->GetDeviceRemovedReason()))
+            park(); // live device, work not retired: keep everything until it is (K47)
+        else
+            delete this;
+        reap_retained();
+    }
     return refs;
 }
 

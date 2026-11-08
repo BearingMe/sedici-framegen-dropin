@@ -45,5 +45,8 @@ void arm_queue_recovery_hook(QueueRecoveryHook hook) noexcept;
 void run_queue_recovery_hook() noexcept;
 void note_swapchain_retention() noexcept;
 unsigned swapchain_retention_count() noexcept;
+// A parked swapchain whose GPU work later retired was destroyed normally (K47).
+void note_swapchain_release() noexcept;
+unsigned swapchain_release_count() noexcept;
 
 } // namespace sedici::fg

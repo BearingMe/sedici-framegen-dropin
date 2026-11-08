@@ -85,6 +85,12 @@ public:
                         Swapchain** result, const PresentChoice* choice = nullptr,
                         ULONG handedRefs = 0) noexcept;
 
+    // K47: a swapchain whose final Release could not drain stays parked, with every
+    // GPU object intact, until its fence retires (or the device is removed); it is
+    // then destroyed normally. Called from Present, Release and wrap. Never blocks.
+    static void reap_retained() noexcept;
+    static unsigned retained_now() noexcept;
+
     // True when "vrr" is active (presenter thread and queue in use).
     bool async_present() const noexcept { return m_presenter != nullptr; }
     // "vrr": flips issued within 2 ms of the previous one (0 without a presenter).
@@ -191,6 +197,11 @@ private:
                    const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
     // Keeps every GPU object alive after a drain that timed out on a live device.
     void retain_gpu_state() noexcept;
+    // True when no GPU work or presenter job can still touch this object. Never
+    // blocks and never takes m_mutex, so a stalled Present cannot hold it up.
+    bool retirable() const noexcept;
+    void park() noexcept;
+    Swapchain* m_retained_next = nullptr;
 
     std::atomic<ULONG> m_refs{1};
     std::mutex m_mutex;

@@ -2818,12 +2818,31 @@ bool check_retention_timeout(Device& state)
             std::chrono::steady_clock::now() - before).count();
         const bool retained = sedici::fg::swapchain_retention_count() == retainedBefore + 1;
         const bool alive = SUCCEEDED(state.device->GetDeviceRemovedReason());
-        (void)gate->Signal(1); // End the stall so the retained work can finish.
         const bool bounded = elapsed >= 4500 && elapsed < 15000;
         std::printf("%s K41: a timed-out drain retains GPU state within the wait bound (%lld ms)\n",
                     remaining == 0 && retained && alive && bounded ? "PASS" : "FAIL",
                     static_cast<long long>(elapsed));
-        return remaining == 0 && retained && alive && bounded && g_debug_errors.load() == 0;
+
+        // K47: while the GPU is still stalled the parked swapchain must stay intact,
+        // however often the reaper runs; once the stall clears it must be destroyed.
+        const unsigned releasedBefore = sedici::fg::swapchain_release_count();
+        for (int i = 0; i < 5; ++i) sedici::fg::Swapchain::reap_retained();
+        const bool heldWhileStalled = sedici::fg::Swapchain::retained_now() == 1 &&
+                                      sedici::fg::swapchain_release_count() == releasedBefore;
+        (void)gate->Signal(1); // End the stall so the retained work can finish.
+        const auto waitStart = std::chrono::steady_clock::now();
+        while (sedici::fg::Swapchain::retained_now() != 0 &&
+               std::chrono::steady_clock::now() - waitStart < std::chrono::seconds(5)) {
+            sedici::fg::Swapchain::reap_retained();
+            Sleep(5);
+        }
+        const bool released = sedici::fg::Swapchain::retained_now() == 0 &&
+                              sedici::fg::swapchain_release_count() == releasedBefore + 1;
+        std::printf("%s K47: a parked swapchain is kept while the GPU is stalled and destroyed once its work retires\n",
+                    heldWhileStalled && released ? "PASS" : "FAIL");
+        const bool healthy = SUCCEEDED(state.device->GetDeviceRemovedReason());
+        return remaining == 0 && retained && alive && bounded && heldWhileStalled && released && healthy &&
+               g_debug_errors.load() == 0;
     }();
     // The window is left alone: the retained chain still references it.
     return ok;

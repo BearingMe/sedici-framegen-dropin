@@ -10,6 +10,17 @@ std::atomic<ContextRecordHook> g_record_hook{nullptr};
 std::atomic<QueueRecoveryHook> g_recovery_hook{nullptr};
 std::atomic<CreationHook> g_creation_hook{nullptr};
 std::atomic<unsigned> g_swapchain_retentions{0};
+std::atomic<unsigned> g_swapchain_releases{0};
+}
+
+void note_swapchain_release() noexcept
+{
+    g_swapchain_releases.fetch_add(1, std::memory_order_relaxed);
+}
+
+unsigned swapchain_release_count() noexcept
+{
+    return g_swapchain_releases.load(std::memory_order_relaxed);
 }
 
 void arm_bookkeeping_fault(BookkeepingFault fault) noexcept
