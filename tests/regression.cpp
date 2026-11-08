@@ -12,6 +12,7 @@
 #include "log.h"
 #include "overlay.h"
 #include "settings_tx.h"
+#include "diag.h"
 #include "settings_io.h"
 #include "ui.h"
 #include "ui_input.h"
@@ -1105,6 +1106,61 @@ void log_sink_checks()
     fs::remove_all(dir, ec);
 }
 
+// K83: a worker blocked in the filesystem must not leave the menu waiting. The block
+// event stands in for the hung call; nothing here touches a real file.
+void settings_io_stall_checks()
+{
+    sedici::settings_io_test_set_stall_ms(300);
+    HANDLE hang = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    sedici::settings_io_test_set_block(hang);
+    const uint64_t stallsBefore = sedici::settings_io_stall_count();
+    check(sedici::settings_io_start_begin(1, 41), "settings I/O: a job starts");
+    check(sedici::settings_io_busy(), "settings I/O: the job is running");
+
+    sedici::SettingsIoCompletion done;
+    bool reported = false;
+    const auto begin = std::chrono::steady_clock::now();
+    while (!reported && std::chrono::steady_clock::now() - begin < std::chrono::seconds(3)) {
+        reported = sedici::settings_io_poll(done);
+        if (!reported) Sleep(10);
+    }
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - begin).count();
+    check(reported && done.stalled && done.viewEpoch == 41 && done.kind == sedici::SettingsIoKind::BeginEdit &&
+          !done.save.message.empty(), "settings I/O: a hung job is reported as stalled with its epoch");
+    check(waited >= 250 && waited < 1500, "settings I/O: the stall is reported after the limit, not before");
+    check(sedici::settings_io_busy() && sedici::settings_io_stalled(),
+          "settings I/O: the worker is still running and is marked stalled");
+    check(!sedici::settings_io_start_begin(2, 42), "settings I/O: no second worker starts beside a stalled one");
+    sedici::SettingsIoCompletion again;
+    check(!sedici::settings_io_poll(again), "settings I/O: the stall is reported once");
+    check(sedici::settings_io_stall_count() == stallsBefore + 1, "settings I/O: the stall is counted");
+    const sedici::DiagSnapshot view = sedici::diag_snapshot();
+    check(view.settings_io_stalls == stallsBefore + 1 && view.settings_io_stalled_now &&
+          sedici::diag_notable_line().find("stalled_now=yes") != std::string::npos,
+          "settings I/O: the diagnostics snapshot shows the stalled worker");
+
+    // The filesystem recovers: the worker ends, its late result is discarded, and a
+    // fresh job runs normally.
+    sedici::settings_io_test_set_block(nullptr);
+    SetEvent(hang);
+    const auto idleStart = std::chrono::steady_clock::now();
+    while (sedici::settings_io_busy() && std::chrono::steady_clock::now() - idleStart < std::chrono::seconds(5))
+        Sleep(5);
+    check(!sedici::settings_io_busy() && !sedici::settings_io_stalled(), "settings I/O: the worker exits once the call returns");
+    check(!sedici::settings_io_poll(again), "settings I/O: the stalled job's late result is discarded");
+    check(sedici::settings_io_start_begin(3, 43), "settings I/O: a new job starts after recovery");
+    bool finished = false;
+    const auto freshStart = std::chrono::steady_clock::now();
+    while (!finished && std::chrono::steady_clock::now() - freshStart < std::chrono::seconds(5)) {
+        finished = sedici::settings_io_poll(again);
+        if (!finished) Sleep(5);
+    }
+    check(finished && !again.stalled && again.viewEpoch == 43, "settings I/O: the new job completes normally");
+    sedici::settings_io_test_set_stall_ms(sedici::kSettingsIoStallMs);
+    CloseHandle(hang);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1148,6 +1204,7 @@ fps = 0
             try { sedici::imgui_assert_failed("injected assertion"); }
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
             log_sink_checks();
+            settings_io_stall_checks();
             limiter_policy_checks();
             limiter_live_checks();
             window_checks();

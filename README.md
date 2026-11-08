@@ -296,6 +296,14 @@ sedici: effective: real-frame limiter off
 prints `sedici: no sedici.toml beside the DLL; using built-in defaults` instead
 of the path line.
 
+## DLL lifetime
+
+A DLL that was loaded but never used unloads normally. Once a game has created a Sedici
+context the DLL pins itself in memory for the rest of the process: its handle namespace,
+any swapchain still waiting for the GPU, and its worker threads all live in the module, so
+`FreeLibrary` becomes a no-op and a reload returns the same module. The log says
+`module pinned in memory` when this happens.
+
 ## Logging
 
 The log is `sedici.log`, beside the deployed DLL. A background thread writes it, so a

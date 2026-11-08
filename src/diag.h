@@ -1,6 +1,7 @@
 #pragma once
 
 #include "log.h"
+#include "settings_io.h"
 
 #include <cstdint>
 #include <string>
@@ -17,6 +18,8 @@ struct DiagSnapshot {
     uint64_t swapchains_parked_total = 0;
     uint64_t swapchains_released_total = 0;
     uint32_t router_owners_parked = 0;   // refused destroys waiting for their work to retire
+    uint64_t settings_io_stalls = 0;     // settings jobs reported as not responding
+    bool settings_io_stalled_now = false;// a reported-stalled worker is still running
 
     // Present timestamps come from the CPU. They are not physical flips and not
     // input-to-photon latency, and Sedici has no source for either.

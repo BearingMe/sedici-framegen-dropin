@@ -121,6 +121,21 @@ struct CallScope {
     }
 };
 
+// Once the process-lifetime token namespace is reserved the module holds state that
+// cannot be unwound by a FreeLibrary: the namespace itself (stale tokens must stay
+// recognisable), parked swapchains and owners whose vtables live in this module, and
+// presenter threads (K47, K48). Pin the module so an unload becomes a no-op and a
+// reload cannot create a second namespace (K64). An unused DLL still unloads normally.
+void pin_module_once() noexcept
+{
+    static std::atomic<bool> pinned{false};
+    if (pinned.exchange(true)) return;
+    HMODULE module = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                           reinterpret_cast<LPCWSTR>(&pin_module_once), &module))
+        log_event(1, "fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)");
+}
+
 std::string call_identity()
 {
     char text[64];
@@ -306,6 +321,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         *result = failure("Sedici handle namespace unavailable or exhausted");
         return true;
     }
+    pin_module_once();
 
     // Allocate owner and registry node before a backend call can consume game
     // resources. The owner approved a local error if this bookkeeping fails.

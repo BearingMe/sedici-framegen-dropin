@@ -668,6 +668,11 @@ void process_settings_io(UiMode mode)
     SettingsIoCompletion completed;
     while (settings_io_poll(completed)) {
         if (mode != UiMode::Full || completed.viewEpoch != g_ui.edit_epoch) continue;
+        if (completed.stalled) {
+            if (completed.kind == SettingsIoKind::BeginEdit) g_ui.snapshot_valid = false;
+            g_ui.save_status = completed.save.message;
+            continue;
+        }
         if (completed.kind == SettingsIoKind::BeginEdit) {
             g_ui.snapshot_valid = completed.beginOk;
             g_ui.save_status = completed.beginOk ? "" : "Cannot edit: file state or settings changed";

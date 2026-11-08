@@ -795,6 +795,67 @@ int run_destroy_inflight(Harness& h)
 }
 
 // ---------------------------------------------------------------------------
+// unload: K64. A DLL that was never used unloads normally. Once Sedici has issued a
+// handle it pins itself: a FreeLibrary is a no-op, a reload returns the same module
+// (so there is never a second handle namespace), stale tokens stay recognised, and
+// the exports keep working.
+// ---------------------------------------------------------------------------
+bool reload_exports(Harness& h)
+{
+    h.proxy = LoadLibraryW((h.dir / kProxyName).c_str());
+    if (!h.proxy) return false;
+    h.ffx.create = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(h.proxy, "ffxCreateContext"));
+    h.ffx.destroy = reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(h.proxy, "ffxDestroyContext"));
+    h.ffx.configure = reinterpret_cast<PfnFfxConfigure>(GetProcAddress(h.proxy, "ffxConfigure"));
+    h.ffx.query = reinterpret_cast<PfnFfxQuery>(GetProcAddress(h.proxy, "ffxQuery"));
+    h.ffx.dispatch = reinterpret_cast<PfnFfxDispatch>(GetProcAddress(h.proxy, "ffxDispatch"));
+    return h.ffx.create && h.ffx.destroy && h.ffx.configure && h.ffx.query && h.ffx.dispatch;
+}
+
+int run_unload(Harness& h)
+{
+    const std::wstring path = (h.dir / kProxyName).wstring();
+    FreeLibrary(h.proxy);
+    expect(GetModuleHandleW(path.c_str()) == nullptr, "a DLL that issued no handle unloads normally");
+    expect(reload_exports(h), "...and loads again");
+    const HMODULE first = h.proxy;
+
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    Rig rig(h, host);
+    expect(rig.create(""), "session up");
+    rig.frames(20, true);
+    rig.check_clean("");
+    rig.destroy("");
+    const ffxContext stale = rig.fg;
+
+    FreeLibrary(h.proxy);
+    FreeLibrary(h.proxy); // over-release must not unload it either
+    expect(GetModuleHandleW(path.c_str()) == first, "once a handle was issued, FreeLibrary no longer unloads the DLL");
+    expect(reload_exports(h) && h.proxy == first, "a reload returns the same module (no second handle namespace)");
+    ffxContext token = stale;
+    expect(h.ffx.destroy(&token, nullptr) == FFX_API_RETURN_ERROR,
+           "a handle issued before the unload attempt is still recognised as stale");
+    uint64_t count = 0;
+    ffxQueryDescGetVersions query{};
+    query.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    query.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    query.outputCount = &count;
+    expect(h.ffx.query(nullptr, &query.header) == FFX_API_RETURN_OK && count == 1, "the exports still answer");
+
+    Rig second(h, host);
+    expect(second.create(" (after reload)"), "a new session works after the unload attempt");
+    second.frames(20, true);
+    second.check_clean(" (after reload)");
+    second.destroy(" (after reload)");
+    expect(host.idle(), "GPU idle");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    expect(count_of(h.log(), "module pinned in memory") == 1, "log: the module was pinned exactly once");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // log-failure: sedici.log cannot be opened (a directory holds its name). The
 // game's calls must be unaffected: a full session still runs clean.
 // ---------------------------------------------------------------------------
@@ -1263,6 +1324,9 @@ scale = 2
         {"log-failure",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"off\"\n", false, run_log_failure, true},
+        {"unload",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n", false, run_unload},
         {"stale-forward",
          "[fg]\nmode = \"sedici\"\npresent = \"game\"\n[ui]\nmode = \"off\"\n",
          true, run_stale_forward},
