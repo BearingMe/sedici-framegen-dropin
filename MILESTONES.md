@@ -290,7 +290,7 @@ the game.
 
 **Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 99 entries): 88 open
 (K1-K24, K26, K29, K32, K35-K37, K39-K93, K98-K99; AMD-only entries among them are listed as obsolete at the end of the file), 2 hazards (K31, K94, both now obsolete), 8
-fixed or resolved (K25, K27, K28, K33, K34, K38, K96, K97; the last two await a commit hash), and 1 retracted claim (K30). Decision waiting on the owner: the text of the
+fixed or resolved (K25, K27, K28, K33, K34, K38, K96, K97; fixed in d95d454), and 1 retracted claim (K30). Decision waiting on the owner: the text of the
 `AGENTS.md` branch override (K35). K31 is obsolete with the AMD path.
 
 | Milestone | Size | Prerequisites |
