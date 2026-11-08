@@ -6,7 +6,7 @@
   retain the implementation history and evidence below. Component-level results
   are not proof that generation, overlay, limiter, and settings work together.
 - **Phase 2:** audit, document, cover, and incrementally rebuild that integration
-  around explicit ownership, a pinned official AMD binary fallback, coherent live
+  around explicit ownership, coherent live
   settings, and useful diagnostics. The first gate is audit/documentation, the
   second is test coverage, and only then does structural migration begin.
 - **Later delivery:** implement and validate residual inference against
@@ -29,9 +29,9 @@ consecutive real frames. GFFE, super-resolution, extrapolation, additional
 multipliers and a training framework are outside this phase.
 
 **Status:** P1.1 baseline recorded ([baseline](docs/findings/007-fg-baseline.md));
-the LUT-backed stage and presentation wrapper have offline coverage. The default
-mode forwards to `.orig`; experimental Sedici mode routes recognized contexts via
-the exports. Later integration and its limitations are recorded in the
+the LUT-backed stage and presentation wrapper have offline coverage. The AMD backend
+was later removed (tag `pre-amd-removal`); Sedici's own generator now answers every
+call through the five exports. Later integration and its limitations are recorded in the
 [P2.1 audit](docs/refactor/audit.md) and findings 008/009. Phase 1 acceptance is
 not implied. Deployment and any agent-driven game launch require separate authorization.
 
@@ -39,7 +39,7 @@ not implied. Deployment and any agent-driven game launch require separate author
 
 | Area | Current state / reference |
 | --- | --- |
-| Five exports and FG ownership | `src/dllmain.cpp`, `src/fg_route.cpp`, `src/forward.cpp`: default `.orig` forwarding or experimental Sedici-owned recognized contexts |
+| Five exports and FG ownership | `src/dllmain.cpp`, `src/fg_route.cpp`, Sedici answers every call (the forwarding path and `src/forward.cpp` were removed) |
 | Pacing and context lifetime | `src/toggles.cpp`: tuning sends, async override and lifetime serialization |
 | Real-frame scheduling | `src/present_hook.cpp`, `src/limiter.cpp`, `src/limiter_schedule.h`: application Present interception and opt-in real-frame limiter |
 | Output and composition | `src/overlay.cpp`, `src/overlay_compose.cpp`: output callback, real/generated timing, back-buffer copy and state restoration |
@@ -251,8 +251,8 @@ work package, not completed acceptance. No milestone below is complete merely
 because its proposed structure has been documented.
 
 **Scope:** retain and validate the analytical implementation while migrating its
-integration. Add an official pinned AMD **binary** backend, not AMD's full source
-implementation. Keep compatibility forwarding distinct from that backend. Prepare
+integration. The AMD backend and compatibility forwarding were removed by owner
+decision (tag `pre-amd-removal`). Prepare
 the HUD-less feature/composition boundary for Stage 2 without claiming to deliver
 the trained residual network in this phase.
 
@@ -271,21 +271,31 @@ describe uncertainty and breadth, **not calendar estimates**:
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
 status, evidence or open items. Last updated: 2026-11-08, branch `refactor/phase-2`;
-this table includes uncommitted working-tree changes. Latest full CTest run after the AMD backend removal: 32 of 32 passed (the AMD probe and the AMD-forwarding ABI scenarios were deleted and a no-original contract scenario added, so the count is not comparable with the earlier 37 of 37). An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded. The only gameplay evidence on this branch is a user-run Alan Wake 2 session that asks for `SwapChainNewDX12` and is refused before any frame (K100, [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)); no frame generation has run in the game since the AMD backend was removed.
+everything below is committed. Latest full CTest run: 34 of 34 passed (offline GPU
+suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
+
+**Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
+evidence only. Every check that needs the game running, a display, or an external
+overlay is collected in P2.11, the last gate, so nothing earlier waits on a game run.
+Milestones list such items as "deferred to P2.11", not as blockers. Evidence on this
+branch from the game: one user-run Alan Wake 2 session that asks for
+`SwapChainNewDX12` and is refused before any frame (K100,
+[finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)). No frame generation
+has run in the game since the AMD backend was removed.
 
 | Milestone | Status | Evidence | Open items |
 | --- | --- | --- | --- |
 | P2.1 Audit and documentation | Complete | [audit](docs/refactor/audit.md) | None |
-| P2.2 Regression and integration coverage | Complete, with accepted gaps | [finding 010](docs/findings/010-p22-coverage-gaps.md), [reliability](docs/refactor/reliability.md) | Menu clicks (P2.6, P2.8), GPU failure injection (P2.5), Save-time failures (P2.6), vrr presenter readback (P2.7), production-resolution performance (P2.11) |
-| P2.3 AMD binary feasibility | Complete; superseded by the owner decision to remove the AMD backend (tag `pre-amd-removal`) | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | Owner review of the gate decision; production-size inputs and overlay through AMD's callback (P2.8, P2.9) |
+| P2.2 Regression and integration coverage | Complete, with accepted gaps | [finding 010](docs/findings/010-p22-coverage-gaps.md), [reliability](docs/refactor/reliability.md) | Offline gaps went to their milestones (P2.5 done, P2.6, P2.7). Deferred to P2.11: menu clicks and cursor path (K36), production-resolution performance |
+| P2.3 AMD binary feasibility | Superseded by the owner decision to remove the AMD backend (tag `pre-amd-removal`) | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | None; kept as reference |
 | P2.4 Session, context and callback ownership | Complete (owner accepted 2026-11-08), with recorded gaps | [finding 012](docs/findings/012-p24-ownership.md), K29, K60, K63, K70, K102 | Accepted gaps: K64 (DLL unload/reload) moved to P2.10; allocation failures inside `Context::create` are not injected; post-transfer rollback, K104 and K105 go to P2.5; K103 documents the deliberate untracked-sink retention |
 | P2.5 GPU submission, frame slots and retirement | Complete (owner accepted 2026-11-08), with recorded gaps | [finding 013](docs/findings/013-p25-gpu-retirement.md), K38, K104, K105, K41 swapchain half | Tested: injected signal/Close/Reset/presenter-submit failures, gated same-queue wrapper/session/registration recovery, swapchain retention timeout (`--retention-timeout`), destroy-wait lock release (K104). Accepted gaps: K37 cross-queue borrowed work and repeated signal failures; K77 consecutive-failure tests; K41 router parking/reaping test; K47 and K48 timeout retention is unbounded (watchdog moves to P2.10); K105 generator-history rollback not done (P2.7) |
-| P2.6 Settings transactions and TOML migration | In progress, not accepted | Uncommitted transaction prototype and regression checks | Worker unload/stall handling and atomic external-edit handling (K43, K83–K86), backend capability and coherent applied acknowledgements (K42, K56, K91–K92), persistence coordination (K80); schema and migration acceptance remain |
-| P2.7 Real-frame admission and output pacing | In progress, initial policy test only | `sedici_fgcheck` ratio boundary regression (K50) | Unified admission/output policy and integrated acceptance still pending; P2.5/P2.6 dependencies remain |
-| P2.8 Composition, overlay and input integration | In progress, initial boundary extraction | `Stage1::synthesize` / `composite_hud`, image tests and chained-callback error regression | Composition remains inside Stage1; HUD-less reset seed (K53), intermittent hotkey timeout (K54), AMD caller-callback/UI-resource gap (K62), dynamic probe input and readback (K90), independent ownership, overlay/input integration and both-backend acceptance are pending |
-| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools; `aw2` was added to `tools/games.json` (K101 log evidence) |
-| P2.10 Errors, diagnostics and watchdog hardening | Not started | None | None yet |
-| P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | Needs in-game runs by the owner |
+| P2.6 Settings transactions and TOML migration | In progress, not accepted | Committed transaction prototype and regression checks (a54073d) | Offline items only: worker unload/stall handling and atomic external-edit handling (K43, K83-K86), coherent applied acknowledgements (K42, K56, K92), persistence coordination (K80), schema and migration with the legacy `fg.mode`/`[pacing]`/`[async]` keys accepted and ignored. K91 (AMD capability rejection) is obsolete |
+| P2.7 Real-frame admission and output pacing | In progress, initial policy test only | `sedici_fgcheck` ratio boundary regression (K50), refused presenter job (K105) | Unified admission/output policy and closed-loop offline tests; K105 generator-history rollback, K51. Deferred to P2.11: measured display cadence, the 20 fps / 2x schedule (K95) and stall (K98, K99) in the game |
+| P2.8 Composition, overlay and input integration | In progress, initial boundary extraction | `Stage1::synthesize` / `composite_hud`, image tests and chained-callback error regression | Offline items: composition still inside Stage1, HUD-less reset seed (K53), independent ownership, overlay/input integration test with injected renderer failure. K62 and K90 are AMD-only and obsolete. Deferred to P2.11: intermittent hotkey timeout (K54), menu clicks (K36), external-overlay compatibility |
+| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools; `aw2` was added to `tools/games.json` (K101 log evidence). Deploy/restore checks are offline |
+| P2.10 Errors, diagnostics and watchdog hardening | Not started | None | Owns the timeout-retention watchdog (K47, K48), DLL unload/reload (K64), K37, K41 router parking and K77 tests moved from P2.4 and P2.5 |
+| P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | The only gate that needs the game: see the in-game checklist in the P2.11 section |
 
 **Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 106 entries): 90 open
 (K1-K24, K26, K29, K32, K36, K37, K39-K69, K71-K93, K95, K98-K101, K103, K105; AMD-only entries among them are listed as obsolete at the end of the file, and K64 is an owner-accepted limitation moved to P2.10), 2 hazards (K31, K94, both now obsolete), 13
@@ -295,21 +305,19 @@ fixed or resolved (K25, K27, K28, K33, K34, K35, K38, K70, K96, K97, K102, K104,
 | --- | --- | --- |
 | P2.1 Audit and documentation | Large | Existing code, findings, refactor proposals |
 | P2.2 Regression and integration coverage | Large | P2.1 contracts and evidence map |
-| P2.3 AMD binary feasibility and fallback contract | Large; uncertainty may expand scope | P2.1, P2.2 test seams |
-| P2.4 Session, context, and callback ownership | Very large | P2.2, relevant P2.3 decisions |
+| P2.3 AMD binary feasibility (superseded) | Large | P2.1, P2.2 test seams |
+| P2.4 Session, context, and callback ownership | Very large | P2.2 |
 | P2.5 GPU submission, frame slots, and retirement | Very large | P2.4 ownership boundary |
 | P2.6 Settings transactions and TOML migration | Very large | P2.1 schema decisions, P2.4 owner |
 | P2.7 Real-frame admission and output pacing | Very large | P2.5 retirement, P2.6 application path |
 | P2.8 Composition, overlay, and input integration | Very large | P2.5-P2.7 contracts |
-| P2.9 Bundled AMD backend and safe packaging | Very large | P2.3 feasibility, P2.4-P2.8 integration |
+| P2.9 Bundled AMD backend and packaging (superseded) | Very large | None |
 | P2.10 Errors, diagnostics, and watchdog hardening | Large; cross-cutting | Contracts begin in P2.1; infrastructure begins in P2.2-P2.4 |
-| P2.11 Integrated acceptance and Stage 2 handoff | Large | P2.4-P2.10 accepted |
+| P2.11 Integrated acceptance and Stage 2 handoff | Large | P2.4-P2.8 and P2.10 accepted offline; owner game runs |
 
 The numbering is a dependency guide, not a reason to postpone all error handling
-until P2.10. Instrument and test each migrated slice as it lands. P2.3 discovery
-may proceed alongside coverage development after P2.1; no production migration
-may bypass the coverage gate. Re-scope dependent work if the binary investigation
-invalidates an assumed interface or presentation model.
+until P2.10. Instrument and test each migrated slice as it lands. No production
+migration may bypass the coverage gate.
 
 For each implementation slice, record the responsibility changing owner, behavior
 preserved, intentional fixes, acceptance evidence, and a safe rollback. Remove the
@@ -323,7 +331,7 @@ algorithms. Separate mechanical moves from behavior changes where practical.
 [current-state evidence and P2.2 handoff](docs/refactor/audit.md). Acceptance awaits
 review. This milestone does not move or fix code.
 
-- Trace both backend paths from the five exports through contexts, callbacks,
+- Trace the backend paths (AMD path since removed) from the five exports through contexts, callbacks,
   prepare/generation, Present, settings, overlay, limiter, and shutdown.
 - Inventory ownership, thread/lock boundaries, outstanding GPU work, public and
   hidden settings, error handling, and test entry points. Identify what tests
@@ -349,7 +357,7 @@ and [the two-stage objective](references/papers/realtime-fg.md).
 
 ### P2.2 — Regression and integration coverage before migration
 
-**Status:** complete, with explicitly accepted gaps. 18 CTest entries pass (12 `abi`
+**Status:** complete, with explicitly accepted gaps (P2.2 baseline: 18 CTest entries; 34 now). 18 CTest entries passed at the time (12 `abi`
 scenarios on the real DLL plus a stub `.orig`, 3 `fgcheck`, regression and two GPU
 overlay checks) on one shared `sedici_core` object library. Baseline, known failures
 and the accepted gaps with their owning milestones are in
@@ -410,9 +418,9 @@ Re-estimate P2.4/P2.8/P2.9 after this gate; stubs cannot establish binary compat
 
 ### P2.4 — Establish session, context, and callback ownership
 
-**Status:** reopened; the earlier completion claim was not established. See K29 and deferred items below (evidence:
-[finding 012](docs/findings/012-p24-ownership.md)). Split this into lookup/identity, lifecycle transitions, and
-callback lifetime sub-gates; it is not a rename of `fg_route` or `fg_integration`.
+**Status:** complete, owner accepted 2026-11-08, with recorded gaps (evidence:
+[finding 012](docs/findings/012-p24-ownership.md)). K64 moved to P2.10; K103 is a
+deliberate design choice.
 
 - Introduce one logical session relating FG contexts, swapchain contexts, backend
   identity, game-facing buffers, and effective status. Keep ABI dispatch thin.
@@ -422,8 +430,7 @@ callback lifetime sub-gates; it is not a rename of `fg_route` or `fg_integration
 - Represent probing, history warmup, active/degraded/suspended operation, draining,
   and stopped/device-lost behavior. Define accepted work and observable results at
   each transition, including partially initialized sessions.
-- Publish coherent backend/FG/status identity on both paths. Never route a handle
-  to a binary or implementation that did not create it.
+- Publish coherent FG/status identity. Reject handles Sedici did not issue.
 
 **Acceptance:** production-path tests cover separate context creation order,
 failed/partial initialization, FG toggles, callback detachment, and destruction.
@@ -432,8 +439,10 @@ authoritative lifetime/status bookkeeping is removed after its replacement passe
 
 ### P2.5 — Make GPU submission and retirement explicit
 
-**Status:** in progress; prior completion claim withdrawn after review ([finding 013](docs/findings/013-p25-gpu-retirement.md)). Treat allocation/descriptor ownership, queue ordering, and
-resize/shutdown retirement as separate sub-gates with their own failure checks.
+**Status:** complete, owner accepted 2026-11-08, with recorded gaps
+([finding 013](docs/findings/013-p25-gpu-retirement.md)). Accepted gaps: K37 cross-queue,
+K77, K41 router parking (all to P2.10), unbounded timeout retention K47/K48 (watchdog,
+P2.10), K105 generator-history rollback (P2.7).
 
 - Attach resources, allocator memory, descriptor ranges, scratch, and output images
   to explicit frame slots and queue-signalled retirement tokens.
@@ -453,7 +462,7 @@ every frame, leaking without bounds, filtering warnings, or ignoring retirement 
 
 ### P2.6 — Implement coherent settings and safe TOML migration
 
-**Status:** in progress; transaction prototype and tests are uncommitted and acceptance remains open (K42–K44, K49). Parsing, live application, UI acknowledgement, and persistence
+**Status:** in progress; the transaction prototype and tests are committed (a54073d) and acceptance remains open (K42–K44, K49). Parsing, live application, UI acknowledgement, and persistence
 are a coordinated change, not a parser cleanup. Agree the schema before switching it.
 
 - Finalize supported user-facing keys, defaults, bounds, units, backend capability,
@@ -467,8 +476,8 @@ are a coordinated change, not a parser cleanup. Agree the schema before switchin
   comment-preserving safe persistence, and non-fatal I/O failure. Keep disk work
   outside output callbacks. Do not add file watching unless separately required.
 - Account explicitly for legacy pacing/async controls, fractional/adaptive output,
-  and environment switches. `fg.mode = "amd"` currently identifies `.orig`; do not
-  silently reinterpret it as the bundled binary or remove opt-outs/defaults.
+  and environment switches. The removed keys (`fg.mode`, `[pacing]`, `[async]`) are
+  accepted and ignored with one log line; do not remove opt-outs/defaults silently.
 
 **Acceptance:** parser, runtime, UI, and persisted values agree under successful,
 rejected, concurrent, and failed-save changes. Unknown/deprecated keys get actionable
@@ -492,10 +501,11 @@ not simply reconnecting the limiter callback.
   omission semantics, and each backend's applicability. Do not silently discard
   existing work or equate planned output rate with physical display cadence.
 
-**Acceptance:** deterministic closed-loop tests and the integrated host cover cap
-changes, FG off/on, overload, stalls, sync policy, and supported output ratios.
-The output rate must not collapse through self-amplifying queue latency. Compare
-measured cadence and CPU/GPU wait costs with a configuration-matched baseline.
+**Acceptance (offline):** deterministic closed-loop tests and the integrated host
+cover cap changes, FG off/on, overload, stalls, sync policy, and supported output
+ratios. The modelled output rate must not collapse through self-amplifying queue
+latency. Measured display cadence and CPU/GPU wait costs against a
+configuration-matched baseline are deferred to P2.11.
 
 ### P2.8 — Separate composition and integrate overlay/input
 
@@ -504,9 +514,8 @@ and window/input ownership; rendering a demo overlay does not complete this work
 
 - Move final HUD composition out of the analytical stage. Preserve an explicit
   HUD-less boundary for residual correction before HUD and Sedici overlay drawing.
-- Render UI on final real/generated outputs through each backend's supported
-  composition contract. Preserve caller callbacks and game UI; do not return
-  success while dropping required composition.
+- Render UI on final real/generated outputs. Preserve caller callbacks and game
+  UI; do not return success while dropping required composition.
 - Give ImGui rendering resources explicit queue/descriptor retirement and thread
   ownership. UI reads status snapshots and submits settings requests only.
 - Preserve hotkey behavior, cursor/clipping ownership, input restoration, coordinate
@@ -515,8 +524,8 @@ and window/input ownership; rendering a demo overlay does not complete this work
 
 **Acceptance:** the combined scenario validates Mini/Full operation, HUD preservation,
 cap/settings changes, resize/window replacement, FG toggles, and renderer failure
-with input returned to the game. Demonstrate both backend integrations; a direct
-`ui_on_present` unit call alone is insufficient.
+with input returned to the host window, in the offline host. A direct `ui_on_present`
+unit call alone is insufficient. Game-side checks are deferred to P2.11.
 
 ### P2.9 — Integrate and package the pinned AMD backend
 
@@ -546,6 +555,9 @@ touch the loader/upscaler; deployment remains separately authorized.
 
 **Status:** pending; cross-cutting. Establish error vocabulary and event identity
 early, emit evidence in every migrated slice, then complete recovery/overhead checks.
+Carries the items accepted as gaps in P2.4 and P2.5: the timeout-retention watchdog
+(K47, K48), DLL unload/reload (K64), K37 cross-queue work, K77 consecutive failures
+and the K41 router parking test. All offline.
 
 - Use typed, checked outcomes with stable codes, underlying API results, session/
   frame/settings identity, and explicit recovery actions. Contain exceptions at
@@ -566,29 +578,44 @@ must not materially create the timing failures it is intended to diagnose.
 
 ### P2.11 — Accept the integrated product and prepare Stage 2
 
-**Status:** pending. Reserve real effort for stabilization and acceptance; do not
-assume the final milestone is just rerunning an already-green command.
+**Status:** pending. This is the only gate that needs the game, a display or an
+external overlay. Everything in P2.1-P2.10 is accepted on offline evidence; every
+check that needed a game run has been moved here so no earlier milestone is blocked.
+Reserve real effort for stabilization and acceptance; do not assume this milestone
+is just rerunning an already-green command.
 
-- Run the production-boundary combined scenarios for both backends: generate,
+**Offline part (agent can run):**
+
+- Run the production-boundary combined scenarios in the offline host: generate,
   open Mini/Full UI, change the cap, save/cancel, resize/replace the window, toggle
-  FG, exercise declared fallback, and destroy with work outstanding.
-- Verify exactly five exports, unchanged compatibility forwarding, preserved HUD,
-  restored input, bounded backlog/retirement, and consistent requested/applied state.
-  Record fixes and remaining limitations rather than hiding failing cases.
+  FG, exercise declared failure paths, and destroy with work outstanding.
+- Verify exactly five exports, drop-in return codes, preserved HUD, restored input,
+  bounded backlog/retirement, and consistent requested/applied state. Record fixes
+  and remaining limitations rather than hiding failing cases.
 - Recheck analytical quality and production-resolution GPU/memory/wait costs.
-  Separate validation-heavy runs from timing acceptance and state configuration
-  differences from historical captures. Paper estimates are not measured budgets.
+  Separate validation-heavy runs from timing acceptance. Paper estimates are not
+  measured budgets.
 - Document the Stage 2 feature/model contract: tensor layout, phase/time conventions,
   color normalization, reset, dimensions/padding, provenance, scratch, and retirement.
   Keep neural execution before HUD; account for activation memory and all frame
   slots, not only model weight size. Training/inference delivery needs its own plan.
-- With explicit deployment authorization, verify packaging/rollback with the game
-  stopped. Any agent-driven game launch requires separate authorization. Perform
-  the agreed focused game acceptance only when authorized; offline checks alone
-  cannot prove display cadence, external-overlay compatibility, or game ABI coverage.
 
-**Phase exit:** each selected backend meets the agreed integrated contract, known
-blockers are resolved or explicitly scope-limited and accepted, and current docs,
-tests, configuration, and diagnostic status tell the same story. Verified old paths
-have been retired where replaced. A clean directory tree, isolated test success,
-or a successful deployment alone does not complete Phase 2.
+**In-game checklist (owner runs; deployment and any launch need explicit authorization,
+and an agent never launches the game):**
+
+| Check | Deferred from | Evidence needed |
+| --- | --- | --- |
+| Cyberpunk 2077: generation runs, no crash, `sedici.log` clean | all | log segment for the current build only (K101) |
+| Alan Wake 2: `SwapChainNewDX12` create is accepted and frames present | K100, [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md) | log plus a short capture |
+| Display cadence: steady output at the target ratio, no 20 fps / 2x collapse | P2.7, K95 | present-interval capture, configuration-matched baseline |
+| Stalls of several seconds (slot rejection, K98) and K99 | P2.7 | log segment and frame-time capture |
+| Intermittent hotkey timeout and key-up (K54) | P2.8 | repeated hotkey runs |
+| Menu clicks and the Full-menu cursor path (K36) | P2.2, P2.8 | foreground-window run |
+| External-overlay compatibility (RTSS and similar), VRR presenter readback | P2.7, P2.8 | runs with and without the overlay |
+| Packaging and rollback with the game stopped | P2.9 | deploy then restore, `.orig` untouched |
+
+**Phase exit:** the selected backend meets the integrated contract, known blockers
+are resolved or explicitly scope-limited and accepted, and current docs, tests,
+configuration, and diagnostic status tell the same story. Verified old paths have
+been retired where replaced. A clean directory tree, isolated test success, or a
+successful deployment alone does not complete Phase 2.
