@@ -84,7 +84,7 @@ The goal is the most open licence that stays aligned with Mob-FGSR's terms.
   LUT and anything derived from them, including weights trained on their outputs.
   Those parts stay CC BY-NC 4.0 with attribution (`docs/mobfgsr-attribution.md`).
 - Sedici's own original code is intended to be MIT, like the vendored Dear ImGui and
-  toml++. Files are labelled by licence once the owner confirms the copyright holder
-  name; until then no `LICENSE` file exists and nothing is relicensed.
+  toml++. The `LICENSE` file (copyright Bruno Ferreira Gomes, 2026) grants MIT for the original
+  code and lists the Mob-derived files and `third_party/` as exclusions.
 - A built DLL contains the Mob-derived parts, so it is distributed noncommercially.
 - Not legal advice; have the split checked before publishing a release.
