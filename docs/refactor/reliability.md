@@ -17,6 +17,14 @@ recoverable operations. Do not require C++23 `std::expected` merely for this ref
 Errors carry stable domain/code, underlying HRESULT/Win32/FFX result where relevant,
 session/frame/operation identity, and the selected recovery action.
 
+**Implementation status (owner decision, 2026-11-08):** the typed error representation
+below is deferred to the upcoming code refactor and is not part of P2.10. Today a failure
+is a literal reason string plus an FFX return code, and a router rejection logs the
+operation and context it refused (K115). When the refactor builds the typed contract it
+follows ordinary C++20 practice: `enum class` domains and codes rather than strings or
+integers, a `[[nodiscard]]` result type, exceptions contained at foreign boundaries,
+RAII for ownership, and no macros or global error state.
+
 Distinguish unsupported capabilities, invalid settings, allocation failures,
 submission failures, retirement timeouts, device removal, and contract violations.
 A late generated frame being dropped is a scheduling outcome, not necessarily an
