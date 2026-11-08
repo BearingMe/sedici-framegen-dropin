@@ -499,10 +499,15 @@ its overlay is injected into test windows (vrr checks are then skipped).
 .\tools\restore.ps1 -Game cp2077
 ```
 
+Game ids in `tools/games.json`: `cp2077` (Cyberpunk 2077) and `aw2` (Alan Wake 2,
+Epic launcher, no `bin\x64` subdirectory).
+
 `deploy.ps1`:
 
 - resolves the game from `tools/games.json` or an explicit `-GamePath`;
-- refuses to run while `Cyberpunk2077.exe` is running;
+- refuses to run while the game's executable is running;
+- resolves Steam library folders automatically; installs outside Steam (for
+  example Epic) come from `installDirHints` or `-GamePath`;
 - never overwrites an existing `.orig` backup (AMD's original DLL, kept only so
   `restore.ps1` can put it back; Sedici itself never loads it);
 - refuses to overwrite a DLL that is not Sedici's;

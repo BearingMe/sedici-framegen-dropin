@@ -271,7 +271,7 @@ describe uncertainty and breadth, **not calendar estimates**:
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
 status, evidence or open items. Last updated: 2026-11-08, branch `refactor/phase-2`;
-this table includes uncommitted working-tree changes. Latest full CTest run after the AMD backend removal: 32 of 32 passed (the AMD probe and the AMD-forwarding ABI scenarios were deleted and a no-original contract scenario added, so the count is not comparable with the earlier 37 of 37). An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded; nothing has run in
+this table includes uncommitted working-tree changes. Latest full CTest run after the AMD backend removal: 32 of 32 passed (the AMD probe and the AMD-forwarding ABI scenarios were deleted and a no-original contract scenario added, so the count is not comparable with the earlier 37 of 37). An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded. The only gameplay evidence on this branch is a user-run Alan Wake 2 session that asks for `SwapChainNewDX12` and is refused before any frame (K100, [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)); no frame generation has run in the game since the AMD backend was removed.
 the game.
 
 | Milestone | Status | Evidence | Open items |
@@ -284,14 +284,14 @@ the game.
 | P2.6 Settings transactions and TOML migration | In progress, not accepted | Uncommitted transaction prototype and regression checks | Worker unload/stall handling and atomic external-edit handling (K43, K83–K86), backend capability and coherent applied acknowledgements (K42, K56, K91–K92), persistence coordination (K80); schema and migration acceptance remain |
 | P2.7 Real-frame admission and output pacing | In progress, initial policy test only | `sedici_fgcheck` ratio boundary regression (K50) | Unified admission/output policy and integrated acceptance still pending; P2.5/P2.6 dependencies remain |
 | P2.8 Composition, overlay and input integration | In progress, initial boundary extraction | `Stage1::synthesize` / `composite_hud`, image tests and chained-callback error regression | Composition remains inside Stage1; HUD-less reset seed (K53), intermittent hotkey timeout (K54), AMD caller-callback/UI-resource gap (K62), dynamic probe input and readback (K90), independent ownership, overlay/input integration and both-backend acceptance are pending |
-| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools |
+| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools; `aw2` was added to `tools/games.json` (K101 log evidence) |
 | P2.10 Errors, diagnostics and watchdog hardening | Not started | None | None yet |
 | P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | Needs in-game runs by the owner |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 99 entries): 88 open
-(K1-K24, K26, K29, K32, K35-K37, K39-K93, K98-K99; AMD-only entries among them are listed as obsolete at the end of the file), 2 hazards (K31, K94, both now obsolete), 8
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 101 entries): 89 open
+(K1-K24, K26, K29, K32, K35-K37, K39-K93, K98-K101; AMD-only entries among them are listed as obsolete at the end of the file), 2 hazards (K31, K94, both now obsolete), 8
 fixed or resolved (K25, K27, K28, K33, K34, K38, K96, K97; fixed in d95d454), and 1 retracted claim (K30). Decision waiting on the owner: the text of the
-`AGENTS.md` branch override (K35). K31 is obsolete with the AMD path.
+`AGENTS.md` branch override (K35). K31 is obsolete with the AMD path. K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
