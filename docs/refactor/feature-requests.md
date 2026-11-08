@@ -8,7 +8,7 @@ milestone. Defects are not listed here; they go to
 
 | ID | Request | Source | Notes | Status |
 | --- | --- | --- | --- | --- |
-| FR-01 | The overlay FPS-limit slider should step in a more useful size. Today it snaps to 0.5 fps, which is too fine to raise the cap by dragging. | Owner, QA-01 ("increases only by 0.5") | Wording is ambiguous: it may also mean "raising only works in 0.5 steps" (that is the bug K118). To confirm with the owner. Likely an input box or +/- buttons next to the slider. | Proposed |
+| FR-01 | The FPS-limit slider must move in clamped 0.5 fps steps (40, 40.5, 41, and so on). Today the handle moves continuously and the value only snaps afterwards, so landing on a specific value by dragging is very hard. | Owner, QA-01 and follow-up 2026-11-08 | Owner clarified the meaning. Same control as K118: build the slider on whole steps (an integer slider over half-fps units) so the handle jumps from step to step, and consider arrow-key and +/- nudging. | Proposed |
 | FR-02 | The FPS limit gets an **Apply** button instead of taking effect while the slider moves. | Owner, QA-01 | Fits the existing Save/Cancel transaction. Apply would set the live cap once; Save would still write the file. Fix K118 in the same change. | Proposed |
 | FR-03 | A script that skips the Cyberpunk 2077 intro videos. | Owner, QA-04 | Outside the DLL. A game-side tool is not frame generation and the project rule is no engine patches. It would be a separate `tools/` script that touches game files or start options, so it needs an owner decision and its own safety rules (back up, restore, never launch the game). | Needs owner decision |
 | FR-04 | Menu scale choices should be 0.8, 0.9 and 1.0 only. Drop 0.75, 0.5 and the values above 1. | Owner, QA-07 ("0.75x scale is already bullshit") | Today the list is 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 (`ui.cpp`, `draw_scale_combo`). Check the owner's high-DPI case first: with `ui.scale = "auto"` larger values may still be needed on 4K. Existing `sedici.toml` values outside the list must still load (snap to the nearest). | Proposed |
@@ -16,5 +16,6 @@ milestone. Defects are not listed here; they go to
 
 ## Not requests, but worth knowing
 
+- **Menus differ per game.** Owner, QA-05: Cyberpunk 2077 does not apply frame generation in its menus, so output falls to the real rate while a menu is open. That explains the generated{shown=0} stretches in the QA-05 log. Not every game behaves like this, so QA-16 records it per game. It is expected behaviour, not a defect.
 - "2x was capped to 73~74 fps" (QA-02, QA-05) matches the 75 Hz refresh. The owner
   suspected anti-lag; QA-05 showed the cap with anti-lag off, so it is not anti-lag.
