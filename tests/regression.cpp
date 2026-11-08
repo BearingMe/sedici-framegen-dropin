@@ -5,6 +5,7 @@
 #include "fg_queue_policy.h"
 #include "fg_slot_policy.h"
 #include "imgui_config.h"
+#include "fg_bookkeeping_faults.h"
 #include "limiter.h"
 #include "limiter_schedule.h"
 #include "live.h"
@@ -785,8 +786,14 @@ void gpu_checks(bool full)
         params.commandList = list.Get();
         params.outputSwapChainBuffer.resource = output.Get();
         params.outputSwapChainBuffer.state = FFX_API_RESOURCE_STATE_RENDER_TARGET;
+        // Full mode only: at frame 9 the renderer fails while drawing. The
+        // overlay must switch itself off and give input back; the frame, the
+        // command list and the GPU stay valid.
+        const bool injected = full && frame >= 9;
+        if (full && frame == 9)
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::OverlayDraw);
         sedici::ui_on_present(&params);
-        check(sedici::live_ui_mode() != sedici::UiMode::Off, "GPU overlay remains enabled");
+        if (!injected) check(sedici::live_ui_mode() != sedici::UiMode::Off, "GPU overlay remains enabled");
         if (FAILED(list->Close())) throw std::runtime_error("close GPU test command list");
         ID3D12CommandList* lists[] = {list.Get()};
         queue->ExecuteCommandLists(1, lists);
@@ -805,6 +812,12 @@ void gpu_checks(bool full)
         }
     }
     CloseHandle(event);
+    if (full) {
+        const bool consumed = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::OverlayDraw);
+        sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+        check(consumed && sedici::live_ui_mode() == sedici::UiMode::Off && !sedici::ui_input_active(),
+              "overlay renderer failure in Full switches the overlay off and releases input");
+    }
     check(device->GetDeviceRemovedReason() == S_OK, "GPU device remains healthy");
     if (messages) {
         bool clean = true;

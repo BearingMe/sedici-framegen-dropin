@@ -785,7 +785,42 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         const bool ok = preserved > 0.95;
         std::printf("%-18s hud preservation %.1f%%\n", config.name, preserved * 100.0);
         if (!ok) std::fprintf(stderr, "HUD layer did not survive compositing\n");
-        return ok;
+        if (!ok) return false;
+
+        // K53: a reset seed emits the real frame, not a HUD-less phase. With a
+        // HUD source the output is the game's own frame; without one, the
+        // HUD-less colour.
+        const auto seedOutput = [&](const sedici::fg::HudSource* source, uint64_t frameId,
+                                    std::vector<uint8_t>& pixels) {
+            if (FAILED(state.allocator->Reset()) ||
+                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            hudConfigure.frameID = frameId;
+            hudPrepare.frameID = frameId;
+            hudPrepare.unused_reset = true;
+            if (!context.configure(&hudConfigure.header) || !context.prepare(&hudPrepare.header)) return false;
+            if (!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, source))
+                return false;
+            state.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+            if (!state.submit() || !context.track_submission(state.fence.Get(), state.fenceValue)) return false;
+            void* data = nullptr;
+            if (FAILED(readback->Map(0, nullptr, &data))) return false;
+            pixels.resize(static_cast<size_t>(kDisplayWidth) * kDisplayHeight * 4);
+            for (uint32_t y = 0; y < kDisplayHeight; ++y) {
+                std::memcpy(pixels.data() + static_cast<size_t>(y) * kDisplayWidth * 4,
+                            static_cast<const uint8_t*>(data) + static_cast<size_t>(y) * outputRowPitch,
+                            static_cast<size_t>(kDisplayWidth) * 4);
+            }
+            readback->Unmap(0, nullptr);
+            return true;
+        };
+        std::vector<uint8_t> seededWithHud, seededWithout;
+        const bool seeded = seedOutput(&hud, kIterations + 1, seededWithHud) &&
+                            seedOutput(nullptr, kIterations + 2, seededWithout);
+        const bool seedOk = seeded && seededWithHud == hudBytes &&
+                            seededWithout == quantise(currentDisplay.color);
+        std::printf("%s %-18s reset seed: the game frame with a HUD source, the HUD-less colour without\n",
+                    seedOk ? "PASS" : "FAIL", config.name);
+        return seedOk;
     }
 
     return true;

@@ -96,6 +96,12 @@ public:
                   D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON,
                   const HudSource* hud = nullptr) noexcept;
 
+    // Reset seed contract (K53). When history is reset or not yet valid there is
+    // no temporal pair, so every output receives the REAL frame: the game's own
+    // final frame (HUD included) when a HudSource is given, otherwise the
+    // HUD-less colour. A seed is therefore not a HUD-less phase, and a future
+    // residual stage must run only on the synthesize() path, never on a seed.
+    //
     // Same, for `count` (1..kMaxPhases) generated frames between the same pair
     // of real frames, each at its own alpha into its own output. The history
     // advances once. On a reset every output receives the real frame.

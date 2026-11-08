@@ -1,5 +1,7 @@
 #include "ui.h"
 
+#include "fg_bookkeeping_faults.h"
+
 #include "config.h"
 #include "config_patch.h"
 #include "settings_tx.h"
@@ -568,6 +570,14 @@ bool ensure_imgui(ID3D12Device* device, DXGI_FORMAT format, HWND hwnd)
     ImGui_ImplDX12_InitInfo info{};
     info.Device = device;
     info.CommandQueue = g_ui.queue.Get();
+    // Retirement of the overlay's GPU resources (P2.8). The backend rotates its
+    // vertex/index buffers over this many frames, and kRtvDescriptors RTVs, with
+    // no fence of its own. That is safe only because draws never overlap: the
+    // presenter waits for each output's copy+draw fence before recording the next
+    // one, and the synchronous path drains the queue at the start of every
+    // Present, so at most two draws (midpoint and real) are outstanding.
+    // A change that lets more than NumFramesInFlight draws be outstanding must
+    // add a fence here first.
     info.NumFramesInFlight = 4;
     info.RTVFormat = format;
     info.DSVFormat = DXGI_FORMAT_UNKNOWN;
@@ -990,7 +1000,8 @@ bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
         D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         command_list->RSSetViewports(1, &viewport);
         command_list->RSSetScissorRects(1, &scissor);
-        if (!backend_draw(draw_data, command_list))
+        if (sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::OverlayDraw) ||
+            !backend_draw(draw_data, command_list))
             disable_overlay("the DX12 backend failed while drawing");
     } catch (...) {
         if (before != D3D12_RESOURCE_STATE_RENDER_TARGET) {

@@ -18,6 +18,7 @@ enum class BookkeepingFault {
     TokenReservation,            // offline test: simulate handle-namespace reservation failure (K29)
     BackendCreation,             // offline test: simulate backend allocation failure before creation (K63)
     PresenterSubmit,             // offline test: simulate a refused presenter job (K105)
+    OverlayDraw,                 // offline test: simulate an overlay renderer failure while drawing
 };
 
 void arm_bookkeeping_fault(BookkeepingFault fault) noexcept;
