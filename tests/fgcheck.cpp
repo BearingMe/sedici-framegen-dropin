@@ -1951,7 +1951,25 @@ bool check_session_window(Device& state, bool loseDevice = false, bool signalFau
                         (void)sessionRecoveryGate->Signal(1);
                         return false;
                     }
-                    const bool firstDestroyRefused = !session.destroy() &&
+                    // K104: while destroy polls its bounded window, other callers of
+                    // the context mutex must not be held for that whole window.
+                    bool destroyRefused = false;
+                    std::atomic<bool> destroyStarted{false};
+                    std::thread destroying([&] {
+                        destroyStarted = true;
+                        destroyRefused = !session.destroy();
+                    });
+                    while (!destroyStarted.load()) std::this_thread::yield();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                    const auto probeStart = std::chrono::steady_clock::now();
+                    (void)session.ready();
+                    const auto probeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - probeStart).count();
+                    destroying.join();
+                    const bool lockFree = probeMs < 60;
+                    std::printf("%s K104: a context call during the destroy wait is not blocked (%lld ms)%c",
+                                lockFree ? "PASS" : "FAIL", static_cast<long long>(probeMs), 10);
+                    const bool firstDestroyRefused = lockFree && destroyRefused &&
                         session.state() == sedici::fg::SessionState::Draining;
                     recoveryTestGate = sessionRecoveryGate.Get();
                     recoveryTestReleased = false;
