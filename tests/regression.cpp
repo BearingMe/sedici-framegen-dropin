@@ -6,6 +6,7 @@
 #include "fg_slot_policy.h"
 #include "imgui_config.h"
 #include "limiter.h"
+#include "limiter_schedule.h"
 #include "live.h"
 #include "log.h"
 #include "overlay.h"
@@ -904,9 +905,70 @@ void limiter_live_checks()
     const uint64_t before = qpc();
     limiter_before_present(qpc());
     const uint64_t after = qpc();
+    // A live rate change resets the schedule: the next frame seeds it and does
+    // not wait out the old interval.
+    sedici::live_set_limiter_fps(10); // 100 ms interval
+    limiter_on_config_changed();
+    limiter_before_present(qpc());    // seeds
+    const uint64_t held0 = qpc();
+    limiter_before_present(qpc());    // waits about one interval
+    const double heldMs = 1000.0 * static_cast<double>(qpc() - held0) / static_cast<double>(frequency.QuadPart);
+    sedici::live_set_limiter_fps(1000);
+    limiter_on_config_changed();
+    const uint64_t reseed0 = qpc();
+    limiter_before_present(qpc());
+    const double reseedMs = 1000.0 * static_cast<double>(qpc() - reseed0) / static_cast<double>(frequency.QuadPart);
+    check(heldMs >= 80.0 && reseedMs < 20.0,
+          "limiter: a live rate change reseeds instead of waiting out the old interval");
     sedici::live_set_limiter_fps(0);
     check(static_cast<double>(after - before) / static_cast<double>(frequency.QuadPart) >= 0.0005,
           "live limiter actually delays Present after silent uncapped startup");
+}
+
+// The deadline decision with controlled time: no clock, no waits.
+void limiter_policy_checks()
+{
+    const uint64_t interval = 100;
+    auto step = sedici::limiter_step(1000, 0, false, interval);
+    check(!step.wait && step.deadline == 1000, "limiter: the first frame seeds the schedule and never waits");
+
+    // Steady cadence: frames arrive early every time; the deadline advances by
+    // exactly one interval, so the average rate is the requested one.
+    uint64_t deadline = step.deadline, waitedTotal = 0, now = 1000;
+    bool exact = true;
+    for (int frame = 0; frame < 1000; ++frame) {
+        now += 40; // the game finishes a frame in 40 ticks
+        const auto next = sedici::limiter_step(now, deadline, true, interval);
+        exact = exact && next.deadline == deadline + interval && next.wait && !next.late;
+        waitedTotal += next.deadline - now;
+        now = next.deadline; // the limiter waits until the deadline
+        deadline = next.deadline;
+    }
+    check(exact && deadline == 1000 + 1000 * interval && waitedTotal == 1000 * 60,
+          "limiter: an early game is held to exactly one interval per frame");
+
+    // A late frame never waits and the schedule catches up without a burst.
+    step = sedici::limiter_step(deadline + interval + 10, deadline, true, interval);
+    check(step.late && !step.wait && !step.reset && step.deadline == deadline + interval,
+          "limiter: a late frame does not wait and keeps the schedule");
+    // More than one full interval late reseeds at now instead of bursting.
+    step = sedici::limiter_step(deadline + 5 * interval, deadline, true, interval);
+    check(step.reset && !step.wait && step.deadline == deadline + 5 * interval,
+          "limiter: a stall of several intervals reseeds the schedule (no catch-up burst)");
+    // Overload: the game is slower than the cap; the limiter never waits.
+    deadline = 5000;
+    bool noWait = true;
+    uint64_t t = 5000;
+    for (int frame = 0; frame < 200; ++frame) {
+        t += 150;
+        const auto next = sedici::limiter_step(t, deadline, true, interval);
+        noWait = noWait && !next.wait;
+        deadline = next.deadline;
+    }
+    check(noWait, "limiter: a game slower than the cap is never delayed");
+    // A zero interval (rate change in flight) degrades to no wait.
+    step = sedici::limiter_step(10, 5, true, 0);
+    check(!step.wait, "limiter: a zero interval never waits");
 }
 } // namespace
 
@@ -950,6 +1012,7 @@ fps = 0
             check(mapped.x == 0 && mapped.y == 0, "negative client coordinates map to the near edge");
             try { sedici::imgui_assert_failed("injected assertion"); }
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
+            limiter_policy_checks();
             limiter_live_checks();
             window_checks();
         }

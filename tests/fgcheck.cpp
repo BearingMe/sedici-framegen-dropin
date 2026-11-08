@@ -1208,6 +1208,28 @@ bool check_pacing()
         uint32_t slowGenerated = 0;
         for (uint32_t frame = 0; frame < 40; ++frame) slowGenerated += schedule.plan(21.0 + frame * 0.055).generated();
         expect(slowGenerated == 0, "adaptive schedule: below 20 real fps shows only real frames");
+        // K95: jitter around 20 real fps must not halve the output. Alternate
+        // 46 ms and 54 ms (average 50 ms) with the fixed 2x ratio.
+        {
+            sedici::fg::OutputSchedule jitter;
+            jitter.set_ratio(2, 1);
+            double t = 40.0;
+            uint32_t frames = 0, generated = 0;
+            for (uint32_t frame = 0; frame < 400; ++frame) {
+                t += (frame % 2 == 0) ? 0.046 : 0.054;
+                const auto step = jitter.plan(t);
+                if (frame >= 20) { ++frames; generated += step.generated() > 0 ? 1u : 0u; }
+            }
+            expect(generated >= frames * 95 / 100,
+                   "2x schedule: jitter averaging 20 real fps still generates for almost every frame");
+            // Steady 60 ms stays real-only, and recovery to 40 ms generates again.
+            jitter.reset();
+            uint32_t slowOnly = 0, recoveredCount = 0;
+            for (uint32_t frame = 0; frame < 100; ++frame) slowOnly += jitter.plan(50.0 + frame * 0.06).generated();
+            for (uint32_t frame = 0; frame < 100; ++frame) recoveredCount += jitter.plan(60.0 + frame * 0.04).generated();
+            expect(slowOnly == 0 && recoveredCount > 90,
+                   "2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation");
+        }
         schedule.set_target(144.0);
         uint32_t worst = 0;
         for (uint32_t frame = 0; frame < 200; ++frame) worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
@@ -2252,6 +2274,16 @@ bool check_routing(Device& state, bool wrapFirst = false)
         const HRESULT hookedPresent = caller->Present(0, 0);
         sedici::fg::route_set_present_hook(nullptr);
         if (FAILED(hookedPresent) || routingHookA != 0 || routingHookB != 1) return false;
+        // K52: a DO_NOT_WAIT present never enters the (sleeping) limiter hook.
+        routingHookB = 0;
+        sedici::fg::route_set_present_hook(&routing_hook_b);
+        const HRESULT nonBlocking = caller->Present(0, DXGI_PRESENT_DO_NOT_WAIT);
+        const bool hookSkipped = routingHookB == 0;
+        const HRESULT waiting = caller->Present(0, 0);
+        sedici::fg::route_set_present_hook(nullptr);
+        if ((FAILED(nonBlocking) && nonBlocking != DXGI_ERROR_WAS_STILL_DRAWING) || !hookSkipped ||
+            FAILED(waiting) || routingHookB != 1) return false;
+        std::puts("PASS K52: a DO_NOT_WAIT present skips the limiter hook and a waiting one runs it");
 
         ffxConfigureDescFrameGeneration configure{};
         configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;

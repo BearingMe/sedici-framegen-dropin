@@ -726,7 +726,9 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     // The limiter caps the game's real frames. This is the one place that sees
     // exactly one call per application frame, so it runs here and not per output
     // frame; the generated midpoint follows whatever the real frame does.
-    if (m_present_hook) m_present_hook(now_ticks());
+    // A DO_NOT_WAIT present must not block (K52); the limiter's cap is a sleep, so
+    // it is skipped for such calls and the frame is simply not capped.
+    if (m_present_hook && !(flags & DXGI_PRESENT_DO_NOT_WAIT)) m_present_hook(now_ticks());
 
     const double now = now_seconds();
     // Test-only A/B: SyncInterval=1 cannot be combined with ALLOW_TEARING.
@@ -879,7 +881,7 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
         if (params->pScrollOffset) { job.hasOffset = true; job.offset = *params->pScrollOffset; }
     }
 
-    if (m_present_hook) m_present_hook(now_ticks());
+    if (m_present_hook && !(flags & DXGI_PRESENT_DO_NOT_WAIT)) m_present_hook(now_ticks());
 
     const double now = now_seconds();
     uint32_t slot = 0;

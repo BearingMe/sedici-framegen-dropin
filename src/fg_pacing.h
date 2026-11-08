@@ -112,6 +112,8 @@ private:
     uint32_t m_index = 0;      // fixed: real frames into the current pattern, 1..denominator
     double m_next_slot = 0.0;  // adaptive: content time of the next grid point
     double m_interval = 0.0;   // recent real-frame interval, for hitch detection
+    double m_last_sample = 0.0; // previous real-frame interval, for the two-sample mean
+    bool m_slow = false;       // smoothed rate below ~20 fps: real frames only (hysteresis)
 };
 
 } // namespace sedici::fg

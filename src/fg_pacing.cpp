@@ -9,6 +9,12 @@ namespace {
 
 constexpr double kMinInterval = 1.0 / 480.0;
 constexpr double kMaxInterval = 1.0;
+// Two-sample mean real-frame interval at which generation stops (just over 50 ms,
+// 20 fps) and resumes (about 21.7 fps), and the largest single interval that
+// may be interpolated across.
+constexpr double kSlowEnter = 0.0505;
+constexpr double kSlowExit = 0.046;
+constexpr double kSampleCap = 0.1;
 
 double clamp_interval(double interval) noexcept
 {
@@ -93,6 +99,8 @@ void OutputSchedule::reset() noexcept
     m_started = false;
     m_interval = 0.0;
     m_index = 0;
+    m_slow = false;
+    m_last_sample = 0.0;
 }
 
 OutputPlan OutputSchedule::plan(double entry) noexcept
@@ -112,8 +120,26 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
         m_interval = m_interval > 0.0 ? 0.9 * m_interval + 0.1 * std::min(interval, 2.5 * m_interval) : interval;
     // Below 20 real fps interpolation would need over 50 ms of extra latency
     // and replays loading stutters (157 ms latency at 14 fps in finding 009):
-    // show real frames only until the rate recovers.
-    const bool continuous = m_started && interval > 1e-4 && interval <= 0.05 && !hitch;
+    // show real frames only until the rate recovers. The cutoff applies to the
+    // mean of the last two intervals with hysteresis: a single sample over 50 ms at an
+    // average near 20 fps used to flip about half of the frames to real-only,
+    // halving the output (K95). One sample over 100 ms is still a discontinuity.
+    // Two-sample mean: reacts within a frame to a genuine slowdown and absorbs
+    // alternating jitter. It needs two consecutive in-range samples; a gap over
+    // 100 ms is a discontinuity and forgets the history.
+    if (!m_started || interval <= 1e-4 || interval > kSampleCap) {
+        m_last_sample = 0.0;
+    } else {
+        if (m_last_sample > 0.0) {
+            const double recent = 0.5 * (interval + m_last_sample);
+            if (recent > kSlowEnter) m_slow = true;
+            else if (recent < kSlowExit) m_slow = false;
+        } else if (interval > 1.1 * kSlowEnter) {
+            m_slow = true; // a lone sample needs a 10% margin to count as slow
+        }
+        m_last_sample = interval;
+    }
+    const bool continuous = m_started && interval > 1e-4 && interval <= kSampleCap && !hitch && !m_slow;
     const double previous = m_previous;
     m_previous = entry;
     m_started = true;
