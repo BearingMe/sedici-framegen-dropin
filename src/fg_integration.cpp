@@ -314,8 +314,20 @@ bool Session::destroy() noexcept
     // Do not hold m_context_mutex while waiting for the wrapper: an in-flight
     // callback holds the wrapper mutex and may need the context mutex.
     detach();
+    // Poll retirement with the context mutex released between looks (K104): the
+    // wrapper's untracked-sink resolution (K103) takes this mutex under the
+    // wrapper mutex, so holding it for the whole window could stall a Present.
+    // New work is already refused (m_draining), so the state cannot advance
+    // except through that registration or the fence completing.
+    const ULONGLONG start = GetTickCount64();
+    for (;;) {
+        {
+            std::lock_guard context(m_context_mutex);
+            if (m_context.retired() || GetTickCount64() - start >= 200) break;
+        }
+        Sleep(1);
+    }
     std::lock_guard context(m_context_mutex);
-    (void)m_context.wait_for_retirement(200);
     const bool ok = m_context.destroy();
     // A refused destroy (work still in flight) leaves the session Draining: it
     // keeps refusing new work and the owner must retain it until it retires.

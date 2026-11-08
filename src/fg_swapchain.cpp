@@ -888,6 +888,7 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     if (FAILED(slotHr)) return slotHr;
     // Planning follows admission so a failed slot wait cannot consume a grid
     // point. `now` remains anchored before the wait, as in the existing path.
+    const OutputSchedule scheduleBefore = m_schedule; // restored if the job is not queued (K105)
     OutputPlan plan = m_schedule.plan(now);
     // Generate every planned phase in one submission. The generator advances
     // its history once per real frame, so a frame with nothing generated to
@@ -925,10 +926,6 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     if (!resolve_untracked_generator()) return m_submission_failure = E_FAIL;
     m_snapshot_fences[slot] = m_fence_value;
 
-    if (m_rate_window_start == 0.0) m_rate_window_start = now;
-    m_rate_window_outputs += plan.count;
-    m_rate_window_generated += plan.generated();
-
     job.real = m_snapshots[slot];
     uint32_t nextPhase = 0;
     for (uint32_t i = 0; i < plan.count; ++i) {
@@ -944,7 +941,15 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     // DO_NOT_WAIT was answered above; the presenter itself must be allowed to wait.
     job.flags = flags & ~static_cast<UINT>(DXGI_PRESENT_DO_NOT_WAIT);
     hr = m_presenter->submit(std::move(job));
-    if (FAILED(hr)) return hr; // Do not advance ownership for an unqueued job (K51).
+    if (FAILED(hr)) {
+        // Do not advance ownership for an unqueued job (K51); the planned content
+        // time is returned to the schedule so a retry does not skip a slot (K105).
+        m_schedule = scheduleBefore;
+        return hr;
+    }
+    if (m_rate_window_start == 0.0) m_rate_window_start = now;
+    m_rate_window_outputs += plan.count;
+    m_rate_window_generated += plan.generated();
     m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
 
     if (++m_present_cycles % 300 == 0) {
