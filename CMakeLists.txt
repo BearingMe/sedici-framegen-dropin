@@ -120,6 +120,11 @@ if(SEDICI_BUILD_TESTS)
     add_test(NAME sedici_settings_sedici_capability COMMAND sedici_regression settings-sedici)
     add_test(NAME sedici_settings_env_priority COMMAND sedici_regression settings-env)
 
+    # Deploy/restore safety rules against a throwaway fake repo and game folder.
+    add_test(NAME sedici_deploy_tools COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+        -File ${CMAKE_SOURCE_DIR}/tests/deploy_check.ps1 -Dll $<TARGET_FILE:sedici> -Repo ${CMAKE_SOURCE_DIR})
+    set_tests_properties(sedici_deploy_tools PROPERTIES TIMEOUT 120 LABELS "packaging")
+
     # Test-only module and isolated host: unlike the proxy, this helper exports
     # one control entry so the host can verify the worker's DLL reference.
     add_library(sedici_settings_worker_stub SHARED
