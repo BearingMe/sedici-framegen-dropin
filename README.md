@@ -260,6 +260,7 @@ affected key falls back to its default, and the call proceeds.
 | one key has an unknown value | that key's default; logged with the value and the allowed set |
 | one key is out of range | that key's default; logged with the constraint |
 | a section is not a table | the whole section ignored; logged once |
+| an unknown section or key (a typo) | ignored; logged with its line |
 | environment value unknown | override ignored, file/default stays; logged |
 | anything unexpected | defaults for keys not yet read; logged |
 
