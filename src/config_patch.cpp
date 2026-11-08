@@ -20,6 +20,7 @@ namespace sedici {
 namespace {
 
 std::atomic<ConfigBeforeReplaceHook> g_before_replace_hook{nullptr};
+std::atomic<ConfigBeforeReplaceHook> g_before_swap_hook{nullptr};
 
 struct Line {
     std::string text;
@@ -296,6 +297,11 @@ void config_arm_before_replace_hook(ConfigBeforeReplaceHook hook) noexcept
     g_before_replace_hook.store(hook, std::memory_order_release);
 }
 
+void config_arm_before_swap_hook(ConfigBeforeReplaceHook hook) noexcept
+{
+    g_before_swap_hook.store(hook, std::memory_order_release);
+}
+
 bool config_save(const std::filesystem::path& path, const ConfigValues& values,
                  std::string& error, const ConfigFileStamp* expectedStamp, bool* conflict,
                  ConfigFileStamp* writtenStamp)
@@ -427,11 +433,53 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             DeleteFileW(temporary.c_str());
             return false;
         }
-        if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            error = "could not replace sedici.toml (error " + std::to_string(GetLastError()) + ")";
-            DeleteFileW(temporary.c_str());
-            return false;
+        if (const ConfigBeforeReplaceHook hook = g_before_swap_hook.exchange(nullptr, std::memory_order_acq_rel))
+            hook();
+        // The window between the check above and the swap cannot be closed without
+        // locking the file against editors. Swap with ReplaceFileW so the file it
+        // displaces is kept; if that is not the baseline we checked, an external
+        // edit slipped in, and it is put back instead of being lost (K43).
+        std::filesystem::path displaced;
+        bool swapped = false;
+        if (initial.exists) {
+            displaced = temporary;
+            displaced += L".prev";
+            swapped = ReplaceFileW(path.c_str(), temporary.c_str(), displaced.c_str(),
+                                   REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
+                                   nullptr, nullptr) != 0;
+        }
+        if (!swapped) {
+            const DWORD replaceError = initial.exists ? GetLastError() : ERROR_FILE_NOT_FOUND;
+            if (initial.exists && replaceError != ERROR_FILE_NOT_FOUND) {
+                error = "could not replace sedici.toml (error " + std::to_string(replaceError) + ")";
+                DeleteFileW(temporary.c_str());
+                return false;
+            }
+            // No file to displace (created or removed meanwhile): plain move.
+            displaced.clear();
+            if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                error = "could not replace sedici.toml (error " + std::to_string(GetLastError()) + ")";
+                DeleteFileW(temporary.c_str());
+                return false;
+            }
+        }
+        if (!displaced.empty()) {
+            if (expectedStamp && !config_same_stamp(config_file_stamp(displaced), *expectedStamp)) {
+                // Restore the external version; our candidate is discarded.
+                if (MoveFileExW(displaced.c_str(), path.c_str(),
+                                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                    if (conflict) *conflict = true;
+                    error = "sedici.toml changed during replacement; the outside edit was kept";
+                } else {
+                    // Could not put it back: leave it beside the file rather than lose it.
+                    if (conflict) *conflict = true;
+                    error = "sedici.toml changed during replacement; the outside edit is kept as " +
+                            displaced.filename().string();
+                }
+                return false;
+            }
+            DeleteFileW(displaced.c_str());
         }
         if (writtenStamp) *writtenStamp = stagedStamp;
         return true;

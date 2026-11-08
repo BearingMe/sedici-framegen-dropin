@@ -48,5 +48,7 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
 // not a DLL export and is never armed in normal runtime.
 using ConfigBeforeReplaceHook = void (*)() noexcept;
 void config_arm_before_replace_hook(ConfigBeforeReplaceHook hook) noexcept;
+// Runs after the final check and before the swap, to force the K43 window.
+void config_arm_before_swap_hook(ConfigBeforeReplaceHook hook) noexcept;
 
 } // namespace sedici

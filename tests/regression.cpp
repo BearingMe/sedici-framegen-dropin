@@ -239,6 +239,36 @@ void settings_checks(const std::filesystem::path& file)
           "settings: an external edit before replacement is detected and preserved");
     (void)settings_cancel_edit();
 
+    // K43: an edit that lands after the final check and before the swap is put
+    // back, not overwritten, and no sibling is left behind.
+    write(file, sameSizeOriginal);
+    check(settings_begin_edit(), "settings: capture baseline before swap race");
+    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 34.0; });
+    settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!settingsIoArrived || !settingsIoResume) throw std::runtime_error("swap race fixture failed");
+    config_arm_before_swap_hook(&pause_settings_io);
+    SaveResult swapRace;
+    std::thread swappingSave([&] { swapRace = settings_save(); });
+    const bool beforeSwap = WaitForSingleObject(settingsIoArrived, 5000) == WAIT_OBJECT_0;
+    bool swapExternal = false;
+    if (beforeSwap) {
+        try { write(file, sameSizeChanged); swapExternal = true; } catch (...) {}
+    }
+    SetEvent(settingsIoResume);
+    swappingSave.join();
+    config_arm_before_swap_hook(nullptr);
+    CloseHandle(settingsIoArrived);
+    CloseHandle(settingsIoResume);
+    settingsIoArrived = settingsIoResume = nullptr;
+    size_t siblings = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(file.parent_path()))
+        if (entry.path().filename().wstring().find(L".sedici-") != std::wstring::npos) ++siblings;
+    check(beforeSwap && swapExternal && !swapRace.ok && swapRace.conflict &&
+              read(file) == sameSizeChanged && siblings == 0,
+          "settings: an external edit between the final check and the swap is restored");
+    (void)settings_cancel_edit();
+
     // An external edit immediately after our replacement must not become the
     // acknowledged baseline for a later save.
     write(file, sameSizeOriginal);

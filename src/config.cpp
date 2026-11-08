@@ -233,6 +233,7 @@ void check_section(const toml::table& root, std::string_view name, std::vector<s
 // ---------------------------------------------------------------------------
 
 void note_removed_keys(const toml::table& root, std::vector<std::string>& notes);
+void note_unknown_keys(const toml::table& root, std::vector<std::string>& problems);
 void read_fg(const toml::table& root, FrameGenerationSettings& fg,
              std::vector<std::string>& problems);
 
@@ -320,6 +321,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
     config.file_parsed = true;
 
     note_removed_keys(root, notes);
+    note_unknown_keys(root, problems);
     read_fg(root, config.fg, problems);
     read_limiter(root, config.limiter, problems, notes);
     read_log(root, config.log, problems);
@@ -346,6 +348,45 @@ void note_removed_keys(const toml::table& root, std::vector<std::string>& notes)
     if (!found.empty())
         notes.push_back("sedici.toml: " + found +
                         " no longer exist (Sedici is the only frame generation backend) - ignored");
+}
+
+// A key or section Sedici does not read is reported with its line, so a typo is
+// not silently ignored. Removed forwarding-era keys have their own note.
+void note_unknown_keys(const toml::table& root, std::vector<std::string>& problems)
+{
+    struct Known { std::string_view section; std::vector<std::string_view> keys; };
+    static const Known known[] = {
+        {"fg", {"present", "multiplier", "target_fps", "tear_guard", "mode"}},
+        {"limiter", {"fps", "spin_us"}},
+        {"log", {"level"}},
+        {"ui", {"hotkey", "mode", "scale"}},
+    };
+    const auto where = [](const toml::node& node) {
+        return "sedici.toml:" + std::to_string(node.source().begin.line) + ": ";
+    };
+    for (auto&& [name, node] : root) {
+        const std::string_view section = name.str();
+        if (section == "pacing" || section == "async") continue; // noted as removed
+        const Known* match = nullptr;
+        for (const auto& k : known)
+            if (k.section == section) match = &k;
+        if (!match) {
+            problems.push_back(where(node) + "unknown " + (node.is_table() ? "section [" : "key ") +
+                               std::string(section) + (node.is_table() ? "]" : "") +
+                               " - ignored (expected [fg], [limiter], [log] or [ui])");
+            continue;
+        }
+        const toml::table* table = node.as_table();
+        if (!table) continue; // a wrong-typed section is reported by its reader
+        for (auto&& [key, value] : *table) {
+            bool found = false;
+            for (const auto& k : match->keys)
+                if (k == key.str()) found = true;
+            if (!found)
+                problems.push_back(where(value) + "unknown key " + std::string(section) + "." +
+                                   std::string(key.str()) + " - ignored");
+        }
+    }
 }
 
 void read_fg(const toml::table& root, FrameGenerationSettings& fg,

@@ -425,6 +425,9 @@ int run_legacy_config(Harness& h)
     const std::string log = h.log();
     expect(log.find("[pacing], [async], fg.mode no longer exist") != std::string::npos,
            "the log names the removed pacing, async and fg.mode keys");
+    expect(log.find("unknown key limiter.sped") != std::string::npos &&
+               log.find("unknown section [hud]") != std::string::npos,
+           "the log names an unknown key and an unknown section with their lines");
     expect(log.find("limiter.fps") != std::string::npos && log.find("= 25") != std::string::npos,
            "supported keys in the legacy file still apply");
     return 0;
@@ -1229,6 +1232,9 @@ mode = "off"
 mode = "amd"
 [limiter]
 fps = 25
+sped = 3
+[hud]
+scale = 2
 )toml",
          true, run_legacy_config},
         {"bad-config", "[fg\nmode = \n", true, run_bad_config},
