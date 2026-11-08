@@ -271,7 +271,7 @@ describe uncertainty and breadth, **not calendar estimates**:
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
 status, evidence or open items. Last updated: 2026-11-08, branch `refactor/phase-2`;
-everything below is committed. Latest full CTest run: 34 of 34 passed (offline GPU
+everything below is committed. Latest full CTest run: 35 of 35 passed (offline GPU
 suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
@@ -293,13 +293,13 @@ has run in the game since the AMD backend was removed.
 | P2.6 Settings transactions and TOML migration | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | Settings transaction and regressions (a54073d), 029ce7b: swap race restore, unknown-key diagnostics, legacy-key migration (`legacy-config`) | Recorded gaps: K83 stalled-I/O reporting and real proxy-DLL unload (P2.10); K43 residual (a write between swap and restore); integrated click-driven UI coverage (K36, P2.11). K56 and K91 are obsolete |
 | P2.7 Real-frame admission and output pacing | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | Schedule tests incl. 20 fps jitter (K95), limiter policy and live-rate reseed with controlled time (K108), `DO_NOT_WAIT` skip (K52), refused presenter job (K105), ratio boundary (K50); commit 3c3fc06 | Recorded gaps: K105 generator history re-advances after a refused job; K74 a failed slot wait consumes one limiter interval; `DO_NOT_WAIT` frames are not capped. Deferred to P2.11: measured display cadence against a baseline, the 20 fps / 2x behaviour in the game (K95), stalls (K98, K99) |
 | P2.8 Composition, overlay and input integration | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | `Stage1::synthesize` / `composite_hud` split, HUD preservation and reset-seed readback (K53), chained-callback error regression, `gpu-mini`/`gpu-full` with window replacement and an injected renderer failure in Full (K109), hotkey scenario; commit 995dc97 | Recorded gaps: composition stays a separate recording step inside `Stage1` (a standalone class waits for the Stage 2 handoff); K16 overlay counters include dropped outputs. Deferred to P2.11: intermittent hotkey timeout (K54), menu clicks and cursor path (K36), external-overlay compatibility |
-| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools; `aw2` was added to `tools/games.json` (K101 log evidence). Deploy/restore checks are offline |
+| P2.9 Bundled AMD backend and packaging | Complete (offline gates met 2026-11-08); the AMD half is superseded by the owner decision to remove the backend | `sedici_deploy_tools` (22 checks of the deploy-safety rules on a fake game folder, 6dd31e0), K110 | Packaging is the proxy DLL, `sedici.toml` and the deploy tools. Recorded gaps: reparse-point refusal is untested (needs elevated rights); `restore.ps1` deletes `sedici.toml` by design (documented in the README); a real install with the game stopped is verified in P2.11 |
 | P2.10 Errors, diagnostics and watchdog hardening | Not started | None | Owns the timeout-retention watchdog (K47, K48), DLL unload/reload (K64), K37, K41 router parking and K77 tests moved from P2.4 and P2.5 |
 | P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | The only gate that needs the game: see the in-game checklist in the P2.11 section |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 109 entries): 66 open
-(K1-K24, K29, K32, K36, K37, K39-K41, K45-K48, K54, K55, K57-K61, K63-K69, K71-K73, K76-K79, K83, K87-K89, K93, K98-K101, K103; AMD-only entries among them are listed as obsolete at the end of the file, and K64 is an owner-accepted limitation moved to P2.10), 2 hazards (K31, K94, both now obsolete), 40
-fixed or resolved (K25, K26, K27, K28, K33, K34, K35, K38, K42-K44, K49, K50-K53, K56, K62, K70, K74, K75, K80-K82, K84-K86, K90-K92, K95, K96, K97, K102, K104-K109; K56 and K91 are obsolete with the AMD path, the P2.6 rows were fixed in a54073d and K43 and K107 in 029ce7b, K52, K95 and K108 in 3c3fc06; K96, K97 and K35 in d95d454, K70 by owner decision, K102 and K106 in b466866, K104 in e912a6f with its test in the next commit), and 1 retracted claim (K30). Decision waiting on the owner: none for the `AGENTS.md` branch override (K35 is resolved). K31 is obsolete with the AMD path. K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 110 entries): 66 open
+(K1-K24, K29, K32, K36, K37, K39-K41, K45-K48, K54, K55, K57-K61, K63-K69, K71-K73, K76-K79, K83, K87-K89, K93, K98-K101, K103; AMD-only entries among them are listed as obsolete at the end of the file, and K64 is an owner-accepted limitation moved to P2.10), 2 hazards (K31, K94, both now obsolete), 41
+fixed or resolved (K25, K26, K27, K28, K33, K34, K35, K38, K42-K44, K49, K50-K53, K56, K62, K70, K74, K75, K80-K82, K84-K86, K90-K92, K95, K96, K97, K102, K104-K110; K56 and K91 are obsolete with the AMD path, the P2.6 rows were fixed in a54073d and K43 and K107 in 029ce7b, K52, K95 and K108 in 3c3fc06; K96, K97 and K35 in d95d454, K70 by owner decision, K102 and K106 in b466866, K104 in e912a6f with its test in the next commit), and 1 retracted claim (K30). Decision waiting on the owner: none for the `AGENTS.md` branch override (K35 is resolved). K31 is obsolete with the AMD path. K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -311,7 +311,7 @@ fixed or resolved (K25, K26, K27, K28, K33, K34, K35, K38, K42-K44, K49, K50-K53
 | P2.6 Settings transactions and TOML migration | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | Settings transaction and regressions (a54073d), 029ce7b: swap race restore, unknown-key diagnostics, legacy-key migration (`legacy-config`) | Recorded gaps: K83 stalled-I/O reporting and real proxy-DLL unload (P2.10); K43 residual (a write between swap and restore); integrated click-driven UI coverage (K36, P2.11). K56 and K91 are obsolete |
 | P2.7 Real-frame admission and output pacing | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | Schedule tests incl. 20 fps jitter (K95), limiter policy and live-rate reseed with controlled time (K108), `DO_NOT_WAIT` skip (K52), refused presenter job (K105), ratio boundary (K50); commit 3c3fc06 | Recorded gaps: K105 generator history re-advances after a refused job; K74 a failed slot wait consumes one limiter interval; `DO_NOT_WAIT` frames are not capped. Deferred to P2.11: measured display cadence against a baseline, the 20 fps / 2x behaviour in the game (K95), stalls (K98, K99) |
 | P2.8 Composition, overlay and input integration | Complete (offline gates met 2026-11-08), with recorded gaps; owner review pending | `Stage1::synthesize` / `composite_hud` split, HUD preservation and reset-seed readback (K53), chained-callback error regression, `gpu-mini`/`gpu-full` with window replacement and an injected renderer failure in Full (K109), hotkey scenario; commit 995dc97 | Recorded gaps: composition stays a separate recording step inside `Stage1` (a standalone class waits for the Stage 2 handoff); K16 overlay counters include dropped outputs. Deferred to P2.11: intermittent hotkey timeout (K54), menu clicks and cursor path (K36), external-overlay compatibility |
-| P2.9 Bundled AMD backend and packaging (superseded) | Very large | None |
+| P2.9 Bundled AMD backend and packaging | Complete (offline gates met 2026-11-08); the AMD half is superseded by the owner decision to remove the backend | `sedici_deploy_tools` (22 checks of the deploy-safety rules on a fake game folder, 6dd31e0), K110 | Packaging is the proxy DLL, `sedici.toml` and the deploy tools. Recorded gaps: reparse-point refusal is untested (needs elevated rights); `restore.ps1` deletes `sedici.toml` by design (documented in the README); a real install with the game stopped is verified in P2.11 |
 | P2.10 Errors, diagnostics, and watchdog hardening | Large; cross-cutting | Contracts begin in P2.1; infrastructure begins in P2.2-P2.4 |
 | P2.11 Integrated acceptance and Stage 2 handoff | Large | P2.4-P2.8 and P2.10 accepted offline; owner game runs |
 
@@ -530,11 +530,12 @@ unit call alone is insufficient. Game-side checks are deferred to P2.11.
 
 ### P2.9 — Integrate and package the pinned AMD backend
 
-> **Superseded.** There is no AMD backend to integrate or package. Packaging reduces to
-> the proxy DLL, `sedici.toml` and the deploy tools. The text below is kept as history.
+> **Superseded in part.** There is no AMD backend to integrate or package, so the text
+> below is history. What remains is packaging the proxy DLL, `sedici.toml` and the deploy
+> tools; that is complete on offline evidence (`sedici_deploy_tools`, K110).
 
-**Status:** pending. P2.3 proves feasibility; this milestone delivers the full backend
-and lifecycle integration, not just a successful binary load.
+**Status:** complete on offline evidence, 2026-11-08 (packaging only; the AMD backend work
+below was never done and is superseded).
 
 - Implement the validated binary adapter, context/callback ownership, capability
   reporting, and the agreed presentation model using the shared runtime services.
