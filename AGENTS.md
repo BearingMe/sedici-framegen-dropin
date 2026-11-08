@@ -2,43 +2,36 @@
 
 ## Project
 
-Sedici is a Windows x64 C++20 proxy DLL named
-`amd_fidelityfx_framegeneration_dx12.dll`. It loads the original as
-`amd_fidelityfx_framegeneration_dx12.dll.orig`, forwards the five `ffx*`
-exports, and on top of that sends one frame-pacing tuning configure that removes
-a measured frame-time tail, plus an optional real-frame limiter. Behaviour is
-driven by `sedici.toml` beside the DLL, with environment overrides.
+Sedici is a Windows x64 C++20 DLL named
+`amd_fidelityfx_framegeneration_dx12.dll`. It is a drop-in replacement for AMD's
+FSR 3.1 frame generation: the game loads it instead of AMD's DLL and Sedici's own
+frame generation answers every call. There is no AMD backend and the original DLL
+is never loaded. Behaviour is driven by `sedici.toml` beside the DLL, with
+environment overrides. The real-frame limiter is optional.
 
 ## Hard rules
 
-- **Forward everything.** Every argument, return value and timing passes through
-  unchanged. The only permitted behaviour changes are the three documented ones:
-  the frame pacing tuning send (`pacing.mode`), the async-workload rewrite
-  (`async.mode`) and the real-frame limiter (`limiter.fps`, which deliberately
-  delays Present). All must be inert when configured off. Do not "fix" anything
-  else, including unknown descs, return codes, or swapchain behaviour.
-- Only change behaviour when a milestone explicitly says so. Milestone 1 is the
-  pacing fix; milestone 2 adds the real-frame limiter. The pacing fix is on by
-  default; the limiter is off by default. Both must remain fully opt-out.
+- **Stay a drop-in replacement.** The DLL name, the five `ffx*` exports (exactly
+  five, no helper exports), the descriptor types and fields, the swapchain
+  behaviour and the return codes must match what a game built against FSR 3.1
+  frame generation expects. A call Sedici does not implement gets a defined FFX
+  error code and a log line; it never crashes the host and is never sent to
+  another DLL. Record the code chosen for each such case in the README and do not
+  change one without saying why.
 - Never fail a game call because of Sedici's own bookkeeping. Configuration
-  errors, a rejected tuning and logging failures are all non-fatal.
-- **Owner-approved descriptor-copy exception, conditional:** for a recognized
-  FFX configure descriptor, a writable copy may be passed only when an async or
-  overlay rewrite is needed, and only after the relevant backend’s descriptor
-  lifetime has been verified. With no rewrite, forward the original pointer.
-  Unknown descriptor chains remain subject to the original forwarding rule.
-- **Owner-approved context-identity exception:** Sedici-owned FG context handles may
-  use a finite, process-lifetime reserved token namespace. Reserve the namespace
-  before backend creation; if it cannot be reserved or is exhausted, reject that
-  Sedici-owned create before consuming game resources. Assume foreign FFX handles
-  do not use values in the reserved namespace. Never reuse issued tokens, and
-  continue forwarding foreign values outside the namespace. This exception does not
-  authorize other bookkeeping failures or change the AMD forwarding path.
-- **Owner-approved create-allocation exception:** if routing-owner, routing-registry,
-  or wrapper-registry bookkeeping allocation fails before any native swapchain
-  ownership transfer, Sedici may return a non-fatal local create error. It must not
-  forward just that context to AMD, because another context may already be owned by
-  Sedici. This does not authorize a failure after consuming the native chain.
+  errors, a malformed `sedici.toml` and logging failures are all non-fatal.
+  The exceptions below are the only bookkeeping failures that may return an error.
+- The real-frame limiter (`limiter.fps`) is off by default and fully opt-out.
+- **Owner-approved context-identity exception:** Sedici FG context handles use a
+  finite, process-lifetime reserved token namespace. Reserve the namespace before
+  backend creation; if it cannot be reserved or is exhausted, reject that create
+  before consuming game resources. Assume foreign FFX handles do not use values in
+  the reserved namespace. Never reuse issued tokens. This exception does not
+  authorize other bookkeeping failures.
+- **Owner-approved create-allocation exception:** if routing-owner,
+  routing-registry, or wrapper-registry bookkeeping allocation fails before any
+  native swapchain ownership transfer, Sedici may return a non-fatal local create
+  error. This does not authorize a failure after consuming the native chain.
 - **Owner-approved Present1 metadata exception:** if Sedici cannot allocate its
   owned copy of variable-size Present1 dirty-rectangle/scroll metadata, it may
   return a local error before limiter admission, schedule advancement or GPU
@@ -69,19 +62,15 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
 
-### Branch override: `experiment/cobalt-otter`
+### History: the AMD backend was removed
 
-This branch replaces AMD's frame generation with Sedici's own, so
-`Forward everything` does not apply to the frame-generation path. The override is
-narrow:
-
-- Everything Sedici does not implement is still forwarded byte-for-byte.
-- The FG path must reproduce AMD's observable contract: same DLL name, the same
-  five exports, the same desc types and fields, the same swapchain behaviour and
-  return codes. A game built against FSR 3.1 frame generation must not be able to
-  tell which implementation it is talking to.
-- Pacing, limiter and overlay must keep working on top of the new path.
-- Every other rule on this page still applies unchanged.
+Sedici began as a pass-through proxy with a "forward everything" rule, then gained
+its own frame generation behind an opt-in `fg.mode`. The owner then decided to
+remove the AMD backend entirely, provided Sedici stays a drop-in replacement. The
+forwarding rule, the pacing tuning send, the async rewrite, descriptor-copy
+staging and the AMD probe are gone. The tag `pre-amd-removal` is the last commit
+that has them. Findings and `docs/refactor/amd-binary.md` stay as reference for
+what AMD's binary did; do not delete them.
 
 ## Experiment: two-stage frame generation
 
@@ -126,10 +115,9 @@ recording the origin commit, and do not build them into the DLL.
   generation only.
 - Generated frames must come out of Sedici's own swapchain wrapper so that
   `Present`, pacing and overlay keep a single, well-defined place to attach.
-- When the new path is disabled, fails to initialize, gets an unsupported
-  desc/format, or the GPU rejects a resource, Sedici falls back to the existing
-  forward-to-`.orig` behaviour and logs it. A game call must never fail because
-  the new path is unavailable.
+- When the generator fails to initialize, gets an unsupported desc/format, or the
+  GPU rejects a resource, Sedici returns a defined error for that call and logs
+  it. There is no fallback implementation. A failure must never crash the host.
 
 **Execution plan.** Follow [MILESTONES.md](MILESTONES.md), the source of truth for
 experiment delivery. Phase 1 ships Mob-FGSR at 1080p with custom scheduling and
@@ -155,16 +143,15 @@ alone.
 ## Layout
 
 - `MILESTONES.md` — experiment phases, acceptance gates and implementation references.
-- `src/dllmain.cpp` — the five exports; loads lazily and forwards.
-- `src/forward.*` — `LoadLibraryExW` + `GetProcAddress` for the `.orig`.
+- `src/dllmain.cpp` — the five exports; each call is answered by the router.
+- `src/fg_route.*`, `src/fg_integration.*`, `src/fg_context.*` — handle tokens and
+  ownership, the session that binds a context to a wrapped swapchain, and the
+  frame generation context.
 - `src/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
-- `src/toggles.*` — the pacing and async behaviour switches, per-context pacing
-  state, and the frame-generation-active label used by the limiter.
 - `src/describe.*` — desc-chain walking and per-type logging.
-- `src/present_hook.*` — optional `Present`/`Present1` vtable hook.
-- `src/overlay.*` — FFX frame-generation present callback: records output
-  cadence and performs AMD's back-buffer copy when no separate UI is registered.
+- `src/overlay.*` — output cadence recording and the overlay draw hooks the
+  swapchain wrapper calls for each presented frame.
 - `src/overlay_compose.*` — the DX12 copy and resource-state restoration used by
   that callback.
 - `src/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live

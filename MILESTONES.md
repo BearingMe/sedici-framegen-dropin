@@ -271,28 +271,27 @@ describe uncertainty and breadth, **not calendar estimates**:
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
 status, evidence or open items. Last updated: 2026-11-08, branch `refactor/phase-2`;
-this table includes uncommitted working-tree changes. Latest full CTest run: 37 of 37 passed, including explicit K9/K87 expected failures. An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded; nothing has run in
+this table includes uncommitted working-tree changes. Latest full CTest run after the AMD backend removal: 32 of 32 passed (the AMD probe and the AMD-forwarding ABI scenarios were deleted and a no-original contract scenario added, so the count is not comparable with the earlier 37 of 37). An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded; nothing has run in
 the game.
 
 | Milestone | Status | Evidence | Open items |
 | --- | --- | --- | --- |
 | P2.1 Audit and documentation | Complete | [audit](docs/refactor/audit.md) | None |
 | P2.2 Regression and integration coverage | Complete, with accepted gaps | [finding 010](docs/findings/010-p22-coverage-gaps.md), [reliability](docs/refactor/reliability.md) | Menu clicks (P2.6, P2.8), GPU failure injection (P2.5), Save-time failures (P2.6), vrr presenter readback (P2.7), production-resolution performance (P2.11) |
-| P2.3 AMD binary feasibility | Complete; gate decision awaiting owner review | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | Owner review of the gate decision; production-size inputs and overlay through AMD's callback (P2.8, P2.9) |
+| P2.3 AMD binary feasibility | Complete; superseded by the owner decision to remove the AMD backend (tag `pre-amd-removal`) | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | Owner review of the gate decision; production-size inputs and overlay through AMD's callback (P2.8, P2.9) |
 | P2.4 Session, context and callback ownership | Reopened; acceptance not established | [finding 012](docs/findings/012-p24-ownership.md), K29 | Token reservation and DLL unload/reload (K29, K57, K64), internal backend allocation and rollback (K63), hook, callback and descriptor lifetimes (K60, K65, K67–K70, K87–K88; AMD pointer-retention contract not fully established), backend/session identity and lifecycle acceptance remain |
 | P2.5 GPU submission, frame slots and retirement | In progress; prior completion claim withdrawn | [finding 013](docs/findings/013-p25-gpu-retirement.md) | Retirement, timeout and session-recovery hazards (K37, K41, K45–K48, K66); injected signal/Close/Reset checks and gated same-queue wrapper/session/registration recovery pass, acceptance not met |
 | P2.6 Settings transactions and TOML migration | In progress, not accepted | Uncommitted transaction prototype and regression checks | Worker unload/stall handling and atomic external-edit handling (K43, K83–K86), backend capability and coherent applied acknowledgements (K42, K56, K91–K92), persistence coordination (K80); schema and migration acceptance remain |
 | P2.7 Real-frame admission and output pacing | In progress, initial policy test only | `sedici_fgcheck` ratio boundary regression (K50) | Unified admission/output policy and integrated acceptance still pending; P2.5/P2.6 dependencies remain |
 | P2.8 Composition, overlay and input integration | In progress, initial boundary extraction | `Stage1::synthesize` / `composite_hud`, image tests and chained-callback error regression | Composition remains inside Stage1; HUD-less reset seed (K53), intermittent hotkey timeout (K54), AMD caller-callback/UI-resource gap (K62), dynamic probe input and readback (K90), independent ownership, overlay/input integration and both-backend acceptance are pending |
-| P2.9 Bundled AMD backend and packaging | Not started | None | Licence no longer a blocker (owner decision, [NOTICE](NOTICE.md)) |
+| P2.9 Bundled AMD backend and packaging | Superseded | None | The AMD backend is removed; packaging reduces to the proxy DLL, `sedici.toml` and the deploy tools |
 | P2.10 Errors, diagnostics and watchdog hardening | Not started | None | None yet |
 | P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | Needs in-game runs by the owner |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 95 entries): 86 open
-(K1-K24, K26, K29, K32, K35-K37, K39-K93), 2 hazards (K31, K94), 6
-fixed or resolved (K25, K27, K28, K33, K34, K38), and 1 retracted claim (K30). Decisions waiting on the owner: how the AMD
-path validates inputs despite "forward everything" (K31), and the text of the
-`AGENTS.md` branch override (K35).
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 99 entries): 88 open
+(K1-K24, K26, K29, K32, K35-K37, K39-K93, K98-K99; AMD-only entries among them are listed as obsolete at the end of the file), 2 hazards (K31, K94, both now obsolete), 8
+fixed or resolved (K25, K27, K28, K33, K34, K38, K96, K97; the last two await a commit hash), and 1 retracted claim (K30). Decision waiting on the owner: the text of the
+`AGENTS.md` branch override (K35). K31 is obsolete with the AMD path.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -382,6 +381,10 @@ not silently skipped or relabeled green. Migration cannot regress protected beha
 or add unexplained failures. Record which gaps remain before starting P2.4.
 
 ### P2.3 — Investigate the official AMD binary and fallback boundaries
+
+> **Superseded.** The owner removed the AMD backend (tag `pre-amd-removal` has the last
+> code that used it). The investigation and its evidence stay as reference; nothing below
+> is an open requirement.
 
 **Status:** complete; gate decision recorded in
 [amd-binary.md](docs/refactor/amd-binary.md#gate-decision) (review pending). **GO** for
@@ -518,6 +521,9 @@ with input returned to the game. Demonstrate both backend integrations; a direct
 `ui_on_present` unit call alone is insufficient.
 
 ### P2.9 — Integrate and package the pinned AMD backend
+
+> **Superseded.** There is no AMD backend to integrate or package. Packaging reduces to
+> the proxy DLL, `sedici.toml` and the deploy tools. The text below is kept as history.
 
 **Status:** pending. P2.3 proves feasibility; this milestone delivers the full backend
 and lifecycle integration, not just a successful binary load.

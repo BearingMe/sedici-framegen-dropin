@@ -10,6 +10,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -37,6 +38,10 @@ struct Owned {
     std::unique_ptr<WrapHandle> wrap;
     std::mutex call;
     bool dead = false;
+    // What the game last asked for, so the limiter and the menu can say whether
+    // frame generation is on without reaching into a session another thread may
+    // be using.
+    std::atomic<bool> generation_on{false};
     // Intrusive retention needs no allocation after GPU retirement fails.
     std::shared_ptr<Owned> parked_self;
     Owned* parked_next = nullptr;
@@ -178,14 +183,19 @@ bool failure_result(ffxReturnCode_t* result, const char* reason) noexcept
 
 } // namespace
 
-bool routing_enabled() noexcept
-{
-    return sedici::settings().fg.mode == sedici::FrameGenerationMode::Sedici;
-}
-
 bool route_is_sedici_token(ffxContext* context) noexcept
 {
     return context && *context && is_issued_token(*context);
+}
+
+bool route_any_generation_enabled() noexcept
+{
+    std::lock_guard lock(g_owned_mutex);
+    for (const auto& entry : g_owned)
+        if (entry.second && entry.second->kind == Kind::Session &&
+            entry.second->generation_on.load(std::memory_order_relaxed))
+            return true;
+    return false;
 }
 
 void route_set_output_hooks(const OutputHooks& hooks) noexcept
@@ -233,7 +243,6 @@ void route_set_present_hook(void (*hook)(uint64_t)) noexcept
 bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !desc) return false;
-    if (!routing_enabled()) return false;
     reap_parked();
 
     const auto* wrap = find_desc<ffxCreateContextDescFrameGenerationSwapChainWrapDX12>(
@@ -356,8 +365,15 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
         *result = FFX_API_RETURN_OK;
         return true;
     }
-    *result = owned->session->configure(desc) ? FFX_API_RETURN_OK
-                                              : failure(owned->session->last_error());
+    const bool configured = owned->session->configure(desc);
+    if (configured) {
+        const auto* modern = find_desc<ffxConfigureDescFrameGeneration>(
+            desc, FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
+        const auto* legacy = find_desc<FfxFrameGenerationConfig>(desc, FFX_API_FRAME_GENERATION_CONFIG);
+        if (modern) owned->generation_on.store(modern->frameGenerationEnabled, std::memory_order_relaxed);
+        else if (legacy) owned->generation_on.store(legacy->frameGenerationEnabled, std::memory_order_relaxed);
+    }
+    *result = configured ? FFX_API_RETURN_OK : failure(owned->session->last_error());
     return true;
 }
 
@@ -385,19 +401,59 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
     return true;
 }
 
+// GetVersions is answered without a context: the game asks before it creates
+// anything. The ids and names are the providers the original AMD binary reported
+// for the same create descriptor types (docs/refactor/amd-binary.md); Sedici
+// reports exactly one version for each recognised type so a game that enumerates
+// versions sees the same shape it saw before.
+struct ProviderVersion {
+    uint64_t createDescType;
+    uint64_t id;
+    const char* name;
+};
+
+constexpr ProviderVersion kProviderVersions[] = {
+    {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, 0xf600000000c01006ull, "3.1.6"},
+    {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+};
+
+bool route_get_versions(const ffxQueryDescGetVersions& query, ffxReturnCode_t* result) noexcept
+{
+    const ProviderVersion* found = nullptr;
+    for (const ProviderVersion& version : kProviderVersions)
+        if (version.createDescType == query.createDescType) found = &version;
+    if (!found) {
+        *result = FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE;
+        return true;
+    }
+    if (!query.outputCount) {
+        *result = FFX_API_RETURN_ERROR_PARAMETER;
+        return true;
+    }
+    const uint64_t capacity = *query.outputCount;
+    *query.outputCount = 1;
+    if (capacity >= 1) {
+        if (query.versionIds) query.versionIds[0] = found->id;
+        if (query.versionNames) query.versionNames[0] = found->name;
+    }
+    *result = FFX_API_RETURN_OK;
+    return true;
+}
+
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
-    if (!result || !context || !*context) return false;
+    if (!result) return false;
+    if (desc && desc->type == FFX_API_QUERY_DESC_TYPE_GET_VERSIONS)
+        return route_get_versions(*reinterpret_cast<const ffxQueryDescGetVersions*>(desc), result);
+    if (!context || !*context) return false;
     const Lease owned = find_owned(*context);
     if (!owned) return is_issued_token(*context)
         ? failure_result(result, "query on a destroyed context") : false;
     if (!desc) return failure_result(result, "null descriptor on a Sedici-owned context");
 
-    // The recorded Cyberpunk contract does not establish which queries the game
-    // issues, and a wrong answer is worse than an honest refusal. Answering
-    // nothing is deliberate: it is logged so the first game session can name the
-    // exact queries to implement.
-    (void)desc;
+    // The recorded Cyberpunk contract does not establish which other queries the
+    // game issues, and a wrong answer is worse than an honest refusal. It is
+    // logged so a game session can name the exact queries to implement.
     *result = failure("unimplemented query on a Sedici-owned context");
     return true;
 }

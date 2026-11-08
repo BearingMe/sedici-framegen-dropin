@@ -47,9 +47,7 @@ endforeach()
 # Everything except the five exports lives in one object library, so the DLL and
 # every test host compile the same production objects (no private source lists).
 add_library(sedici_core OBJECT
-    src/forward.cpp
     src/describe.cpp
-    src/present_hook.cpp
     src/stats.cpp
     src/limiter.cpp
     src/overlay.cpp
@@ -61,7 +59,6 @@ add_library(sedici_core OBJECT
     src/ui.cpp
     src/ui_input.cpp
     src/config_patch.cpp
-    src/toggles.cpp
     src/config.cpp
     src/log.cpp
     src/fg_params.cpp
@@ -166,7 +163,7 @@ if(SEDICI_BUILD_TESTS)
     add_dependencies(sedici_abi sedici sedici_abi_stub)
     set_target_properties(sedici_abi PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    foreach(scenario IN ITEMS exports forward pacing async-off readonly-async readonly-overlay readonly-sedici missing-orig bad-config session
+    foreach(scenario IN ITEMS exports contract legacy-config readonly-sedici bad-config session
             window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward)
         add_test(NAME sedici_abi_${scenario}
             COMMAND sedici_abi ${scenario} $<TARGET_FILE:sedici> $<TARGET_FILE:sedici_abi_stub>)
@@ -176,29 +173,6 @@ if(SEDICI_BUILD_TESTS)
     foreach(scenario IN ITEMS session window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward readonly-sedici)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")
     endforeach()
-
-    # P2.3: drives an operator-supplied copy of the official AMD binary. The
-    # path is never fetched by the build; without it no test is registered.
-    add_executable(sedici_amd_probe tests/amd_probe.cpp $<TARGET_OBJECTS:sedici_core>)
-    target_include_directories(sedici_amd_probe PRIVATE
-        third_party/ffx/api/include
-        third_party/ffx/api/include/dx12
-        third_party/ffx/framegeneration/include
-        third_party/ffx/framegeneration/include/dx12)
-    target_compile_definitions(sedici_amd_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-    target_compile_options(sedici_amd_probe PRIVATE /utf-8 /W4 /permissive-)
-    target_link_libraries(sedici_amd_probe PRIVATE sedici_core)
-    set_target_properties(sedici_amd_probe PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    set(SEDICI_AMD_FG_BINARY "" CACHE FILEPATH
-        "Operator-supplied copy of the official AMD frame generation DLL for sedici_amd_probe")
-    set(SEDICI_AMD_FG_SHA256 "" CACHE STRING "Pinned SHA-256 of SEDICI_AMD_FG_BINARY")
-    if(SEDICI_AMD_FG_BINARY)
-        add_test(NAME sedici_amd_probe
-            COMMAND sedici_amd_probe "${SEDICI_AMD_FG_BINARY}" --sha256 "${SEDICI_AMD_FG_SHA256}")
-        set_tests_properties(sedici_amd_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE
-            LABELS "amd;gpu" SKIP_RETURN_CODE 77)
-    endif()
 endif()
 
 # Offline acceptance host for the frame generator (see MILESTONES.md, P1.4).

@@ -26,7 +26,6 @@ struct SettingsSnapshot {
 
 enum class ApplyStatus {
     Applied,   // immediately published fields changed; `revision` advanced
-    Pending,   // published, but pacing and/or async need later subsystem work
     Unchanged, // the candidate equals the current values; no revision, no side effects
     Rejected,  // a value is out of range or invalid; nothing was applied
     Conflict,  // built from a stale revision; nothing was applied

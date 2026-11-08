@@ -4,7 +4,6 @@
 #include "limiter.h"
 #include "live.h"
 #include "log.h"
-#include "toggles.h"
 
 #include <atomic>
 #include <cmath>
@@ -48,8 +47,6 @@ std::string validate(const LiveValues& v)
 {
     if (!std::isfinite(v.limiter_fps) || v.limiter_fps < 0.0 || v.limiter_fps > 1000.0)
         return "limiter.fps must be between 0 and 1000";
-    if (v.pacing != PacingMode::Hybrid && v.pacing != PacingMode::Off) return "pacing.mode is not valid";
-    if (v.async != AsyncMode::Game && v.async != AsyncMode::Off) return "async.mode is not valid";
     if (v.log_level < 0 || v.log_level > 2) return "log.level must be 0, 1 or 2";
     if (v.scale_mode != UiScaleMode::Auto && v.scale_mode != UiScaleMode::Fixed)
         return "ui.scale_mode is not valid";
@@ -76,17 +73,9 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
     const Settings& config = settings();
     const LiveValues before = read_live();
     if ((config.limiter.fps_source == Source::Env && candidate.limiter_fps != before.limiter_fps) ||
-        (config.pacing.mode_source == Source::Env && candidate.pacing != before.pacing) ||
-        (config.async.mode_source == Source::Env && candidate.async != before.async) ||
         (config.log.level_source == Source::Env && candidate.log_level != before.log_level)) {
         result.status = ApplyStatus::Rejected;
         result.reason = "an environment override controls this setting";
-        return result;
-    }
-    if (config.fg.mode == FrameGenerationMode::Sedici &&
-        (candidate.pacing != before.pacing || candidate.async != before.async)) {
-        result.status = ApplyStatus::Rejected;
-        result.reason = "pacing and async overrides apply only to the AMD backend";
         return result;
     }
     if (before == candidate) {
@@ -94,21 +83,13 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
         return result;
     }
 
-    const bool pacingChanged = before.pacing != candidate.pacing;
-    const bool asyncChanged = before.async != candidate.async;
-    result.status = pacingChanged || asyncChanged ? ApplyStatus::Pending : ApplyStatus::Applied;
-    // Prepare any allocating result before publishing: an allocation failure
-    // must not report rejection after the candidate has already taken effect.
-    if (pacingChanged && asyncChanged) result.reason = "pacing pending; async requires FG restart";
-    else if (pacingChanged) result.reason = "pacing application pending";
-    else if (asyncChanged) result.reason = "async requires FG restart";
+    result.status = ApplyStatus::Applied;
     // Publish the candidate as one coherent snapshot. Callers that require
     // multiple fields together must read live_snapshot() once.
     live_apply(candidate);
     ++g_revision;
     result.revision = g_revision;
     if (before.limiter_fps != candidate.limiter_fps) limiter_on_config_changed();
-    if (pacingChanged) toggles_apply_pacing_live();
     return result;
 }
 
@@ -213,7 +194,7 @@ ApplyResult settings_apply_edit(uint64_t baseRevision, const LiveValues& candida
             return {ApplyStatus::Conflict, g_revision, "settings changed outside this edit"};
         }
         ApplyResult result = apply_locked(baseRevision, candidate);
-        if (result.status == ApplyStatus::Applied || result.status == ApplyStatus::Pending || result.status == ApplyStatus::Unchanged)
+        if (result.status == ApplyStatus::Applied || result.status == ApplyStatus::Unchanged)
             g_edit_revision = result.revision;
         return result;
     } catch (...) {
@@ -233,7 +214,7 @@ ApplyResult settings_cancel_edit() noexcept
         if (g_edit_revision != g_revision)
             return {ApplyStatus::Conflict, g_revision, "settings changed outside this edit"};
         ApplyResult result = apply_locked(g_revision, g_baseline);
-        if (result.status == ApplyStatus::Applied || result.status == ApplyStatus::Pending || result.status == ApplyStatus::Unchanged)
+        if (result.status == ApplyStatus::Applied || result.status == ApplyStatus::Unchanged)
             g_edit_revision = result.revision;
         return result;
     } catch (...) {
@@ -316,14 +297,6 @@ static SaveResult settings_save_impl(const SettingsSaveTicket* ticket) noexcept
             if (config.limiter.fps_source != Source::Env) {
                 file.write_limiter_fps = true;
                 file.limiter_fps = values.limiter_fps;
-            }
-            if (config.pacing.mode_source != Source::Env) {
-                file.write_pacing = true;
-                file.pacing = values.pacing == PacingMode::Hybrid ? "hybrid" : "off";
-            }
-            if (config.async.mode_source != Source::Env) {
-                file.write_async = true;
-                file.async = values.async == AsyncMode::Off ? "off" : "game";
             }
             if (config.log.level_source != Source::Env) {
                 file.write_log = true;

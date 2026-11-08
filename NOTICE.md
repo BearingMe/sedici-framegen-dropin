@@ -6,17 +6,17 @@ this file with it.
 
 ## AMD FidelityFX SDK
 
-Sedici is a proxy for AMD's FSR 3.1 frame-generation runtime and builds on AMD's
-public API.
+Sedici is a drop-in replacement for AMD's FSR 3.1 frame-generation DLL and builds
+on AMD's public API.
 
 - **Headers.** `third_party/ffx/` holds unmodified headers from AMD FidelityFX SDK
   v2.4.0. Each file carries AMD's own notice, and `third_party/ffx/README.md`
   records the upstream path and blob ID of every header.
-- **Runtime.** Sedici forwards to AMD's signed
-  `amd_fidelityfx_framegeneration_dx12.dll`, which it loads as the `.orig` file
-  next to itself. AMD's DLL is not part of this repository. A Sedici package that
-  includes it ships it unmodified, with AMD's signature intact, and Sedici checks
-  the file against a pinned SHA-256 before using it.
+- **Runtime.** Sedici no longer loads, forwards to or redistributes AMD's
+  `amd_fidelityfx_framegeneration_dx12.dll`. Earlier versions forwarded to it as
+  the `.orig` file next to themselves (tag `pre-amd-removal`). AMD's DLL is not
+  part of this repository, and the deploy tools only keep the user's own copy as
+  a backup so it can be restored.
 
 AMD publishes the SDK, including its signed binaries, under the following terms
 (from `docs/license.md` in the FidelityFX SDK repository,
@@ -44,16 +44,16 @@ AMD publishes the SDK, including its signed binaries, under the following terms
 The same file also states a binary-only redistribution licence for files it does
 not list. It requires that redistributions reproduce AMD's copyright, permission
 notice and disclaimers, and it forbids reverse engineering, decompilation and
-disassembly. Sedici does none of those things to AMD's binary. It loads the DLL,
-calls its five public exports, and reads its file properties. The disclaimers
-above apply to AMD's DLL in full.
+disassembly. Sedici ships no AMD binary. The notes in `docs/refactor/amd-binary.md`
+record what the installed DLL did when it was loaded and called through its five
+public exports, and are kept for reference. The disclaimers above apply to AMD's
+headers and any AMD binary in full.
 
 AMD, FidelityFX, FSR and Radeon are trademarks of Advanced Micro Devices, Inc.
 Sedici is an independent project. It is not made, endorsed or supported by AMD.
 
-> **Responsibility.** The project owner has reviewed AMD's terms and accepts
-> responsibility for redistributing AMD's DLL under them. This reading of the
-> licence is the owner's, not legal advice.
+> **Responsibility.** The project owner has reviewed AMD's terms. This reading of
+> the licence is the owner's, not legal advice.
 
 ## Third-party code in this repository
 

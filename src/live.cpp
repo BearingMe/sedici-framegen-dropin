@@ -29,8 +29,6 @@ void live_initialize(const Settings& config) noexcept
 {
     LiveValues values;
     values.limiter_fps = config.limiter.fps;
-    values.pacing = config.pacing.mode;
-    values.async = config.async.mode;
     values.log_level = config.log.level;
     values.scale_mode = config.ui.scale_mode;
     values.ui_scale = config.ui.scale;
@@ -43,18 +41,6 @@ void live_set_limiter_fps(double fps) noexcept
 {
     std::lock_guard lock(g_values_mutex);
     g_values.limiter_fps = std::clamp(fps, 0.0, 1000.0);
-}
-PacingMode live_pacing_mode() noexcept { return live_snapshot().pacing; }
-void live_set_pacing_mode(PacingMode mode) noexcept
-{
-    std::lock_guard lock(g_values_mutex);
-    g_values.pacing = mode;
-}
-AsyncMode live_async_mode() noexcept { return live_snapshot().async; }
-void live_set_async_mode(AsyncMode mode) noexcept
-{
-    std::lock_guard lock(g_values_mutex);
-    g_values.async = mode;
 }
 int live_log_level() noexcept { return live_snapshot().log_level; }
 void live_set_log_level(int level) noexcept

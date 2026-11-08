@@ -3,27 +3,24 @@
 #include "ffx_api.h"
 #include "fg_presenter.h"
 
-// Routing of the five exports between AMD's original DLL and Sedici's own frame
-// generation path.
+// Routing of the five exports to Sedici's own frame generation.
 //
-// Selected once, at the first create, from `fg.mode`:
+// Sedici is the only backend: it creates the generator context and the swapchain
+// wrapper, and there is no second implementation to hand a call to.
 //
-//   "amd"    (default) every call is forwarded exactly as before. Sedici never
-//            owns a context and the shipped behaviour is unchanged.
-//   "sedici" Sedici creates the generator context and the swapchain wrapper.
-//            There is no per-call fallback: a context cannot be handed to AMD
-//            mid-life, so an unsupported call is answered by Sedici and logged.
-//
-// Every function returns true when Sedici answered the call and false when the
-// caller must forward it to the original DLL. Issued Sedici tokens remain locally
-// identifiable after destroy and are rejected rather than forwarded. Foreign
-// handles outside the reserved token namespace continue to forward; the owner
-// explicitly approved the namespace-separation assumption and exhaustion policy.
+// Every function returns true when Sedici recognised the handle or descriptor and
+// answered the call, and false when it did not; the exports then answer with an
+// error code. Issued Sedici tokens remain locally identifiable after destroy and
+// are rejected. Handles outside the reserved token namespace are never ours; the
+// owner explicitly approved the namespace-separation assumption and exhaustion
+// policy. `GetVersions` queries need no context and are answered here.
 namespace sedici::fg {
 
-bool routing_enabled() noexcept;
 // True for any issued Sedici token, including one already destroyed.
 bool route_is_sedici_token(ffxContext* context) noexcept;
+// True when at least one live Sedici-owned session was last configured with
+// frame generation enabled. Used for the limiter and menu status.
+bool route_any_generation_enabled() noexcept;
 
 bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;
 bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;

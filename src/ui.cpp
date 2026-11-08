@@ -11,7 +11,7 @@
 #include "overlay_compose.h"
 #include "stats.h"
 #include "timing.h"
-#include "toggles.h"
+#include "fg_route.h"
 #include "ui_input.h"
 
 #include "imgui.h"
@@ -619,8 +619,6 @@ void report(const ApplyResult& result)
 {
     if (result.status == ApplyStatus::Rejected || result.status == ApplyStatus::Conflict)
         g_ui.save_status = "Not applied: " + result.reason;
-    else if (result.status == ApplyStatus::Pending)
-        g_ui.save_status = "Pending: " + result.reason;
 }
 
 void enter_full()
@@ -815,8 +813,7 @@ void cancel_config()
         return;
     }
     live_set_ui_mode(static_cast<UiMode>(g_ui.snapshot.previous_mode));
-    g_ui.save_status = result.status == ApplyStatus::Pending
-        ? "Cancelled; " + result.reason : "Cancelled";
+    g_ui.save_status = "Cancelled";
 }
 
 void draw_full()
@@ -835,7 +832,7 @@ void draw_full()
     ImGui::Begin("Sedici", nullptr, ImGuiWindowFlags_NoCollapse);
 
     ImGui::SeparatorText("Status");
-    ImGui::Text("Frame generation: %s", toggles_fg_active() ? "on" : "off");
+    ImGui::Text("Frame generation: %s", sedici::fg::route_any_generation_enabled() ? "on" : "off");
     if (render_width != 0 && render_height != 0) {
         ImGui::Text("Render %ux%u  ->  output %ux%u", render_width, render_height,
                     output_width, output_height);
@@ -843,14 +840,6 @@ void draw_full()
         ImGui::Text("Output %ux%u", output_width, output_height);
     }
     ImGui::Text("Real %.1f fps  |  Output %.1f fps", real.fps, output.fps);
-    ImGui::Text("Pacing fix: %s", live_pacing_mode() == PacingMode::Hybrid ? "on" : "off");
-    const int pacing_result = toggles_last_pacing_result();
-    if (pacing_result == INT_MIN) {
-        ImGui::TextDisabled("Last pacing send: not yet");
-    } else {
-        ImGui::Text("Last pacing send: %d (%s)", pacing_result,
-                    ffx_return_code_name(static_cast<ffxReturnCode_t>(pacing_result)));
-    }
     ImGui::Text("Stalls: %llu  |  last %.1f ms",
                 static_cast<unsigned long long>(stats_stall_count()), stats_last_stall_ms());
 
@@ -903,35 +892,6 @@ void draw_full()
     }
     ImGui::EndDisabled();
     if (limiter_env) ImGui::TextDisabled("overridden by SEDICI_LIMIT_FPS");
-
-    ImGui::SeparatorText("Pacing fix");
-    const bool pacing_env = settings().pacing.mode_source == Source::Env;
-    const bool amd_only_unavailable = settings().fg.mode == FrameGenerationMode::Sedici;
-    bool pacing_on = live_pacing_mode() == PacingMode::Hybrid;
-    ImGui::BeginDisabled(pacing_env || amd_only_unavailable);
-    if (ImGui::Checkbox("Send hybrid pacing tuning", &pacing_on)) {
-        report(settings_change_edit([&](LiveValues& v) {
-            v.pacing = pacing_on ? PacingMode::Hybrid : PacingMode::Off;
-        }));
-    }
-    ImGui::EndDisabled();
-    if (pacing_env) ImGui::TextDisabled("overridden by SEDICI_PACING");
-    if (amd_only_unavailable) ImGui::TextDisabled("AMD backend only");
-
-    ImGui::SeparatorText("Async workloads");
-    const bool async_env = settings().async.mode_source == Source::Env;
-    int async_index = live_async_mode() == AsyncMode::Off ? 1 : 0;
-    ImGui::BeginDisabled(async_env || amd_only_unavailable);
-    if (ImGui::Combo("Async workloads", &async_index, "game\0off\0")) {
-        report(settings_change_edit([&](LiveValues& v) {
-            v.async = async_index == 1 ? AsyncMode::Off : AsyncMode::Game;
-        }));
-    }
-    ImGui::EndDisabled();
-    if (async_env) ImGui::TextDisabled("overridden by SEDICI_ASYNC");
-    if (amd_only_unavailable) ImGui::TextDisabled("AMD backend only");
-    ImGui::TextWrapped("Takes effect after frame generation restarts (toggle FG or restart "
-                       "the game).");
 
     ImGui::SeparatorText("Logging");
     const bool log_env = settings().log.level_source == Source::Env;

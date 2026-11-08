@@ -4,7 +4,7 @@
 #include "limiter_schedule.h"
 #include "live.h"
 #include "log.h"
-#include "toggles.h"
+#include "fg_route.h"
 
 #include <windows.h>
 #include <intrin.h>
@@ -254,7 +254,7 @@ void limiter_before_present(uint64_t now_qpc) noexcept
             std::lock_guard<std::mutex> lock(g_mutex);
             if (!initialize_locked()) return;
 
-            const bool fg_active = toggles_fg_active();
+            const bool fg_active = sedici::fg::route_any_generation_enabled();
             if (!g_state.logged_mode || g_state.logged_fg != fg_active) {
                 g_state.logged_mode = true;
                 g_state.logged_fg = fg_active;

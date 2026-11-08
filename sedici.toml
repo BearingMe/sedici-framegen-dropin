@@ -8,8 +8,7 @@
 # written out so the full set is visible in one place.
 #
 # Environment variables override this file:
-#   SEDICI_PACING=hybrid|off     overrides [pacing] mode
-#   SEDICI_ASYNC=0|game          overrides [async] mode
+#   SEDICI_LIMIT_FPS=<number>    overrides [limiter] fps
 #   MFSRFG_LOG=0|1|2             overrides [log] level
 #
 # A malformed file is never fatal. Each bad key is reported in sedici.log with
@@ -19,54 +18,12 @@
 # Full reference: README.md. Measurements behind these defaults:
 # docs/findings/002-pacing-baseline.md.
 
-[pacing]
-# "hybrid" - after each frame generation swapchain is created, send the
-#            swapchain frame pacing tuning desc with allowHybridSpin = true.
-#            This is the fix: it removes the 50-67 ms frame-time tail without
-#            costing throughput.
-# "off"    - send nothing; forward everything untouched. Combined with
-#            async.mode = "game" this is exact milestone-0 behaviour.
-mode = "hybrid"
-
-# Frame pacing sleep safety margin, in milliseconds.
-# SDK default: 0.1. Must be finite and >= 0.
-safety_margin_ms = 0.1
-
-# Variance factor for consecutive frame times.
-# SDK default: 0.1. Must be within [0.0, 1.0].
-variance_factor = 0.1
-
-# How long to spin, in timer resolution units, when hybrid spin is allowed.
-# The SDK recommends at least 2; lower values overshoot more often.
-# SDK default: 2. Must be within [0, 1000].
-hybrid_spin_time = 2
-
-# Wait on the fence with WaitForSingleObject instead of spinning for it.
-# SDK default: false.
-wait_for_single_object_on_fence = false
-
-[async]
-# "game" - forward allowAsyncWorkloads exactly as the game sets it.
-# "off"  - clear FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT from the
-#          frame generation create flags and force allowAsyncWorkloads = false
-#          in every frame generation configure desc.
-#
-# This was the second tail fix found in the baseline investigation. It removes
-# the same tail as [pacing] and does not stack with it, so it is not the
-# default. Kept for A/B testing.
-mode = "game"
+# [pacing] and [async] existed when Sedici forwarded to AMD's frame generation.
+# They no longer do anything; an old file that still has them loads normally and
+# the log notes that they are ignored.
 
 [fg]
-# "amd"    - forward every frame generation call to the original DLL. AMD owns
-#            the generator and the swapchain. This is the default and the
-#            behaviour every earlier release had.
-# "sedici" - use Sedici's own generator and swapchain wrapper. Sedici then owns
-#            frame generation for the whole process; there is no per-call
-#            fallback, because a context cannot be handed to AMD mid-life.
-#            Experimental: not yet verified in a game session.
-mode = "amd"
-
-# How Sedici shows its frames when mode = "sedici". Ignored with "amd".
+# How Sedici shows its frames.
 # "vsync" - wait for the screen's refresh before each frame. No tearing, but
 #           up to one refresh of extra latency, and the game's own FPS cap must
 #           be at or below half the refresh rate (e.g. 37 FPS on a 75 Hz
@@ -111,7 +68,7 @@ tear_guard = "scanline"
 
 [limiter]
 # Cap the game's real frames inside Sedici's Present hook, before the original
-# Present is called. The generated frames are presented inside AMD's swapchain
+# Present is called. The generated frames are presented inside Sedici's swapchain
 # and are not capped; with 2x frame generation the output lands at about twice
 # this rate. 0 = off (default, exact milestone-1 behaviour).
 #

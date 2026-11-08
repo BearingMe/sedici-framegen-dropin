@@ -23,56 +23,11 @@
 
 namespace sedici {
 
-// `pacing.mode`
-enum class PacingMode {
-    // Forward everything untouched. This is milestone-0 behavior: no extra
-    // configure call is ever made.
-    Off,
-
-    // After a frame generation swapchain context is created, send the swapchain
-    // frame pacing tuning configure with `allowHybridSpin = true`.
-    Hybrid,
-};
-
-// `async.mode`
-enum class AsyncMode {
-    // Forward `allowAsyncWorkloads` exactly as the game set it.
-    Game,
-
-    // Clear `FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT` from the frame
-    // generation create flags and force `allowAsyncWorkloads = false` in every
-    // frame generation configure desc.
-    Off,
-};
-
 // Where an effective value came from. Used only by the once-at-load log.
 enum class Source {
     Default,
     File,
     Env,
-};
-
-struct PacingSettings {
-    PacingMode mode = PacingMode::Hybrid;
-
-    // `FfxApiSwapchainFramePacingTuning`. The defaults match the SDK's
-    // documented defaults, except `allowHybridSpin`, which the SDK defaults to
-    // false and Sedici defaults to true on purpose.
-    float safety_margin_ms = 0.1f;
-    float variance_factor = 0.1f;
-    uint32_t hybrid_spin_time = 2;
-    bool wait_for_single_object_on_fence = false;
-
-    Source mode_source = Source::Default;
-    Source safety_margin_ms_source = Source::Default;
-    Source variance_factor_source = Source::Default;
-    Source hybrid_spin_time_source = Source::Default;
-    Source wait_for_single_object_on_fence_source = Source::Default;
-};
-
-struct AsyncSettings {
-    AsyncMode mode = AsyncMode::Game;
-    Source mode_source = Source::Default;
 };
 
 // `[limiter]`
@@ -124,18 +79,6 @@ struct LogSettings {
 };
 
 // `[fg]`
-enum class FrameGenerationMode {
-    // Forward every frame generation call to the original DLL. AMD owns the
-    // generator and the swapchain. This is the default and the shipped
-    // behaviour until the Sedici path has seen a game session.
-    Amd,
-
-    // Use Sedici's own generator and swapchain wrapper. Sedici then owns frame
-    // generation for the whole process: there is no per-call fallback to AMD,
-    // because a context cannot be handed over mid-life.
-    Sedici,
-};
-
 struct FrameGenerationSettings {
     // How the wrapper presents its two outputs per cycle.
     enum class Present {
@@ -182,8 +125,6 @@ struct FrameGenerationSettings {
         Adaptive, // "adaptive": aim for `target_fps` outputs per second
     };
 
-    FrameGenerationMode mode = FrameGenerationMode::Amd;
-    Source mode_source = Source::Default;
     Multiplier multiplier = Multiplier::X2;
     Source multiplier_source = Source::Default;
     // "adaptive" only. 0 = three below the display's refresh rate.
@@ -201,8 +142,6 @@ const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept;
 const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noexcept;
 
 struct Settings {
-    PacingSettings pacing;
-    AsyncSettings async;
     LimiterSettings limiter;
     LogSettings log;
     UiSettings ui;

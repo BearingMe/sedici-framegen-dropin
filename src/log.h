@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string_view>
 
-// Directory containing this DLL. Used for the .orig lookup and the log file.
+// Directory containing this DLL. Used for the config and log files.
 std::filesystem::path dll_directory();
 
 // MFSRFG_LOG (legacy) or `[log] level` in sedici.toml:

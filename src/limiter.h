@@ -7,8 +7,8 @@
 // Called from the swapchain Present/Present1 hooks immediately before the
 // original Present, with the QPC timestamp taken on entry. The hook is
 // installed on the frame-generation swapchain wrapper, which sees exactly one
-// Present per real frame; the generated frames are presented inside AMD's
-// swapchain and never reach this code. Capping here therefore caps the game's
+// Present per real frame; the generated frames are presented inside the
+// wrapper and never reach this code. Capping here therefore caps the game's
 // real frames, and with 2x frame generation the output lands at about twice
 // the configured rate.
 //

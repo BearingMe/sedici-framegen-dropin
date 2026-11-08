@@ -1,5 +1,12 @@
 # TOML and live configuration contract
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 Status: proposed refactor schema and behavior. **Do not copy this example over the
 current `sedici.toml`: the current parser does not implement these names.** Existing
 defaults and opt-outs remain unchanged until an explicitly approved migration.
@@ -62,7 +69,7 @@ than being silently inferred from current controls.
 
 | Candidate | Type / proposed default | Validation and applicability still to decide |
 | --- | --- | --- |
-| `frame_generation.backend` | enum string / `fsr3` | Allowed backends, binary availability and relationship to legacy `.orig`; P2.3/P2.6. |
+| `frame_generation.backend` | not needed | Dropped: Sedici is the only backend. |
 | `limiter.real_fps` | finite number in real frames/s / `0` | Upper bound and applicable backend paths; `0` disables. |
 | `presentation.sync` | enum string / `game` | Exact supported choices and backend/display capabilities. |
 | `ui.mode` | enum string / `off` | `off`, `mini`, `full`; backend overlay support must be verified. |
@@ -131,7 +138,7 @@ TOML/defaults/documented overrides or UI request
 
 | Existing surface | Refactor treatment to settle before implementation |
 | --- | --- |
-| `fg.mode = "amd"` | Currently means game `.orig`, not the bundled binary. Do not silently reinterpret it as the new `fsr3` backend. |
+| `fg.mode`, `[pacing]`, `[async]` | Removed with the AMD backend. An old file that still has them loads and the log says they are ignored. |
 | `fg.present`, `fg.tear_guard` | Replace implementation choices with explicit presentation intent/capability policy; preserve or warn during migration. |
 | `fg.multiplier`, `fg.target_fps` | Current fractional/adaptive work must be accounted for, not deleted by omission from the minimal example. |
 | `limiter.fps` | Candidate rename to `limiter.real_fps`; preserve fractional units/meaning and disabled behavior. |

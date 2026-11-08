@@ -2108,7 +2108,6 @@ void routing_hook_b(uint64_t) { ++routingHookB; }
 
 bool check_routing(Device& state, bool wrapFirst = false)
 {
-    if (!sedici::fg::routing_enabled()) return false;
     const wchar_t* className = L"SediciFgRouting";
     WNDCLASSW wc{};
     wc.lpfnWndProc = DefWindowProcW;

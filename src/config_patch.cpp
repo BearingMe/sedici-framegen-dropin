@@ -343,14 +343,6 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
                 expect("limiter", "fps", static_cast<int64_t>(std::stoll(number)));
             else expect("limiter", "fps", parse_number(number));
         }
-        if (values.write_pacing) {
-            apply_value(lines, "pacing", "mode", quoted(values.pacing), eol);
-            expect("pacing", "mode", values.pacing);
-        }
-        if (values.write_async) {
-            apply_value(lines, "async", "mode", quoted(values.async), eol);
-            expect("async", "mode", values.async);
-        }
         if (values.write_log) {
             apply_value(lines, "log", "level", std::to_string(values.log_level), eol);
             expect("log", "level", values.log_level);

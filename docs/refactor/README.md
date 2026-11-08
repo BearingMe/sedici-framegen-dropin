@@ -1,5 +1,12 @@
 # Sedici refactor decisions
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 This directory records the refactor discussion and proposed implementation
 contracts. It describes a **target**, not the current source layout or shipped
 configuration. Creating these documents does not implement or authorize runtime,
@@ -12,9 +19,8 @@ Ship one coherent product containing:
 - Sedici's two-stage frame generator: Mob-FGSR analytical generation followed by
   GFFE-inspired residual correction, as specified in
   [the design note](../../references/papers/realtime-fg.md).
-- An official, pinned AMD frame-generation **binary** as a fallback backend, not
-  a vendored build of AMD's generator source.
-- A working overlay for live settings and metrics on both backend paths.
+- No AMD backend: Sedici is the only implementation behind the drop-in DLL.
+- A working overlay for live settings and metrics.
 - One understandable TOML settings surface, without hidden experimental switches
   or monitor-specific defaults.
 - Explicit ownership, meaningful errors, bounded diagnostics and recovery, and
@@ -38,13 +44,13 @@ and model/LUT export remain offline, outside the shipped runtime.
 
 | Decision | Status |
 | --- | --- |
-| Two generation stages, AMD fallback, live UI/metrics, and understandable TOML | User-stated product requirements |
-| Vendor the official AMD binary, not the full source implementation | User-selected dependency direction |
+| Two generation stages, live UI/metrics, and understandable TOML (the AMD fallback was dropped by a later owner decision) | User-stated product requirements |
+| ~~Vendor the official AMD binary, not the full source implementation~~ | Superseded: the AMD backend was removed |
 | Session-owned modular runtime rather than independently patched global services | Recommended architectural baseline |
 | Separate public settings requests from acknowledged runtime state | Recommended contract |
 | Shared GPU/presentation infrastructure with backend-specific integration | Recommended boundary; AMD integration feasibility remains open |
-| Exact binary version, redistribution terms, deployment paths, and loading scheme | Unresolved |
-| Seamless mid-session handoff from Sedici to AMD | Not promised; requires a demonstrated recreation/handoff contract |
+| ~~Exact binary version, redistribution terms, deployment paths, and loading scheme~~ | Not applicable: no AMD binary is loaded or shipped |
+| ~~Seamless mid-session handoff from Sedici to AMD~~ | Not applicable |
 | Exact TOML spelling, public options, and future defaults | Proposed in configuration.md; not a shipped schema |
 
 ## Alternatives considered

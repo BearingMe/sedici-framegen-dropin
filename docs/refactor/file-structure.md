@@ -1,5 +1,12 @@
 # Target file structure
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 Status: proposed placement map, not an inventory of existing files. Headers
 accompany implementations where needed; the tree is not a requirement to create
 empty files. Keep small responsibilities together until a split has a concrete use.
@@ -120,13 +127,13 @@ These are responsibility extractions, not instructions to move whole files.
 | Current files | Target responsibilities |
 | --- | --- |
 | `src/dllmain.cpp` | Minimal `dllmain.cpp` plus ABI exports |
-| `src/forward.*` | AMD library loader and compatibility bridge |
+| `src/forward.*` | Removed with the AMD backend |
 | `src/describe.*`, `src/fg_route.*` | ABI descriptor handling, routing, diagnostics, runtime registry |
 | `src/fg_integration.*`, `src/fg_context.*` | Session/backend integration, normalized inputs, history, GPU ownership |
 | `src/fg_stage1.*`, `src/fg_params.*`, `src/fg_shaders.h` | Analytical stage, shared GPU resources, shaders, separate composition |
 | `src/fg_pacing.*`, `src/fg_presenter.*`, `src/fg_swapchain.*` | Presentation policy, presenter, swapchain, submission/retirement |
-| `src/present_hook.*`, `src/limiter.*`, `src/toggles.*` | Backend-specific interception, real-frame admission, runtime policy/status |
-| `src/overlay.*`, `src/overlay_compose.*` | AMD callback bridge, final composition, metrics emission |
+| `src/limiter.*` (`present_hook.*` and `toggles.*` were removed) | Real-frame admission; status comes from the router |
+| `src/overlay.*`, `src/overlay_compose.*` | Output cadence recording, overlay draw hooks, final composition |
 | `src/ui.*`, `src/ui_input.*` | UI view/controls/renderer and input ownership |
 | `src/config.*`, `src/config_patch.*`, `src/live.*` | Settings ingestion/persistence and acknowledged runtime configuration |
 | `src/log.*`, `src/timing.*`, `src/stats.*` | Diagnostics events, metrics, health observations |

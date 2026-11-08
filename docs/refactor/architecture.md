@@ -1,5 +1,12 @@
 # Target architecture
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 Status: recommended refactor baseline; paths below are proposed. See
 [decision status](README.md#decision-status) and [file structure](file-structure.md).
 The [current-state audit](audit.md) documents where the implementation differs;
@@ -7,9 +14,10 @@ these target rules are not claims about today's lock or retirement behavior.
 
 ## System shape
 
-One Windows x64 C++20 proxy DLL with exactly five public FFX exports. A
-session-owned runtime integrates either Sedici generation or an official AMD
-binary backend with settings, presentation, UI, and diagnostics.
+One Windows x64 C++20 DLL with exactly five public FFX exports. A
+session-owned runtime integrates Sedici generation with settings, presentation,
+UI, and diagnostics. (Earlier drafts also integrated an official AMD binary
+backend; that was removed.)
 
 ## Ownership boundaries
 
@@ -60,29 +68,19 @@ suspended/degraded operation, draining, and stopped/device-lost operation. Each
 transition specifies accepted work, outstanding ownership, and observable results.
 Do not split authoritative lifecycle and fallback state between several managers.
 
-## Backend and fallback boundary
+## Single backend boundary
 
-- The proposed bundled AMD binary is intended as a pinned implementation dependency. `.orig` is the
-  game's original compatibility provider, not an interchangeable handle owner.
-- Identify which binary owns every external context; never forward a Sedici handle
-  to AMD or a context from one AMD binary instance to another.
-- Select AMD for an unavailable Sedici path before ownership commits. Probe and
-  validate before publishing replacement handles or consuming swapchain ownership.
-- FG and swapchain contexts can arrive separately: selection must account for
+- Sedici is the only backend. Every export is answered by the router; a handle
+  Sedici did not issue, or a descriptor it does not recognise, gets a defined FFX
+  error code and a log line, and is never sent to another DLL.
+- FG and swapchain contexts can arrive separately: the session must account for
   their relationship and actual creation order, not assume an atomic create call.
 - A recoverable generation miss may use real-frame presentation where resources
-  remain valid. That is degradation, not an AMD backend handoff.
-- Switching an owned session to AMD requires coordinated draining and recreation,
-  or a documented next-recreation/restart boundary. Seamless takeover is unresolved.
+  remain valid. That is degradation, not a backend handoff.
 - Genuine device loss cannot be repaired by selecting another generator on the
   same removed device. Preserve the relevant game-facing error contract.
-- Unsupported calls must respect the real FFX contract and ownership. Neither
-  forwarding a foreign handle nor returning success without performing required
-  work is an acceptable substitute for compatibility.
-
-Whether the selected AMD binary can feed Sedici's presenter through supported
-dispatch/callback interfaces must be established. Otherwise AMD retains its own
-presentation integration; do not stack Sedici's output scheduler over AMD's.
+- Returning success without performing required work is not an acceptable
+  substitute for compatibility.
 
 ## Frame and composition flow
 

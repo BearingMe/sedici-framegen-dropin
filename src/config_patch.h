@@ -26,12 +26,6 @@ struct ConfigValues {
     bool write_limiter_fps = false;
     double limiter_fps = 0.0;
 
-    bool write_pacing = false;
-    const char* pacing = "hybrid";
-
-    bool write_async = false;
-    const char* async = "game";
-
     bool write_log = false;
     int log_level = 1;
 

@@ -162,65 +162,6 @@ int run_exports(const fs::path& proxy)
     return 0;
 }
 
-// ---------------------------------------------------------------------------
-// forward: fg.mode = "amd", pacing off, async as the game asks. Every argument,
-// pointer and return code reaches the original unchanged, unknown descs too,
-// and the caller's desc is byte-identical afterwards.
-// ---------------------------------------------------------------------------
-int run_forward(Harness& h)
-{
-    StubState& stub = *h.state;
-    ffxAllocationCallbacks callbacks{};
-    for (const ffxReturnCode_t scripted : {FFX_API_RETURN_OK, FFX_API_RETURN_ERROR_PARAMETER}) {
-        for (auto& code : stub.script) code = scripted;
-        const std::string tag = scripted == FFX_API_RETURN_OK ? " (OK)" : " (ERROR_PARAMETER)";
-
-        StubProbe probe = make_probe(1);
-        const StubProbe original = probe;
-        ffxContext context = nullptr;
-        ffxReturnCode_t result = h.ffx.create(&context, &probe.header, &callbacks);
-        const StubCall& create = stub.last[StubCreate];
-        expect(result == scripted && create.contextArg == &context && create.desc == &probe &&
-               create.callbacks == &callbacks && same_bytes(create.probe, &original, sizeof(original)),
-               "ffxCreateContext forwards context, desc, callbacks and result" + tag);
-        expect(same_bytes(&probe, &original, sizeof(probe)), "ffxCreateContext leaves the caller's desc intact" + tag);
-        if (scripted != FFX_API_RETURN_OK) context = reinterpret_cast<ffxContext>(0x4242);
-
-        probe = make_probe(2);
-        const StubProbe configureOriginal = probe;
-        result = h.ffx.configure(&context, &probe.header);
-        const StubCall& configure = stub.last[StubConfigure];
-        expect(result == scripted && configure.contextArg == &context && configure.contextValue == context &&
-               configure.desc == &probe && same_bytes(configure.probe, &configureOriginal, sizeof(probe)) &&
-               same_bytes(&probe, &configureOriginal, sizeof(probe)),
-               "ffxConfigure forwards an unknown desc unchanged" + tag);
-
-        probe = make_probe(3);
-        const StubProbe queryOriginal = probe;
-        result = h.ffx.query(&context, &probe.header);
-        const StubCall& query = stub.last[StubQuery];
-        expect(result == scripted && query.contextValue == context && query.desc == &probe &&
-               same_bytes(query.probe, &queryOriginal, sizeof(probe)),
-               "ffxQuery forwards an unknown desc unchanged" + tag);
-
-        probe = make_probe(4);
-        const StubProbe dispatchOriginal = probe;
-        result = h.ffx.dispatch(&context, &probe.header);
-        const StubCall& dispatch = stub.last[StubDispatch];
-        expect(result == scripted && dispatch.contextValue == context && dispatch.desc == &probe &&
-               same_bytes(dispatch.probe, &dispatchOriginal, sizeof(probe)),
-               "ffxDispatch forwards an unknown desc unchanged" + tag);
-
-        result = h.ffx.destroy(&context, &callbacks);
-        const StubCall& destroy = stub.last[StubDestroy];
-        expect(result == scripted && destroy.contextArg == &context && destroy.callbacks == &callbacks,
-               "ffxDestroyContext forwards context, callbacks and result" + tag);
-    }
-    const std::string text = h.log();
-    expect(text.find("fg.mode") != std::string::npos && text.find("\"amd\"") != std::string::npos,
-           "the log reports fg.mode = \"amd\" from the scenario's own sedici.toml");
-    return 0;
-}
 
 // ---------------------------------------------------------------------------
 // Minimal DX12 host shared by the scenarios that need a real swapchain.
@@ -383,127 +324,109 @@ void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12
     list->ResourceBarrier(1, &barrier);
 }
 
-// ---------------------------------------------------------------------------
-// pacing: fg.mode = "amd", default pacing. After a frame generation configure
-// that names a swapchain, Sedici sends the hybrid FramePacingTuning to the
-// original, and the caller's configure desc is restored.
-// ---------------------------------------------------------------------------
-int run_pacing(Harness& h)
-{
-    Host host;
-    expect(host.create(), "DX12 host for the pacing scenario");
-    if (g_failures) return 1;
-    ComPtr<IDXGISwapChain4> native = host.swapchain(320, 180, 0);
-    expect(native != nullptr, "native swapchain");
-    if (!native) return 1;
 
-    ffxCreateBackendDX12Desc backend{};
-    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
-    backend.device = host.device.Get();
-    ffxCreateContextDescFrameGeneration create{};
-    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
-    create.header.pNext = &backend.header;
-    create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
-    create.displaySize = {320, 180};
-    create.maxRenderSize = {320, 180};
-    create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
-    ffxContext fg = nullptr;
-    expect(h.ffx.create(&fg, &create.header, nullptr) == FFX_API_RETURN_OK && fg, "frame generation create forwarded");
 
-    IDXGISwapChain4* swapchain = native.Get();
-    ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
-    wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
-    wrap.swapchain = &swapchain;
-    wrap.gameQueue = host.queue.Get();
-    ffxContext wrapContext = nullptr;
-    expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext,
-           "swapchain wrap create forwarded");
 
-    ffxConfigureDescFrameGeneration configure{};
-    configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    configure.swapChain = swapchain;
-    configure.frameGenerationEnabled = true;
-    const ffxConfigureDescFrameGeneration before = configure;
-    const uint32_t sendsBefore = h.state->pacingSends;
-    expect(h.ffx.configure(&fg, &configure.header) == FFX_API_RETURN_OK, "frame generation configure forwarded");
-    const FfxApiSwapchainFramePacingTuning& tuning = h.state->tuning;
-    expect(h.state->pacingSends == sendsBefore + 1, "one FramePacingTuning send after the configure");
-    expect(tuning.allowHybridSpin && tuning.hybridSpinTime == 2 && tuning.safetyMarginInMs == 0.1f &&
-           tuning.varianceFactor == 0.1f && !tuning.allowWaitForSingleObjectOnFence,
-           "the tuning carries the shipped hybrid values (0.1 ms, 0.1, spin 2, no fence wait)");
-    expect(same_bytes(&configure, &before, sizeof(configure)), "the caller's configure desc is restored");
 
-    expect(h.ffx.destroy(&wrapContext, nullptr) == FFX_API_RETURN_OK, "swapchain context destroy forwarded");
-    expect(h.ffx.destroy(&fg, nullptr) == FFX_API_RETURN_OK, "frame generation context destroy forwarded");
-    return 0;
-}
 
-// ---------------------------------------------------------------------------
-// async-off: the original sees allowAsyncWorkloads = false in configure and
-// the game's create flags unchanged; the caller's descs are restored.
-// ---------------------------------------------------------------------------
-int run_async_off(Harness& h)
-{
-    ffxCreateContextDescFrameGeneration create{};
-    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
-    create.flags = FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT | FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
-    create.displaySize = {320, 180};
-    create.maxRenderSize = {320, 180};
-    const ffxCreateContextDescFrameGeneration createBefore = create;
-    ffxContext fg = nullptr;
-    expect(h.ffx.create(&fg, &create.header, nullptr) == FFX_API_RETURN_OK, "create forwarded");
-    // README: "off" leaves the create flags as the game set them (since
-    // 6c2c180); only the per-frame configure value changes.
-    expect(h.state->sawFgCreate &&
-           h.state->fgCreateFlags == (FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT |
-                                      FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED),
-           "the original sees the game's create flags unchanged");
-    expect(same_bytes(&create, &createBefore, sizeof(create)), "the caller's create desc is restored");
-
-    ffxConfigureDescFrameGeneration configure{};
-    configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    configure.allowAsyncWorkloads = true;
-    configure.frameGenerationEnabled = true;
-    const ffxConfigureDescFrameGeneration configureBefore = configure;
-    expect(h.ffx.configure(&fg, &configure.header) == FFX_API_RETURN_OK, "configure forwarded");
-    expect(h.state->sawFgConfigure && !h.state->fgConfigureAllowAsync,
-           "the original sees allowAsyncWorkloads = false");
-    expect(h.state->last[StubConfigure].desc == &configure.header,
-           "AMD path retains the caller's descriptor pointer during rewrite");
-    expect(same_bytes(&configure, &configureBefore, sizeof(configure)), "the caller's configure desc is restored");
-    expect(h.ffx.destroy(&fg, nullptr) == FFX_API_RETURN_OK, "destroy forwarded");
-    return 0;
-}
-
-// ---------------------------------------------------------------------------
-// missing-orig: without the original beside it every export fails cleanly.
-// ---------------------------------------------------------------------------
-int run_missing_orig(Harness& h)
-{
-    StubProbe probe = make_probe(9);
-    ffxContext context = nullptr;
-    expect(h.ffx.create(&context, &probe.header, nullptr) != FFX_API_RETURN_OK && !context,
-           "ffxCreateContext fails without the original and leaves the context null");
-    expect(h.ffx.configure(&context, &probe.header) != FFX_API_RETURN_OK, "ffxConfigure fails without the original");
-    expect(h.ffx.query(&context, &probe.header) != FFX_API_RETURN_OK, "ffxQuery fails without the original");
-    expect(h.ffx.dispatch(&context, &probe.header) != FFX_API_RETURN_OK, "ffxDispatch fails without the original");
-    expect(h.ffx.destroy(&context, nullptr) != FFX_API_RETURN_OK, "ffxDestroyContext fails without the original");
-    expect(h.log().find("original DLL not found") != std::string::npos, "the log names the missing original");
-    return 0;
-}
-
-// ---------------------------------------------------------------------------
-// bad-config: a malformed sedici.toml is reported and forwarding still works.
-// ---------------------------------------------------------------------------
 int run_bad_config(Harness& h)
 {
-    StubProbe probe = make_probe(5);
-    ffxContext context = nullptr;
-    expect(h.ffx.create(&context, &probe.header, nullptr) == FFX_API_RETURN_OK && context,
-           "forwarding works with a malformed sedici.toml");
-    expect(h.ffx.destroy(&context, nullptr) == FFX_API_RETURN_OK, "destroy forwarded");
+    // A malformed sedici.toml must not stop the DLL: defaults apply, the log says
+    // so, and calls that need no configuration still work.
+    uint64_t count = 0;
+    ffxQueryDescGetVersions versions{};
+    versions.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    versions.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    versions.outputCount = &count;
+    expect(h.ffx.query(nullptr, &versions.header) == FFX_API_RETURN_OK && count == 1,
+           "version query works with a malformed sedici.toml");
     expect(h.log().find("could not be used; using built-in defaults") != std::string::npos,
            "the log reports the unusable sedici.toml and the defaults");
+    return 0;
+}
+
+
+// The drop-in contract with no original DLL behind it. The stub beside the proxy
+// is a tripwire: Sedici must never load it, so every call is answered locally.
+int run_contract(Harness& h)
+{
+    if (!h.state) return 1;
+    const auto stubCalls = [&] {
+        uint32_t total = 0;
+        for (uint32_t i = 0; i < StubExportCount; ++i) total += h.state->calls[i];
+        return total;
+    };
+
+    struct Provider { uint64_t type; uint64_t id; const char* name; };
+    const Provider providers[] = {
+        {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, 0xf600000000c01006ull, "3.1.6"},
+        {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+    };
+    for (const Provider& provider : providers) {
+        uint64_t count = 0;
+        ffxQueryDescGetVersions query{};
+        query.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+        query.createDescType = provider.type;
+        query.outputCount = &count;
+        expect(h.ffx.query(nullptr, &query.header) == FFX_API_RETURN_OK && count == 1,
+               "GetVersions with zero capacity reports one version");
+        uint64_t capacity = 4;
+        uint64_t ids[4]{};
+        const char* names[4]{};
+        query.outputCount = &capacity;
+        query.versionIds = ids;
+        query.versionNames = names;
+        expect(h.ffx.query(nullptr, &query.header) == FFX_API_RETURN_OK && capacity == 1 &&
+                   ids[0] == provider.id && names[0] && std::string(names[0]) == provider.name,
+               std::string("GetVersions reports provider ") + provider.name);
+    }
+
+    uint64_t count = 0;
+    ffxQueryDescGetVersions unknown{};
+    unknown.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    unknown.createDescType = 0x7fffffff;
+    unknown.outputCount = &count;
+    expect(h.ffx.query(nullptr, &unknown.header) == FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE,
+           "GetVersions for an unknown effect is an unknown-desctype error");
+    unknown.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    unknown.outputCount = nullptr;
+    expect(h.ffx.query(nullptr, &unknown.header) == FFX_API_RETURN_ERROR_PARAMETER,
+           "GetVersions without an output count is a parameter error");
+
+    ffxApiHeader odd{};
+    odd.type = 0x7ffffffe;
+    ffxContext none = nullptr;
+    expect(h.ffx.create(&none, &odd, nullptr) == FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE && !none,
+           "creating an unrecognised effect is an unknown-desctype error");
+    expect(h.ffx.create(nullptr, &odd, nullptr) == FFX_API_RETURN_ERROR_PARAMETER,
+           "create without an output handle is a parameter error");
+    expect(h.ffx.destroy(nullptr, nullptr) == FFX_API_RETURN_ERROR_PARAMETER &&
+               h.ffx.destroy(&none, nullptr) == FFX_API_RETURN_ERROR_PARAMETER,
+           "destroying a null handle is a parameter error");
+    expect(h.ffx.configure(&none, &odd) == FFX_API_RETURN_ERROR_PARAMETER &&
+               h.ffx.dispatch(&none, &odd) == FFX_API_RETURN_ERROR_PARAMETER,
+           "configure and dispatch on a null handle are parameter errors");
+    expect(stubCalls() == 0, "no call reached the original DLL");
+    return g_failures ? 1 : 0;
+}
+
+
+int run_legacy_config(Harness& h)
+{
+    // A sedici.toml from the forwarding era still loads. Its removed keys are
+    // ignored and the log says so; the supported keys still apply.
+    uint64_t count = 0;
+    ffxQueryDescGetVersions versions{};
+    versions.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    versions.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    versions.outputCount = &count;
+    expect(h.ffx.query(nullptr, &versions.header) == FFX_API_RETURN_OK && count == 1,
+           "version query works with a legacy sedici.toml");
+    const std::string log = h.log();
+    expect(log.find("[pacing], [async], fg.mode no longer exist") != std::string::npos,
+           "the log names the removed pacing, async and fg.mode keys");
+    expect(log.find("limiter.fps") != std::string::npos && log.find("= 25") != std::string::npos,
+           "supported keys in the legacy file still apply");
     return 0;
 }
 
@@ -906,91 +829,6 @@ bool invoke_readonly_configure(PfnFfxConfigure function, ffxContext* context,
     }
 }
 
-int run_readonly_configure(Harness& h, bool expectAsyncAllowed)
-{
-    auto* descriptor = static_cast<ffxConfigureDescFrameGeneration*>(
-        VirtualAlloc(nullptr, sizeof(ffxConfigureDescFrameGeneration), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    expect(descriptor != nullptr, "allocate isolated configure descriptor");
-    if (!descriptor || !h.state) return 1;
-    *descriptor = {};
-    descriptor->header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    descriptor->allowAsyncWorkloads = true;
-    unsigned char original[sizeof(*descriptor)]{};
-    std::memcpy(original, descriptor, sizeof(original));
-    DWORD previous = 0;
-    const bool protectedPage = VirtualProtect(descriptor, sizeof(*descriptor), PAGE_READONLY, &previous) != 0;
-    expect(protectedPage, "protect configure descriptor read-only");
-    if (!protectedPage) { VirtualFree(descriptor, 0, MEM_RELEASE); return 1; }
-    ffxContext foreign = reinterpret_cast<void*>(uintptr_t{0x10000});
-    const uint32_t before = h.state->calls[StubConfigure];
-    const uintptr_t begin = reinterpret_cast<uintptr_t>(descriptor);
-    ffxReturnCode_t result = FFX_API_RETURN_ERROR;
-    const bool returned = invoke_readonly_configure(h.ffx.configure, &foreign, &descriptor->header,
-                                                     begin, begin + sizeof(*descriptor), &result);
-    const bool unchanged = std::memcmp(original, descriptor, sizeof(original)) == 0;
-    DWORD ignored = 0;
-    (void)VirtualProtect(descriptor, sizeof(*descriptor), previous, &ignored);
-    VirtualFree(descriptor, 0, MEM_RELEASE);
-    if (!returned && unchanged && h.state->calls[StubConfigure] == before) {
-        std::puts("XFAIL proxy writes a standalone read-only configure descriptor (K87)");
-    } else if (returned) {
-        expect(false, "XPASS standalone read-only configure returned; update K87 and assert forwarding");
-    } else {
-        expect(false, "unexpected original call or mutation during protected-descriptor fault");
-    }
-
-    // Unknown prefixes cannot be copied without knowing their full layout. Keep
-    // the unresolved chained-descriptor defect explicit rather than greenwashing it.
-    struct Chain { ffxApiHeader prefix; ffxConfigureDescFrameGeneration configure; };
-    auto* chain = static_cast<Chain*>(VirtualAlloc(nullptr, sizeof(Chain), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    expect(chain != nullptr, "allocate isolated read-only descriptor chain");
-    if (!chain) return 1;
-    *chain = {};
-    chain->prefix.type = UINT64_MAX;
-    chain->prefix.pNext = &chain->configure.header;
-    chain->configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    chain->configure.allowAsyncWorkloads = true;
-    previous = 0;
-    const bool chainProtected = VirtualProtect(chain, sizeof(*chain), PAGE_READONLY, &previous) != 0;
-    expect(chainProtected, "protect descriptor chain read-only");
-    if (!chainProtected) { VirtualFree(chain, 0, MEM_RELEASE); return 1; }
-    const uint32_t beforeChain = h.state->calls[StubConfigure];
-    const uintptr_t chainBegin = reinterpret_cast<uintptr_t>(chain);
-    result = FFX_API_RETURN_ERROR;
-    const bool chainReturned = invoke_readonly_configure(h.ffx.configure, &foreign, &chain->prefix,
-                                                          chainBegin, chainBegin + sizeof(*chain), &result);
-    (void)VirtualProtect(chain, sizeof(*chain), previous, &ignored);
-    VirtualFree(chain, 0, MEM_RELEASE);
-    if (!chainReturned && h.state->calls[StubConfigure] == beforeChain) {
-        std::puts("XFAIL proxy writes a read-only chained configure descriptor (K87)");
-    } else if (chainReturned) {
-        expect(false, "XPASS read-only descriptor chain returned; update K87 and assert forwarding");
-    } else {
-        expect(false, "unexpected original call before protected-chain fault");
-    }
-
-    if (expectAsyncAllowed) {
-        // With a registered separate UI resource the overlay leaves FFX in
-        // control. No rewrite means even the original descriptor pointer stays.
-        ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 registration{};
-        registration.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
-        registration.uiResource.resource = reinterpret_cast<void*>(uintptr_t{1});
-        expect(h.ffx.configure(&foreign, &registration.header) == FFX_API_RETURN_OK,
-               "register separate UI for no-rewrite characterization");
-        ffxConfigureDescFrameGeneration passthrough{};
-        passthrough.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-        passthrough.allowAsyncWorkloads = true;
-        const ffxConfigureDescFrameGeneration beforePassthrough = passthrough;
-        expect(h.ffx.configure(&foreign, &passthrough.header) == FFX_API_RETURN_OK &&
-                   h.state->last[StubConfigure].desc == &passthrough.header &&
-                   same_bytes(&passthrough, &beforePassthrough, sizeof(passthrough)),
-               "known descriptor retains its original pointer when no rewrite is needed");
-    }
-    return g_failures ? 1 : 0;
-}
-
-int run_readonly_async(Harness& h) { return run_readonly_configure(h, false); }
-int run_readonly_overlay(Harness& h) { return run_readonly_configure(h, true); }
 
 int run_readonly_sedici(Harness& h)
 {
@@ -1063,7 +901,7 @@ int run_readonly_sedici(Harness& h)
 }
 
 // Exercise K29/K57 with a real proxy and a recording original: stale owned
-// tokens must be refused locally, while foreign handles still forward.
+// tokens and foreign handles must both be refused locally.
 int run_stale_forward(Harness& h)
 {
     Host host;
@@ -1118,13 +956,12 @@ int run_stale_forward(Harness& h)
     int foreignObject = 0;
     ffxContext foreign = &foreignObject;
     const uint32_t beforeForeign = h.state->calls[StubQuery];
-    (void)h.ffx.query(&foreign, &query);
-    expect(h.state->calls[StubQuery] == beforeForeign + 1,
-           "foreign handle outside the token namespace still reaches the original");
-    const uint32_t beforeForeignNull = h.state->calls[StubQuery];
-    (void)h.ffx.query(&foreign, nullptr);
-    expect(h.state->calls[StubQuery] == beforeForeignNull + 1,
-           "foreign handle with a null descriptor still reaches the original");
+    expect(h.ffx.query(&foreign, &query) == FFX_API_RETURN_ERROR_PARAMETER &&
+               h.state->calls[StubQuery] == beforeForeign,
+           "foreign handle outside the token namespace is refused with a parameter error");
+    expect(h.ffx.query(&foreign, nullptr) == FFX_API_RETURN_ERROR_PARAMETER &&
+               h.state->calls[StubQuery] == beforeForeign,
+           "foreign handle with a null descriptor is refused with a parameter error");
     return g_failures ? 1 : 0;
 }
 
@@ -1372,9 +1209,6 @@ int main(int argc, char** argv)
         bool blockLog = false;
     };
     const Scenario scenarios[] = {
-        {"forward", "[pacing]\nmode = \"off\"\n[async]\nmode = \"game\"\n[fg]\nmode = \"amd\"\n", true, run_forward},
-        {"pacing", "[fg]\nmode = \"amd\"\n", true, run_pacing},
-        {"async-off", "[pacing]\nmode = \"off\"\n[async]\nmode = \"off\"\n[fg]\nmode = \"amd\"\n", true, run_async_off},
         {"readonly-sedici", R"toml([pacing]
 mode = "off"
 [async]
@@ -1385,21 +1219,18 @@ present = "game"
 [ui]
 mode = "off"
 )toml", true, run_readonly_sedici},
-        {"readonly-async", R"toml([pacing]
-mode = "off"
+        {"contract", "", true, run_contract},
+        {"legacy-config",
+         R"toml([pacing]
+mode = "hybrid"
 [async]
 mode = "off"
 [fg]
 mode = "amd"
-)toml", true, run_readonly_async},
-        {"readonly-overlay", R"toml([pacing]
-mode = "off"
-[async]
-mode = "game"
-[fg]
-mode = "amd"
-)toml", true, run_readonly_overlay},
-        {"missing-orig", "[fg]\nmode = \"amd\"\n", false, run_missing_orig},
+[limiter]
+fps = 25
+)toml",
+         true, run_legacy_config},
         {"bad-config", "[fg\nmode = \n", true, run_bad_config},
         {"session",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"

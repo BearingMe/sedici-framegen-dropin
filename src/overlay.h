@@ -9,58 +9,13 @@ struct ID3D12GraphicsCommandList;
 struct ID3D12Resource;
 #include <cstdint>
 
-// Sedici's frame-generation present callback.
+// Output cadence recording and overlay drawing for Sedici's own swapchain.
 //
-// FFX calls the callback once per presented output frame, after frame
-// generation: once for each real frame and once for each generated frame. That
-// makes it the only place that sees the final output rate, and the only place
-// that can draw on the final image without the UI being interpolated.
-//
-// A non-null presentCallback *replaces* FFX's default composition callback.
-// Sedici therefore only takes over in the configuration Cyberpunk uses: no
-// separate UI resource is registered, so the required operation is exactly the
-// back-buffer copy AMD's default performs. If a UI resource is registered, or
-// the copy cannot be performed, Sedici leaves the callback null and lets FFX
-// keep its own composition path.
+// The wrapper calls `overlay_draw_output` once per presented output frame, real
+// or generated, so the overlay is drawn after generation and is never
+// interpolated, and `overlay_output_presented` after each successful Present.
+// `overlay_on_present` records output timing from the fields it is given.
 
-// Scoped: rewrites the frame generation configure desc in the caller's chain so
-// its `presentCallback` is Sedici's trampoline for the duration of the call,
-// then restores every byte it touched. Only the two callback fields are
-// touched; HUDLessColor, flags, frameID and everything else are left alone.
-//
-// If the game set its own callback, it is remembered and chained: Sedici's
-// trampoline runs first, then calls the game's callback with the game's own
-// user context and returns its return code.
-class ScopedOverlayCallback {
-public:
-    explicit ScopedOverlayCallback(const ffxApiHeader* desc, void* context = nullptr) noexcept;
-    ~ScopedOverlayCallback();
-    void complete(ffxReturnCode_t result) noexcept;
-    bool changed() const noexcept { return m_count != 0; }
-
-    ScopedOverlayCallback(const ScopedOverlayCallback&) = delete;
-    ScopedOverlayCallback& operator=(const ScopedOverlayCallback&) = delete;
-
-private:
-    struct Restore {
-        void* address;
-        size_t size;
-        uint64_t saved;
-    };
-
-    void patch(void* address, size_t size, uint64_t value) noexcept;
-
-    Restore m_restore[8]{};
-    size_t m_count = 0;
-    void* m_context = nullptr;
-    bool m_registration_changed = false;
-    bool m_ui_registered = false;
-    bool m_timing_only = false;
-};
-
-// Called from the trampoline on every presented output frame. Records the
-// timestamp and the real/generated split, and logs output fps every 300 calls.
-// Never lets an exception escape into FFX.
 void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept;
 
 // Sedici's own frame-generation swapchain stands in for AMD's callback with
@@ -70,7 +25,3 @@ void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noe
 void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list,
                          ID3D12Resource* backbuffer, bool generated) noexcept;
 void overlay_output_presented(bool generated) noexcept;
-// Called after successful swapchain creation to relate registration contexts
-// to the swapchain identity referenced by frame-generation configure calls.
-void overlay_after_create(void* context, const ffxCreateContextDescHeader* desc) noexcept;
-void overlay_on_destroy(void* context) noexcept;

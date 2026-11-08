@@ -10,8 +10,6 @@ namespace sedici {
 // fields must be read coherently; separate accessor calls may span revisions.
 struct LiveValues {
     double limiter_fps = 0.0;
-    PacingMode pacing = PacingMode::Hybrid;
-    AsyncMode async = AsyncMode::Game;
     int log_level = 1;
     UiScaleMode scale_mode = UiScaleMode::Auto;
     float ui_scale = 1.0f;
@@ -27,12 +25,6 @@ void live_initialize(const Settings& config) noexcept;
 
 double live_limiter_fps() noexcept;
 void live_set_limiter_fps(double fps) noexcept;
-
-PacingMode live_pacing_mode() noexcept;
-void live_set_pacing_mode(PacingMode mode) noexcept;
-
-AsyncMode live_async_mode() noexcept;
-void live_set_async_mode(AsyncMode mode) noexcept;
 
 int live_log_level() noexcept;
 void live_set_log_level(int level) noexcept;

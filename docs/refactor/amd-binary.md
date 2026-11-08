@@ -1,5 +1,10 @@
 # P2.3 evidence: the official AMD frame-generation binary
 
+> **Retained as reference.** The AMD backend, the `.orig` forwarding path and the
+> `sedici_amd_probe` tool were removed. This file records what the pinned binary did
+> when it was probed; it is kept because it is useful for later work on FSR frame
+> generation. Sedici no longer loads, forwards to or ships that binary.
+
 Status: **evidence complete; gate decision recorded below (review pending).**
 Technically feasible with the user's installed copy; **bundling was blocked on a
 licence review**; the owner has since reviewed AMD's terms and accepted responsibility (`NOTICE.md`). Nothing here is

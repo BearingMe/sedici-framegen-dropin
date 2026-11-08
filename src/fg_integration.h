@@ -12,8 +12,7 @@
 //
 // Split out of the DLL exports so the same production path (desc adapter, stage
 // 1, HUD composite and presentation schedule) can be exercised offline. The
-// exports route recognized contexts here when fg.mode is set to "sedici";
-// fg.mode = "amd" continues to use the original DLL.
+// exports route every recognized context here; Sedici is the only backend.
 //
 // Ownership rules:
 //   * A wrapped swapchain is registered when created and unregistered when its

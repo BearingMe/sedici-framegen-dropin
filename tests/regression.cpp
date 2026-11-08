@@ -1,18 +1,16 @@
 #include "config.h"
 #include "config_patch.h"
-#include "forward.h"
 #include "fg_token_namespace.h"
 #include "fg_retirement_policy.h"
 #include "fg_queue_policy.h"
 #include "fg_slot_policy.h"
 #include "imgui_config.h"
+#include "limiter.h"
 #include "live.h"
 #include "log.h"
 #include "overlay.h"
-#include "present_hook.h"
 #include "settings_tx.h"
 #include "settings_io.h"
-#include "toggles.h"
 #include "ui.h"
 #include "ui_input.h"
 #include "ffx_api_framegeneration_dx12.h"
@@ -112,21 +110,11 @@ void settings_checks(const std::filesystem::path& file)
               live_limiter_fps() == 37.0,
           "settings: an out-of-range value is rejected, not clamped");
     LiveValues partial = next;
-    partial.pacing = PacingMode::Hybrid;
+    partial.limiter_fps = 41.0;
     partial.log_level = 9;
-    const PacingMode pacingBefore = live_pacing_mode();
     check(settings_apply(applied.revision, partial).status == ApplyStatus::Rejected &&
-              live_pacing_mode() == pacingBefore,
+              live_limiter_fps() == 37.0,
           "settings: a candidate with one invalid field applies none of its fields");
-
-    const SettingsSnapshot beforeDeferred = settings_snapshot();
-    LiveValues deferred = beforeDeferred.values;
-    deferred.async = deferred.async == AsyncMode::Off ? AsyncMode::Game : AsyncMode::Off;
-    const ApplyResult pending = settings_apply(beforeDeferred.revision, deferred);
-    check(pending.status == ApplyStatus::Pending && !pending.reason.empty(),
-          "settings: an async change is reported pending rather than applied");
-    const ApplyResult restore = settings_apply(pending.revision, beforeDeferred.values);
-    check(restore.status == ApplyStatus::Pending, "settings: reverting async remains pending");
 
     const uint64_t superseded = settings_start_edit();
     settings_invalidate_edit();
@@ -600,38 +588,23 @@ void settings_capability_checks(bool sediciBackend, bool environment)
     using namespace sedici;
     const SettingsSnapshot base = settings_snapshot();
     if (sediciBackend) {
-        LiveValues pacing = base.values;
-        pacing.pacing = pacing.pacing == PacingMode::Off ? PacingMode::Hybrid : PacingMode::Off;
-        LiveValues async = base.values;
-        async.async = async.async == AsyncMode::Off ? AsyncMode::Game : AsyncMode::Off;
-        check(settings_apply(base.revision, pacing).status == ApplyStatus::Rejected &&
-                  settings_apply(base.revision, async).status == ApplyStatus::Rejected &&
-                  settings_snapshot().revision == base.revision,
-              "settings: AMD-only pacing and async changes are rejected on Sedici");
         LiveValues limiter = base.values;
         limiter.limiter_fps = 25.0;
         check(settings_apply(base.revision, limiter).status == ApplyStatus::Applied &&
                   live_limiter_fps() == 25.0,
-              "settings: real-frame limiter remains available on Sedici");
+              "settings: real-frame limiter is available");
     }
     if (environment) {
         const Settings& config = settings();
-        check(config.limiter.fps_source == Source::Env && config.pacing.mode_source == Source::Env &&
-                  config.async.mode_source == Source::Env && config.log.level_source == Source::Env,
+        check(config.limiter.fps_source == Source::Env && config.log.level_source == Source::Env,
               "settings: test overrides are recorded as environment sources");
         LiveValues candidate = base.values;
         candidate.limiter_fps = candidate.limiter_fps == 45.0 ? 30.0 : 45.0;
         const bool limiterRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
         candidate = base.values;
-        candidate.pacing = candidate.pacing == PacingMode::Off ? PacingMode::Hybrid : PacingMode::Off;
-        const bool pacingRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
-        candidate = base.values;
-        candidate.async = candidate.async == AsyncMode::Off ? AsyncMode::Game : AsyncMode::Off;
-        const bool asyncRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
-        candidate = base.values;
         candidate.log_level = candidate.log_level == 2 ? 1 : 2;
         const bool logRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
-        check(limiterRejected && pacingRejected && asyncRejected && logRejected &&
+        check(limiterRejected && logRejected &&
                   settings_snapshot().revision == base.revision && settings_snapshot().values == base.values,
               "settings: environment-controlled fields reject live overrides without partial changes");
     }
@@ -645,10 +618,10 @@ void config_checks(const std::filesystem::path& path)
     check(!sedici::config_file_stamp(invalid).valid &&
               !sedici::config_save(invalid, values, invalidError) && !invalidError.empty(),
           "config: an attribute-query error is not treated as a missing file");
-    values.write_pacing = true;
-    values.pacing = "hybrid";
+    values.write_log = true;
+    values.log_level = 2;
     std::string error;
-    write(path, "[pacing] # keep\r\nsafety_margin_ms = 0.2\r\n\r\n"
+    write(path, "[log] # keep\r\nnote = 0.2\r\n\r\n"
                 "[[profiles]]\r\nmode = \"unrelated\" # keep too\r\n");
     auto unrelated = path;
     unrelated += L".tmp";
@@ -658,27 +631,27 @@ void config_checks(const std::filesystem::path& path)
     check(read(unrelated) == "do not overwrite", "save leaves an existing .tmp file untouched");
     std::filesystem::remove(unrelated);
     const std::string output = read(path);
-    check(output.find("mode = \"hybrid\"\r\n") < output.find("[[profiles]]"),
-          "pacing value stays in its own table");
+    check(output.find("level = 2\r\n") < output.find("[[profiles]]"),
+          "log value stays in its own table");
     check(output.find("mode = \"unrelated\" # keep too\r\n") != std::string::npos,
           "array table and comments stay unchanged");
 
-    write(path, "[Pacing]\nmode = \"untouched\"\n");
+    write(path, "[Log]\nlevel = 7\n");
     check(sedici::config_save(path, values, error), "case-sensitive target table can be appended");
-    check(read(path).find("[Pacing]\nmode = \"untouched\"") != std::string::npos,
+    check(read(path).find("[Log]\nlevel = 7") != std::string::npos,
           "differently cased table is untouched");
 
-    const std::string multiline = "[pacing]\ntext = '''\nmode = \"inside string\"\n'''\n";
+    const std::string multiline = "[log]\ntext = '''\nlevel = \"inside string\"\n'''\n";
     write(path, multiline);
     check(!sedici::config_save(path, values, error), "unsafe multiline patch is rejected");
     check(read(path) == multiline, "rejected save preserves every original byte");
 
-    const std::string quoted = "[pacing]\n\"mode\" = \"off\"\n";
+    const std::string quoted = "[log]\n\"level\" = 0\n";
     write(path, quoted);
     check(!sedici::config_save(path, values, error), "unsupported quoted key fails safely");
     check(read(path) == quoted, "quoted-key rejection does not overwrite file");
 
-    write(path, "[pacing]\nmode = \"off\" # keep\n[limiter]\nfps = 0\n");
+    write(path, "[log]\nlevel = 1 # keep\n[limiter]\nfps = 0\n");
     values.write_limiter_fps = true;
     values.limiter_fps = 36.5;
     check(sedici::config_save(path, values, error), "fractional FPS saves with comments");
@@ -884,242 +857,26 @@ void window_checks()
     check(destroyed == 2, "current window WM_NCDESTROY reaches the game procedure");
 }
 
-struct FakeSwapchain { void** vtable; };
-int presents_a = 0;
-int presents_b = 0;
-int pacing_calls = 0;
-using Present = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
-Present overlay_original = nullptr;
-HRESULT STDMETHODCALLTYPE overlay_present(IDXGISwapChain* self, UINT sync, UINT flags)
-{ return overlay_original(self, sync, flags); }
-HRESULT STDMETHODCALLTYPE present_a(IDXGISwapChain*, UINT, UINT) { ++presents_a; return S_FALSE; }
-HRESULT STDMETHODCALLTYPE present_b(IDXGISwapChain*, UINT, UINT) { ++presents_b; return DXGI_STATUS_OCCLUDED; }
-HRESULT STDMETHODCALLTYPE present1_a(IDXGISwapChain*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*)
-{ ++presents_a; return S_FALSE; }
-HRESULT STDMETHODCALLTYPE present1_b(IDXGISwapChain*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*)
-{ ++presents_b; return DXGI_STATUS_OCCLUDED; }
-HRESULT STDMETHODCALLTYPE get_desc(IDXGISwapChain*, DXGI_SWAP_CHAIN_DESC*) { return E_FAIL; }
-ffxReturnCode_t configure_stub(ffxContext*, const ffxConfigureDescHeader*)
-{ ++pacing_calls; return FFX_API_RETURN_OK; }
-
-void present_checks()
+// The limiter runs from the wrapper's present hook. It can be switched on live
+// after an uncapped start, and it then delays the next frame.
+void limiter_live_checks()
 {
-    // Static storage: hooks and original functions must outlive every invocation.
-    static void* va[23]{};
-    static void* vb[23]{};
-    static FakeSwapchain a{va}, b{vb};
-    va[8] = reinterpret_cast<void*>(&present_a);
-    va[12] = reinterpret_cast<void*>(&get_desc);
-    va[22] = reinterpret_cast<void*>(&present1_a);
-    vb[8] = reinterpret_cast<void*>(&present_b);
-    vb[12] = reinterpret_cast<void*>(&get_desc);
-    vb[22] = reinterpret_cast<void*>(&present1_b);
-    auto* pa = reinterpret_cast<IDXGISwapChain4*>(&a);
-    auto* pb = reinterpret_cast<IDXGISwapChain4*>(&b);
-    ffxCreateContextDescFrameGenerationSwapChainWrapDX12 desc{};
-    desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
-    desc.swapchain = &pa;
-    present_hook_maybe_install(&desc.header);
-    desc.swapchain = &pb;
-    present_hook_maybe_install(&desc.header);
-    check(va[8] != reinterpret_cast<void*>(&present_a), "Present installs with startup log=0 and fps=0");
-    using Present1 = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
-    check(reinterpret_cast<Present>(va[8])(pa, 0, 0) == S_FALSE, "first vtable keeps its Present original");
-    check(reinterpret_cast<Present>(vb[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED, "second vtable keeps its Present original");
-    check(reinterpret_cast<Present1>(va[22])(pa, 0, 0, nullptr) == S_FALSE, "first vtable keeps its Present1 original");
-    check(reinterpret_cast<Present1>(vb[22])(pb, 0, 0, nullptr) == DXGI_STATUS_OCCLUDED, "second vtable keeps its Present1 original");
-    check(presents_a == 2 && presents_b == 2, "all Present calls forward exactly once");
-
-    static void* cloned_a[23]{};
-    static void* cloned_b[23]{};
-    std::copy_n(va, 23, cloned_a);
-    std::copy_n(vb, 23, cloned_b);
-    overlay_original = reinterpret_cast<Present>(cloned_b[8]);
-    cloned_b[8] = reinterpret_cast<void*>(&overlay_present);
-    a.vtable = cloned_a;
-    b.vtable = cloned_b;
-    check(reinterpret_cast<Present>(cloned_a[8])(pa, 0, 0) == S_FALSE,
-          "copied Sedici Present forwards without the original vtable address");
-    check(reinterpret_cast<Present1>(cloned_a[22])(pa, 0, 0, nullptr) == S_FALSE,
-          "copied Sedici Present1 retains its forwarding target");
-    check(reinterpret_cast<Present>(cloned_b[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED,
-          "another overlay can chain Sedici from a replacement vtable");
-    desc.swapchain = &pa;
-    present_hook_maybe_install(&desc.header);
-    desc.swapchain = &pb;
-    present_hook_maybe_install(&desc.header);
-    check(reinterpret_cast<Present>(cloned_a[8])(pa, 0, 0) == S_FALSE,
-          "recapturing a copied hook pair does not wrap it again");
-    check(reinterpret_cast<Present>(cloned_b[8])(pb, 0, 0) == DXGI_STATUS_OCCLUDED,
-          "recapturing a mixed overlay chain still forwards once");
-    check(reinterpret_cast<Present1>(cloned_b[22])(pb, 0, 0, nullptr) == DXGI_STATUS_OCCLUDED,
-          "mixed Present1 hook chain retains the correct original");
-    check(presents_a == 5 && presents_b == 5, "cloned and chained vtables forward exactly once");
-    a.vtable = va;
-    b.vtable = vb;
-    sedici::live_set_limiter_fps(1000);
-    reinterpret_cast<Present>(va[8])(pa, 0, 0);
-    LARGE_INTEGER before{}, after{}, frequency{};
+    const auto qpc = [] {
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        return static_cast<uint64_t>(now.QuadPart);
+    };
+    LARGE_INTEGER frequency{};
     QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&before);
-    reinterpret_cast<Present>(va[8])(pa, 0, 0);
-    QueryPerformanceCounter(&after);
+    limiter_before_present(qpc());
+    sedici::live_set_limiter_fps(1000);
+    limiter_before_present(qpc());
+    const uint64_t before = qpc();
+    limiter_before_present(qpc());
+    const uint64_t after = qpc();
     sedici::live_set_limiter_fps(0);
-    check(presents_a == 7, "limiter can be enabled live after silent uncapped startup");
-    check(static_cast<double>(after.QuadPart - before.QuadPart) / frequency.QuadPart >= 0.0005,
+    check(static_cast<double>(after - before) / static_cast<double>(frequency.QuadPart) >= 0.0005,
           "live limiter actually delays Present after silent uncapped startup");
-
-    g_ffxConfigure = &configure_stub;
-    ffxContext context = reinterpret_cast<void*>(0x1234);
-    desc.swapchain = &pa;
-    toggles_after_create(&context, &desc.header);
-    toggles_apply_pacing_live();
-    check(pacing_calls == 0, "live pacing request does not enter FFX from callback");
-    reinterpret_cast<Present>(va[8])(pa, 0, 0);
-    check(pacing_calls == 1, "pending pacing is sent on next application Present");
-    toggles_on_destroy(context);
-    toggles_apply_pacing_live();
-    reinterpret_cast<Present>(va[8])(pa, 0, 0);
-    check(pacing_calls == 1, "destroyed context is not used by pending live pacing");
-}
-
-int callback_a_token = 0;
-int callback_b_token = 0;
-ffxReturnCode_t callback_a(ffxCallbackDescFrameGenerationPresent*, void* user)
-{ return user == &callback_a_token ? FFX_API_RETURN_OK : FFX_API_RETURN_ERROR; }
-ffxReturnCode_t callback_b(ffxCallbackDescFrameGenerationPresent*, void* user)
-{ return user == &callback_b_token ? FFX_API_RETURN_OK : FFX_API_RETURN_ERROR; }
-ffxReturnCode_t callback_error(ffxCallbackDescFrameGenerationPresent*, void*)
-{ return FFX_API_RETURN_ERROR; }
-void callback_checks()
-{
-    ffxConfigureDescFrameGeneration a{}, b{};
-    a.header.type = b.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    a.presentCallback = callback_a;
-    a.presentCallbackUserContext = &callback_a_token;
-    b.presentCallback = callback_b;
-    b.presentCallbackUserContext = &callback_b_token;
-    FfxApiPresentCallbackFunc saved_a = nullptr, saved_b = nullptr;
-    void* user_a = nullptr;
-    void* user_b = nullptr;
-    {
-        ScopedOverlayCallback patch(&a.header);
-        saved_a = a.presentCallback;
-        user_a = a.presentCallbackUserContext;
-    }
-    {
-        ScopedOverlayCallback patch(&b.header);
-        saved_b = b.presentCallback;
-        user_b = b.presentCallbackUserContext;
-        patch.complete(FFX_API_RETURN_ERROR);
-    }
-    ffxCallbackDescFrameGenerationPresent present{};
-    ffxConfigureDescFrameGeneration errorDesc{};
-    errorDesc.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    errorDesc.presentCallback = callback_error;
-    FfxApiPresentCallbackFunc savedError = nullptr;
-    void* errorUser = nullptr;
-    {
-        ScopedOverlayCallback patch(&errorDesc.header);
-        savedError = errorDesc.presentCallback;
-        errorUser = errorDesc.presentCallbackUserContext;
-    }
-    check(savedError && savedError(&present, errorUser) == FFX_API_RETURN_ERROR,
-          "chained present callback preserves the game's error result");
-    check(errorDesc.presentCallback == callback_error,
-          "error callback descriptor is restored after patching");
-
-    check(saved_a(&present, user_a) == FFX_API_RETURN_OK, "in-flight callback retains its own context");
-    check(saved_b(&present, user_b) == FFX_API_RETURN_OK, "another callback has its own immutable binding");
-    check(a.presentCallback == callback_a && a.presentCallbackUserContext == &callback_a_token,
-          "scoped callback patch restores caller fields");
-    check(saved_a(&present, user_a) == FFX_API_RETURN_OK,
-          "rejected configure cannot overwrite accepted callback binding");
-    ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 registration{};
-    registration.header.type =
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
-    registration.uiResource.resource = reinterpret_cast<void*>(1);
-    void* context = reinterpret_cast<void*>(0x5678);
-    {
-        ScopedOverlayCallback patch(&registration.header, context);
-        patch.complete(FFX_API_RETURN_ERROR);
-    }
-    ffxConfigureDescFrameGeneration default_composition{};
-    default_composition.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    {
-        ScopedOverlayCallback patch(&default_composition.header, context);
-        check(default_composition.presentCallback != nullptr,
-              "rejected UI registration cannot change composition policy");
-    }
-}
-
-void composition_checks()
-{
-    // Registration is sent to the swapchain context, not the FG context.
-    void* swap_context = reinterpret_cast<void*>(0x6789);
-    void* fg_context = reinterpret_cast<void*>(0x789A);
-    auto* swapchain = reinterpret_cast<IDXGISwapChain4*>(0x4567);
-    ffxCreateContextDescFrameGenerationSwapChainWrapDX12 create{};
-    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
-    create.swapchain = &swapchain;
-    overlay_after_create(swap_context, &create.header);
-    ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 registration{};
-    registration.header.type =
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
-    registration.uiResource.resource = reinterpret_cast<void*>(1);
-    {
-        ScopedOverlayCallback patch(&registration.header, swap_context);
-        patch.complete(FFX_API_RETURN_OK);
-    }
-    ffxConfigureDescFrameGeneration fg{};
-    fg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
-    fg.swapChain = swapchain;
-    {
-        ScopedOverlayCallback patch(&fg.header, fg_context);
-        check(fg.presentCallback == nullptr, "separate FG context leaves registered UI composition to FFX");
-    }
-    FfxFrameGenerationConfig legacy{};
-    legacy.header.type = FFX_API_FRAME_GENERATION_CONFIG;
-    legacy.swapChain = swapchain;
-    {
-        ScopedOverlayCallback patch(&legacy.header, fg_context);
-        check(legacy.presentCallback == nullptr, "legacy FG configure resolves UI by swapchain identity");
-    }
-    fg.swapChain = reinterpret_cast<void*>(0xABCD);
-    {
-        ScopedOverlayCallback patch(&fg.header, fg_context);
-        check(fg.presentCallback != nullptr, "UI registration does not affect another swapchain");
-    }
-    fg.swapChain = swapchain;
-    registration.uiResource.resource = nullptr;
-    {
-        ScopedOverlayCallback patch(&registration.header, swap_context);
-        patch.complete(FFX_API_RETURN_ERROR);
-    }
-    {
-        ScopedOverlayCallback patch(&fg.header, fg_context);
-        check(fg.presentCallback == nullptr, "rejected UI deregistration retains FFX composition");
-    }
-    {
-        ScopedOverlayCallback patch(&registration.header, swap_context);
-        patch.complete(FFX_API_RETURN_OK);
-    }
-    {
-        ScopedOverlayCallback patch(&fg.header, fg_context);
-        check(fg.presentCallback != nullptr, "accepted UI deregistration restores the no-UI callback path");
-    }
-    registration.uiResource.resource = reinterpret_cast<void*>(1);
-    {
-        ScopedOverlayCallback patch(&registration.header, swap_context);
-        patch.complete(FFX_API_RETURN_OK);
-    }
-    overlay_on_destroy(swap_context);
-    overlay_after_create(swap_context, &create.header);
-    {
-        ScopedOverlayCallback patch(&fg.header, fg_context);
-        check(fg.presentCallback != nullptr, "recycled swapchain context does not inherit an old UI registration");
-    }
-    overlay_on_destroy(swap_context);
 }
 } // namespace
 
@@ -1132,13 +889,11 @@ int main(int argc, char** argv)
         return 1;
     }
     try {
-        for (const auto* name : {L"SEDICI_PACING", L"SEDICI_ASYNC", L"SEDICI_LIMIT_FPS", L"MFSRFG_LOG"})
+        for (const auto* name : {L"SEDICI_LIMIT_FPS", L"MFSRFG_LOG"})
             SetEnvironmentVariableW(name, nullptr);
         const std::string mode = argc > 1 ? argv[1] : "";
         if (mode == "settings-env") {
             SetEnvironmentVariableW(L"SEDICI_LIMIT_FPS", L"45");
-            SetEnvironmentVariableW(L"SEDICI_PACING", L"hybrid");
-            SetEnvironmentVariableW(L"SEDICI_ASYNC", L"0");
             SetEnvironmentVariableW(L"MFSRFG_LOG", L"2");
         }
         if (mode == "settings-sedici") {
@@ -1146,13 +901,9 @@ int main(int argc, char** argv)
 level = 0
 [limiter]
 fps = 0
-[pacing]
-mode = "off"
-[fg]
-mode = "sedici"
 )toml");
         } else {
-        write(config, "[log]\nlevel = 0\n[limiter]\nfps = 0\n[pacing]\nmode = \"off\"\n");
+        write(config, "[log]\nlevel = 0\n[limiter]\nfps = 0\n");
         }
         (void)sedici::settings();
         if (mode == "settings-sedici" || mode == "settings-env") {
@@ -1169,10 +920,8 @@ mode = "sedici"
             check(mapped.x == 0 && mapped.y == 0, "negative client coordinates map to the near edge");
             try { sedici::imgui_assert_failed("injected assertion"); }
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
-            present_checks();
-            callback_checks();
+            limiter_live_checks();
             window_checks();
-            composition_checks();
         }
     } catch (const std::exception& error) {
         check(false, error.what());

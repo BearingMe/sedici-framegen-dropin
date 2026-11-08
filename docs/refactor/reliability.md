@@ -1,5 +1,12 @@
 # Reliability and integrated acceptance
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 Status: target contracts for the refactor, not claims that the current build passes.
 The architecture's ownership rules are in [architecture.md](architecture.md).
 
@@ -46,10 +53,10 @@ Timeout handling must not CPU-signal fictitious GPU completion, release in-fligh
 memory, or terminate a worker thread forcibly. Preserve real device-loss results.
 No watchdog can promise to recover arbitrary driver hangs or process corruption.
 
-Backend fallback scope is specified in architecture.md. Real-frame degradation,
-residual-stage unavailability, and AMD takeover are different outcomes; report which
-one happened. Whether an unavailable model permits analytical-only operation or
-selects AMD is an explicit product policy still to be settled.
+There is no backend fallback. Real-frame degradation and residual-stage
+unavailability are different outcomes; report which one happened. Whether an
+unavailable model permits analytical-only operation is a product policy still to
+be settled.
 
 ## Diagnostics contract
 
@@ -85,7 +92,7 @@ composed scenarios and deterministic policy tests over a broad GPU option matrix
 | ABI | Actual five-export DLL boundary, unchanged compatibility forwarding, descriptor restoration, binary/context ownership and return codes |
 | Combined session | FG, Mini/Full UI, live limiter changes, acknowledged settings, save/cancel, and truthful metrics working together |
 | Lifecycle | FG off/on, resize/window replacement, outstanding GPU work, input restoration, clean shutdown |
-| Failure injection | Unavailable/incompatible AMD dependency, failed Sedici initialization, allocation/submission rejection, setting rejection, log/save failure |
+| Failure injection | Failed Sedici initialization, allocation/submission rejection, setting rejection, log/save failure |
 | GPU correctness | Multiple in-flight frames, descriptor/resource lifetime, chronological outputs, HUD and overlay preservation, image comparisons |
 | Performance | Production-resolution GPU pass times, total generation cost, and bounded backlog, without validation instrumentation skew |
 
@@ -115,10 +122,10 @@ relabeled green, and an unexpected pass fails the run.
 | Group | Covered by | Gap |
 | --- | --- | --- |
 | Policy | `sedici_fgcheck`: QPC conversion, 2x pacing closed loop, output schedule (2x/1.75x/1.5x/1.25x, adaptive grid, hitch, < 20 fps, pause). `sedici_regression`: TOML parsing and limiter schedule. | Settings transactions (P2.6 does not exist yet); presenter latency/guard decisions are only exercised through windows, not as pure policy. |
-| ABI | `sedici_abi exports`: exactly the five named exports in the built DLL. `sedici_abi forward`: arguments, return codes (including errors) and desc bytes forwarded unchanged to a stub `.orig`; unknown descs forwarded. `sedici_abi pacing` / `async-off`: the pacing tuning send and the async rewrite as the stub sees them, with the caller's desc restored. `sedici_abi missing-orig`: every export returns an error without crashing. | Behaviour against AMD's real binary (P2.3); the stub only proves Sedici's side of the boundary. |
+| ABI | `sedici_abi exports`: exactly the five named exports in the built DLL. `sedici_abi contract`: with a tripwire stub beside the DLL that must never be called, version queries return the recorded providers and every foreign, null or unknown input gets its defined error code. (The `forward`, `pacing`, `async-off`, `missing-orig` and read-only AMD scenarios were removed with the AMD backend.) | Game-side behaviour; the contract is checked only against the headers and recorded AMD answers. |
 | Combined session | `sedici_abi session` (and the scenarios above, which share its rig): fg.mode = "sedici" through the five exports with a real swapchain: FG create/wrap/configure, prepare + Present for 200 frames with the Mini overlay and a 30 fps limiter, FG off/on, resize, destroy. Evidence is the DLL's own log (vrr presenter and 2x schedule, overlay initialized, overlay metrics of ~30 real / ~60 output fps, the limiter's FG on/off label, no setup failures) plus return codes and the D3D12 debug layer. | Live limiter changes and settings save/cancel: see accepted gaps below. |
 | Lifecycle | `sedici_fgcheck --present`: wrapper resize, teardown, vrr recreation, 2x/1.5x/adaptive/overload presentation. `sedici_abi session`: FG off/on and resize through the exports. `sedici_abi window-replace`: three full sessions in a row, one on the same window, one on a replaced window, with per-session contexts and presenters counted in the log. `sedici_abi destroy-inflight`: three rounds that destroy the contexts, and in one round resize, with the game's and the presenter's GPU work still outstanding (nothing waits between frames). `sedici_abi overlay-hotkey`: Alt+F10 through the hooked window procedure, Off/Mini/Full cycle, session ended while Full, window replaced, cursor clip restored. `sedici_regression`: window/input capture and restoration. | None open for P2.2; see accepted gaps below. |
-| Failure injection | Stub `.orig` errors; missing `.orig`; malformed TOML (`sedici_abi bad-config`); RTSS-injected fallback to "vsync"; generator refusal (fgcheck contract checks). `sedici_abi log-failure`: `sedici.log` blocked by a directory, a full session still runs clean. `sedici_abi invalid-calls`: no backend desc, 0x0 display, null game queue, null swapchain slot (the caller's chain stays usable), prepare with no list/resources, unknown dispatch type on an owned context, destroyed handle, double destroy; a hostile-call burst leaves a running session working. | Accepted gaps below. |
+| Failure injection | Malformed TOML (`sedici_abi bad-config`); RTSS-injected fallback to "vsync"; generator refusal (fgcheck contract checks). `sedici_abi log-failure`: `sedici.log` blocked by a directory, a full session still runs clean. `sedici_abi invalid-calls`: no backend desc, 0x0 display, null game queue, null swapchain slot (the caller's chain stays usable), prepare with no list/resources, unknown dispatch type on an owned context, destroyed handle, double destroy; a hostile-call burst leaves a running session working. | Accepted gaps below. |
 | GPU correctness | `sedici_fgcheck`: Stage 1 PSNR/SSIM at 1/2, 1/3, 2/3 from one prepare; HUD preservation; two frames in flight with per-slot fences (debug layer); no back-to-back flips. `sedici_regression gpu-*`: overlay composition. | Chronological readback through the vrr presenter (the FLIP_SEQUENTIAL readback check only exists for the old path). |
 | Performance | Stage 1 time per scene in `sedici_fgcheck`. | Production-resolution timings; generation and presenter cost in game. |
 

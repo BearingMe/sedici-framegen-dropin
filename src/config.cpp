@@ -232,10 +232,7 @@ void check_section(const toml::table& root, std::string_view name, std::vector<s
 // File loading
 // ---------------------------------------------------------------------------
 
-void read_pacing(const toml::table& root, PacingSettings& pacing,
-                 std::vector<std::string>& problems, std::vector<std::string>& notes);
-void read_async(const toml::table& root, AsyncSettings& async,
-                std::vector<std::string>& problems);
+void note_removed_keys(const toml::table& root, std::vector<std::string>& notes);
 void read_fg(const toml::table& root, FrameGenerationSettings& fg,
              std::vector<std::string>& problems);
 
@@ -322,8 +319,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
     const toml::table& root = result.table();
     config.file_parsed = true;
 
-    read_pacing(root, config.pacing, problems, notes);
-    read_async(root, config.async, problems);
+    note_removed_keys(root, notes);
     read_fg(root, config.fg, problems);
     read_limiter(root, config.limiter, problems, notes);
     read_log(root, config.log, problems);
@@ -334,171 +330,22 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
 // Per-key reading
 // ---------------------------------------------------------------------------
 
-void read_pacing(const toml::table& root, PacingSettings& pacing,
-                 std::vector<std::string>& problems, std::vector<std::string>& notes)
+// Sections and keys from the era when Sedici forwarded to AMD's frame generation.
+// They no longer do anything; an old sedici.toml still loads, and one note says
+// why those values are ignored.
+void note_removed_keys(const toml::table& root, std::vector<std::string>& notes)
 {
-    check_section(root, "pacing", problems);
-
-    // mode ---------------------------------------------------------------
-    {
-        std::string value;
-        const node* entry = section_key(root, "pacing", "mode");
-        switch (read_string(entry, value)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "pacing.mode",
-                       std::string("expected a string, got ") + type_name(entry->type()) +
-                           " - using default \"hybrid\"");
-            break;
-        case Read::Ok:
-            if (iequals(value, "hybrid")) {
-                pacing.mode = PacingMode::Hybrid;
-                pacing.mode_source = Source::File;
-            } else if (iequals(value, "off")) {
-                pacing.mode = PacingMode::Off;
-                pacing.mode_source = Source::File;
-            } else {
-                problem_at(problems, *entry, "pacing.mode",
-                           "unknown value \"" + value +
-                               "\" (expected \"hybrid\" or \"off\") - using default \"hybrid\"");
-            }
-            break;
-        }
-    }
-
-    // safety_margin_ms ---------------------------------------------------
-    {
-        double value = 0.0;
-        const node* entry = section_key(root, "pacing", "safety_margin_ms");
-        switch (read_number(entry, value)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "pacing.safety_margin_ms",
-                       std::string("expected a number, got ") + type_name(entry->type()) +
-                           " - using default 0.1");
-            break;
-        case Read::Ok:
-            if (!std::isfinite(value) || value < 0.0) {
-                problem_at(problems, *entry, "pacing.safety_margin_ms",
-                           "must be a finite value >= 0.0 - using default 0.1");
-            } else if (value > 1000.0) {
-                problem_at(problems, *entry, "pacing.safety_margin_ms",
-                           "implausibly large (> 1000 ms) - using default 0.1");
-            } else {
-                pacing.safety_margin_ms = static_cast<float>(value);
-                pacing.safety_margin_ms_source = Source::File;
-            }
-            break;
-        }
-    }
-
-    // variance_factor ----------------------------------------------------
-    {
-        double value = 0.0;
-        const node* entry = section_key(root, "pacing", "variance_factor");
-        switch (read_number(entry, value)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "pacing.variance_factor",
-                       std::string("expected a number, got ") + type_name(entry->type()) +
-                           " - using default 0.1");
-            break;
-        case Read::Ok:
-            // The SDK documents this as a valid range of [0.0, 1.0].
-            if (!std::isfinite(value) || value < 0.0 || value > 1.0) {
-                problem_at(problems, *entry, "pacing.variance_factor",
-                           "must be within [0.0, 1.0] - using default 0.1");
-            } else {
-                pacing.variance_factor = static_cast<float>(value);
-                pacing.variance_factor_source = Source::File;
-            }
-            break;
-        }
-    }
-
-    // hybrid_spin_time ---------------------------------------------------
-    {
-        int64_t value = 0;
-        const node* entry = section_key(root, "pacing", "hybrid_spin_time");
-        switch (read_integer(entry, value)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "pacing.hybrid_spin_time",
-                       std::string("expected an integer, got ") + type_name(entry->type()) +
-                           " - using default 2");
-            break;
-        case Read::Ok:
-            if (value < 0 || value > 1000) {
-                problem_at(problems, *entry, "pacing.hybrid_spin_time",
-                           "must be within [0, 1000] - using default 2");
-            } else {
-                pacing.hybrid_spin_time = static_cast<uint32_t>(value);
-                pacing.hybrid_spin_time_source = Source::File;
-                if (value < 2) {
-                    // Applied, but worth a note: the SDK warns that going below
-                    // 2 timer resolution units causes frequent overshoots.
-                    notes.push_back(
-                        "sedici.toml: pacing.hybrid_spin_time: the SDK recommends a value of at "
-                        "least 2; " + std::to_string(value) + " was applied anyway");
-                }
-            }
-            break;
-        }
-    }
-
-    // wait_for_single_object_on_fence ------------------------------------
-    {
-        bool value = false;
-        const node* entry = section_key(root, "pacing", "wait_for_single_object_on_fence");
-        switch (read_boolean(entry, value)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "pacing.wait_for_single_object_on_fence",
-                       std::string("expected a boolean, got ") + type_name(entry->type()) +
-                           " - using default false");
-            break;
-        case Read::Ok:
-            pacing.wait_for_single_object_on_fence = value;
-            pacing.wait_for_single_object_on_fence_source = Source::File;
-            break;
-        }
-    }
-}
-
-void read_async(const toml::table& root, AsyncSettings& async,
-                std::vector<std::string>& problems)
-{
-    check_section(root, "async", problems);
-
-    std::string value;
-    const node* entry = section_key(root, "async", "mode");
-    switch (read_string(entry, value)) {
-    case Read::Missing:
-        break;
-    case Read::WrongType:
-        problem_at(problems, *entry, "async.mode",
-                   std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"game\"");
-        break;
-    case Read::Ok:
-        if (iequals(value, "game")) {
-            async.mode = AsyncMode::Game;
-            async.mode_source = Source::File;
-        } else if (iequals(value, "off")) {
-            async.mode = AsyncMode::Off;
-            async.mode_source = Source::File;
-        } else {
-            problem_at(problems, *entry, "async.mode",
-                       "unknown value \"" + value +
-                           "\" (expected \"game\" or \"off\") - using default \"game\"");
-        }
-        break;
-    }
+    std::string found;
+    const auto add = [&](const char* name) {
+        if (!found.empty()) found += ", ";
+        found += name;
+    };
+    if (root["pacing"]) add("[pacing]");
+    if (root["async"]) add("[async]");
+    if (section_key(root, "fg", "mode")) add("fg.mode");
+    if (!found.empty())
+        notes.push_back("sedici.toml: " + found +
+                        " no longer exist (Sedici is the only frame generation backend) - ignored");
 }
 
 void read_fg(const toml::table& root, FrameGenerationSettings& fg,
@@ -507,31 +354,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     check_section(root, "fg", problems);
 
     std::string value;
-    const node* entry = section_key(root, "fg", "mode");
-    switch (read_string(entry, value)) {
-    case Read::Missing:
-        break;
-    case Read::WrongType:
-        problem_at(problems, *entry, "fg.mode",
-                   std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"amd\"");
-        break;
-    case Read::Ok:
-        if (iequals(value, "amd")) {
-            fg.mode = FrameGenerationMode::Amd;
-            fg.mode_source = Source::File;
-        } else if (iequals(value, "sedici")) {
-            fg.mode = FrameGenerationMode::Sedici;
-            fg.mode_source = Source::File;
-        } else {
-            problem_at(problems, *entry, "fg.mode",
-                       "unknown value \"" + value +
-                           "\" (expected \"amd\" or \"sedici\") - using default \"amd\"");
-        }
-        break;
-    }
-
-    entry = section_key(root, "fg", "present");
+    const node* entry = section_key(root, "fg", "present");
     switch (read_string(entry, value)) {
     case Read::Missing:
         break;
@@ -862,34 +685,6 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
 {
     std::string value;
 
-    if (env_string("SEDICI_PACING", value)) {
-        if (iequals(value, "hybrid")) {
-            config.pacing.mode = PacingMode::Hybrid;
-            config.pacing.mode_source = Source::Env;
-        } else if (iequals(value, "off")) {
-            config.pacing.mode = PacingMode::Off;
-            config.pacing.mode_source = Source::Env;
-        } else {
-            problems.push_back("SEDICI_PACING=\"" + value +
-                               "\": unknown value (expected \"hybrid\" or \"off\") - override "
-                               "ignored");
-        }
-    }
-
-    if (env_string("SEDICI_ASYNC", value)) {
-        if (value == "0" || iequals(value, "off")) {
-            config.async.mode = AsyncMode::Off;
-            config.async.mode_source = Source::Env;
-        } else if (iequals(value, "game")) {
-            config.async.mode = AsyncMode::Game;
-            config.async.mode_source = Source::Env;
-        } else {
-            problems.push_back("SEDICI_ASYNC=\"" + value +
-                               "\": unknown value (expected \"0\" or \"game\") - override "
-                               "ignored");
-        }
-    }
-
     if (env_string("SEDICI_LIMIT_FPS", value)) {
         double parsed = 0.0;
         if (parse_decimal(value, parsed) && parsed <= 1000.0) {
@@ -996,21 +791,6 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
     };
 
     const std::vector<Row> rows = {
-        {"pacing.mode", config.pacing.mode == PacingMode::Hybrid ? "\"hybrid\"" : "\"off\"",
-         config.pacing.mode_source},
-        {"pacing.safety_margin_ms", format_float(config.pacing.safety_margin_ms),
-         config.pacing.safety_margin_ms_source},
-        {"pacing.variance_factor", format_float(config.pacing.variance_factor),
-         config.pacing.variance_factor_source},
-        {"pacing.hybrid_spin_time", std::to_string(config.pacing.hybrid_spin_time),
-         config.pacing.hybrid_spin_time_source},
-        {"pacing.wait_for_single_object_on_fence",
-         config.pacing.wait_for_single_object_on_fence ? "true" : "false",
-         config.pacing.wait_for_single_object_on_fence_source},
-        {"async.mode", config.async.mode == AsyncMode::Game ? "\"game\"" : "\"off\"",
-         config.async.mode_source},
-        {"fg.mode", config.fg.mode == FrameGenerationMode::Sedici ? "\"sedici\"" : "\"amd\"",
-         config.fg.mode_source},
         {"fg.present", std::string("\"") + present_name(config.fg.present) + "\"",
          config.fg.present_source},
         {"fg.tear_guard", std::string("\"") + tear_guard_name(config.fg.tear_guard) + "\"",
@@ -1047,11 +827,7 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
     // One line that answers the only question that matters when reading a log
     // from a play session: is the fix on, and is anything being rewritten?
     std::ostringstream effective;
-    effective << "sedici: effective: frame pacing tuning "
-              << (config.pacing.mode == PacingMode::Hybrid ? "ON (hybrid spin)" : "off")
-              << ", async workloads "
-              << (config.async.mode == AsyncMode::Off ? "forced off" : "as the game sets them")
-              << ", real-frame limiter ";
+    effective << "sedici: effective: real-frame limiter ";
     if (config.limiter.fps > 0.0) {
         effective << format_number(config.limiter.fps) << " fps (spin " << config.limiter.spin_us
                   << " us)";

@@ -1,5 +1,12 @@
 # P2.1 current-state audit and P2.2 handoff
 
+> **Update: the AMD backend was removed.** The owner decided to drop the AMD
+> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
+> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
+> backend fallback is kept as design history and no longer applies. The last commit
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> what was learned about the binary.
+
 Audit baseline: commit `f95b54d` (`test: add export-level harness and P2.2
 coverage baseline`), clean working tree when this audit began. This is a static
 source review, not a new game run or a fresh test result. The coverage evidence
@@ -11,7 +18,7 @@ observations below are not proof of safety under all thread interleavings.
 
 | Boundary | Current behavior and owner | Evidence / limitation |
 | --- | --- | --- |
-| Startup / forwarding | `settings()` initializes on first export; `forward.cpp` loads the adjacent `.orig` once and resolves all five functions. Missing library/exports leave forwarding unavailable. | `src/dllmain.cpp`, `src/forward.cpp`; ABI stub is not AMD compatibility evidence. |
+| Startup | `settings()` initializes on first export. (This row described `.orig` forwarding, removed later.) | `src/dllmain.cpp`, `src/forward.cpp`; ABI stub is not AMD compatibility evidence. |
 | Create | In `fg.mode = "sedici"`, recognized FG/wrap descriptors enter `route_create`; success publishes an owned handle. Other creates go to `.orig`. Recognized creation failure returns an error, not automatic `.orig` fallback. | `src/fg_route.cpp`, `src/dllmain.cpp`; partial native-chain replacement can complicate recovery. |
 | Configure / dispatch / query | Registry-owned handles enter the Sedici implementation; unrecognized handles go to `.orig`. Sedici FG dispatch accepts prepare types, owned queries are rejected, and wrapper configure currently returns success without applying the descriptor. | `src/fg_route.cpp`; test compatibility per descriptor, not by assuming success means support. |
 | Integration | A `WrapHandle` owns a COM wrapper; `Session` owns `Context` and attaches a generator sink to a wrapper found through a separate raw-pointer registry. FG configure associates them. | `src/fg_integration.cpp`; lookup returns a raw pointer after its mutex is released, before `AddRef`: concurrent removal/lifetime safety needs proof. |
@@ -66,8 +73,8 @@ failure. See `src/fg_route.cpp`, `src/fg_presenter.h`, `src/fg_integration.cpp`.
 The existing executable-level coverage and expected failures are detailed in
 [reliability.md](reliability.md#current-coverage-and-gaps-p22-baseline). CMake
 now builds one `sedici_core` object library shared by the DLL, `sedici_regression`
-and `sedici_fgcheck` (P2.2). `sedici_abi` loads the actual DLL plus a stub `.orig`.
-Only `sedici_amd_probe` touches the real AMD ABI, see [amd-binary.md](amd-binary.md).
+and `sedici_fgcheck` (P2.2). `sedici_abi` loads the actual DLL plus a tripwire stub that must never be called.
+`sedici_amd_probe`, which touched the real AMD ABI, was removed with the AMD backend (see [amd-binary.md](amd-binary.md)).
 
 | Priority | Scenario and production entry point | Expected evidence / destination |
 | --- | --- | --- |
