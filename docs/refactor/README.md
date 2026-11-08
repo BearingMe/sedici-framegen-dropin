@@ -103,3 +103,4 @@ In particular, the bundled-runtime proposal requires reconciling today's `.orig`
 fallback rule and deploy allowlist before implementation. Do not add a second
 milestone document or copy historical findings here. Evidence remains in
 [findings](../findings/), and license obligations remain in their attribution files.
+| [feature-requests.md](feature-requests.md) | Owner and agent requests from the in-game QA runs; not scheduled |
