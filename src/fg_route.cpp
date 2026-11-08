@@ -67,6 +67,7 @@ bool g_token_reserved = false;
 // because wrap creation can consume the caller's native chain reference.
 void* issue_token_locked() noexcept
 {
+    if (consume_bookkeeping_fault(BookkeepingFault::TokenReservation)) return nullptr;
     return issue_reserved_token(g_tokens, g_token_reserved, kTokenBytes, kTokenStride,
         [](size_t bytes) noexcept { return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_NOACCESS); });
 }
@@ -250,6 +251,12 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
     const auto* frameGeneration = find_desc<ffxCreateContextDescFrameGeneration>(
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
     if (!wrap && !frameGeneration) return false; // not a call this path can own
+    if (wrap && frameGeneration) {
+        // One create makes one context. Answering OK as a wrapper alone would drop
+        // the generation context the caller asked for without telling it (K102).
+        *result = failure("create chain names both a swapchain wrap and frame generation");
+        return true;
+    }
     if (wrap && (!wrap->swapchain || !wrap->swapchain[0] || !wrap->gameQueue)) {
         *result = failure("swapchain wrap without a swapchain or queue");
         return true;
@@ -304,6 +311,12 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 
     if (wrap) {
         IDXGISwapChain4* native = wrap->swapchain[0];
+        // Injected backend allocation failure: rejected before the native chain is touched.
+        if (consume_bookkeeping_fault(BookkeepingFault::BackendCreation)) {
+            rollback();
+            *result = failure("swapchain wrap backend allocation failed");
+            return true;
+        }
         if (!owned->wrap->create(native, wrap->gameQueue, 1)) {
             rollback();
             *result = failure("swapchain wrap failed");
@@ -321,6 +334,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
                 presentHook = g_present_hook;
                 outputHooks = g_output_hooks;
             }
+            run_creation_hook(); // Offline window for K60; unarmed at runtime.
             owned->wrap->wrapper()->set_present_hook(presentHook);
             owned->wrap->wrapper()->set_output_hooks(outputHooks);
         }
@@ -332,6 +346,11 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         return true;
     }
 
+    if (consume_bookkeeping_fault(BookkeepingFault::BackendCreation)) {
+        rollback();
+        *result = failure("frame generation backend allocation failed");
+        return true;
+    }
     if (!owned->session->create(desc)) {
         rollback();
         *result = failure(owned->session->last_error());

@@ -130,7 +130,9 @@ Cyberpunk2077.exe
 
 | Call | Result |
 |---|---|
-| any call on a null, destroyed or foreign handle | `FFX_API_RETURN_ERROR_PARAMETER` |
+| any call on a null handle or a handle Sedici never issued | `FFX_API_RETURN_ERROR_PARAMETER` |
+| configure, dispatch, query or destroy on a Sedici handle that was already destroyed | `FFX_API_RETURN_ERROR`, logged |
+| create whose chain names both a swapchain wrap and frame generation | `FFX_API_RETURN_ERROR`, logged |
 | create with a descriptor chain that is not frame generation or the swapchain wrap | `FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE` |
 | `GetVersions` for another effect | `FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE` |
 | `GetVersions` without an output count | `FFX_API_RETURN_ERROR_PARAMETER` |

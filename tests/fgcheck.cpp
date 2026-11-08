@@ -2382,6 +2382,197 @@ bool check_routing(Device& state, bool wrapFirst = false)
     return ok;
 }
 
+// P2.4 creation-path failures and hook propagation during creation:
+//   K70  unsupported back buffer format -> local error, no native change
+//   K29  handle-namespace reservation failure -> local error, retry succeeds
+//   K63  backend allocation failure before creation -> local error, chain untouched
+//   K60  hook change racing wrap creation -> the newest hook is installed
+HANDLE routingCreationArrived = nullptr;
+HANDLE routingCreationResume = nullptr;
+void pause_creation_hook() noexcept
+{
+    SetEvent(routingCreationArrived);
+    (void)WaitForSingleObject(routingCreationResume, 5000);
+}
+
+bool check_routing_faults(Device& state)
+{
+    const wchar_t* className = L"SediciFgCreation";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici creation", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = kDisplayWidth;
+        desc.Height = kDisplayHeight;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+        ComPtr<IDXGISwapChain4> caller;
+
+        struct Release {
+            ffxContext* context;
+            ~Release() {
+                if (*context) { ffxReturnCode_t ignored{}; (void)sedici::fg::route_destroy(context, &ignored); }
+            }
+        };
+        ffxReturnCode_t result = FFX_API_RETURN_ERROR;
+        ffxCreateBackendDX12Desc backend{};
+        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backend.device = state.device.Get();
+        ffxCreateContextDescFrameGeneration create{};
+        create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        create.header.pNext = &backend.header;
+        create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
+        create.displaySize = {kDisplayWidth, kDisplayHeight};
+        create.maxRenderSize = {kRenderWidth, kRenderHeight};
+        create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+
+        // K70: an unsupported back buffer format is a local, logged error.
+        {
+            auto unsupported = create;
+            unsupported.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
+            ffxContext context = nullptr;
+            const bool answered = sedici::fg::route_create(&context, &unsupported.header, &result);
+            if (!answered || result == FFX_API_RETURN_OK || context) return false;
+            std::puts("PASS K70: unsupported back buffer format is a local error");
+        }
+
+        // K29: a refused handle reservation issues no token; a retry succeeds.
+        {
+            ffxContext denied = nullptr;
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::TokenReservation);
+            const bool answered = sedici::fg::route_create(&denied, &create.header, &result);
+            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::TokenReservation);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            if (!answered || !reached || result == FFX_API_RETURN_OK || denied) return false;
+            ffxContext session = nullptr;
+            Release releaseSession{&session};
+            if (!sedici::fg::route_create(&session, &create.header, &result) ||
+                result != FFX_API_RETURN_OK || !session) return false;
+            std::puts("PASS K29: a refused handle reservation issues no token and a retry succeeds");
+        }
+
+        // K63: backend allocation failure before creation rejects locally.
+        {
+            ffxContext denied = nullptr;
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            const bool answered = sedici::fg::route_create(&denied, &create.header, &result);
+            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            if (!answered || !reached || result == FFX_API_RETURN_OK || denied) return false;
+        }
+        IDXGISwapChain4* nativePointer = native.Get();
+        {
+            IDXGISwapChain4* replacement = nativePointer;
+            ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+            wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+            wrap.header.pNext = &backend.header;
+            wrap.swapchain = &replacement;
+            wrap.gameQueue = state.queue.Get();
+            ffxContext denied = nullptr;
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            const bool answered = sedici::fg::route_create(&denied, &wrap.header, &result);
+            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            if (!answered || !reached || result == FFX_API_RETURN_OK || denied ||
+                replacement != nativePointer) return false;
+        }
+        std::puts("PASS K63: backend allocation failure rejects creation before the native chain is touched");
+
+        // K102: a chain naming both a wrap and frame generation is refused, not half-created.
+        {
+            IDXGISwapChain4* replacement = nativePointer;
+            auto both = create; // frame generation desc, chained behind the wrap desc
+            ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+            wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+            wrap.header.pNext = &both.header;
+            wrap.swapchain = &replacement;
+            wrap.gameQueue = state.queue.Get();
+            ffxContext refused = nullptr;
+            const bool answered = sedici::fg::route_create(&refused, &wrap.header, &result);
+            if (!answered || result == FFX_API_RETURN_OK || refused || replacement != nativePointer)
+                return false;
+            std::puts("PASS K102: a create naming both a wrap and frame generation is refused");
+        }
+
+        // K60: a hook change while wrap creation is paused must end on the newest hook.
+        {
+            routingCreationArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            routingCreationResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!routingCreationArrived || !routingCreationResume) {
+                if (routingCreationArrived) CloseHandle(routingCreationArrived);
+                if (routingCreationResume) CloseHandle(routingCreationResume);
+                routingCreationArrived = routingCreationResume = nullptr;
+                return false;
+            }
+            IDXGISwapChain4* replacement = nativePointer;
+            ffxCreateContextDescFrameGenerationSwapChainWrapDX12 wrap{};
+            wrap.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12;
+            wrap.header.pNext = &backend.header;
+            wrap.swapchain = &replacement;
+            wrap.gameQueue = state.queue.Get();
+            ffxContext wrapContext = nullptr;
+            ffxReturnCode_t wrapResult = FFX_API_RETURN_ERROR;
+            bool wrapAnswered = false;
+            sedici::fg::route_set_present_hook(&routing_hook_a);
+            sedici::fg::arm_creation_hook(&pause_creation_hook);
+            std::thread creating([&] {
+                wrapAnswered = sedici::fg::route_create(&wrapContext, &wrap.header, &wrapResult);
+            });
+            const bool arrived = WaitForSingleObject(routingCreationArrived, 5000) == WAIT_OBJECT_0;
+            // Give the change 200 ms to finish while creation is paused. Correct code
+            // blocks it on the paused owner's call lock, so the wait times out. If the
+            // change completes here, creation then installs the stale hook and fails.
+            std::atomic<bool> changed{false};
+            std::thread changing([&] {
+                sedici::fg::route_set_present_hook(&routing_hook_b);
+                changed = true;
+            });
+            for (int waited = 0; waited < 200 && !changed.load(); ++waited) Sleep(1);
+            // Correct code must still be holding the change back here.
+            const bool heldBack = !changed.load();
+            SetEvent(routingCreationResume);
+            creating.join();
+            changing.join();
+            sedici::fg::arm_creation_hook(nullptr);
+            CloseHandle(routingCreationArrived);
+            CloseHandle(routingCreationResume);
+            routingCreationArrived = routingCreationResume = nullptr;
+            Release releaseWrap{&wrapContext};
+            if (!arrived || !heldBack || !wrapAnswered || wrapResult != FFX_API_RETURN_OK ||
+                !wrapContext || replacement == nativePointer) return false;
+            caller.Attach(replacement); // adopt the reference the wrap returned
+            routingHookA = 0;
+            routingHookB = 0;
+            const HRESULT presented = caller->Present(0, 0);
+            sedici::fg::route_set_present_hook(nullptr);
+            if (FAILED(presented) || routingHookA != 0 || routingHookB != 1) return false;
+        }
+        std::puts("PASS K60: a hook change during wrap creation ends on the newest hook");
+        return true;
+    }();
+    DestroyWindow(window);
+    UnregisterClassW(className, wc.hInstance);
+    std::printf("%s routing faults: K70, K29, K63 and K60\n", ok ? "PASS" : "FAIL");
+    return ok;
+}
+
 bool check_window(Device& state)
 {
     std::printf("window host: creating window\n");
@@ -2651,6 +2842,7 @@ int main(int argc, char** argv)
                           "vsync path frame 2 midpoint reads back at 16 dB; finding 009") && ok;
     }
     if (routing) ok = check_routing(state) && check_routing(state, true) && ok;
+    if (routing) ok = check_routing_faults(state) && ok;
     // Last: overlays that hook Present (RTSS) keep using the queue of the most
     // recent swapchain, so the present queue would leak into later checks.
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x") && ok;

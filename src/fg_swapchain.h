@@ -30,6 +30,12 @@ namespace sedici::fg {
 // running and none will start. An owner therefore detaches (installs an empty sink)
 // before it is destroyed and needs no other synchronisation. Callbacks must not
 // call back into the wrapper.
+//
+// Exception (K103): a generation whose submission was not registered is kept in
+// m_untracked_sink, with its owner lease, until a queue fence is accepted. That
+// path calls `submitted`/`abandoned` after detach, on purpose, so the owner can
+// still register retirement (K78). It is not cleared by detach and is unbounded
+// while retirement keeps failing (K77).
 struct GenerateSink {
     void* user = nullptr;
     // `outputState` is the state `output` is in when recording starts; the hook

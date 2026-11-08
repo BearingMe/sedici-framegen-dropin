@@ -15,6 +15,8 @@ enum class BookkeepingFault {
     GenerationReset,  // offline test: simulate a failed allocator Reset
     SubmissionRegistration, // offline test: reject a retirement token
     PresentParametersAllocation, // offline test: simulate dirty-rectangle allocation failure
+    TokenReservation,            // offline test: simulate handle-namespace reservation failure (K29)
+    BackendCreation,             // offline test: simulate backend allocation failure before creation (K63)
 };
 
 void arm_bookkeeping_fault(BookkeepingFault fault) noexcept;
@@ -25,6 +27,12 @@ bool consume_bookkeeping_fault(BookkeepingFault fault) noexcept;
 using WrapperLookupHook = void (*)() noexcept;
 void arm_wrapper_lookup_hook(WrapperLookupHook hook) noexcept;
 void run_wrapper_lookup_hook() noexcept;
+
+// One-shot pause after a creation publishes its owner and reads the hooks, so a
+// concurrent hook change can be forced into the window (K60).
+using CreationHook = void (*)() noexcept;
+void arm_creation_hook(CreationHook hook) noexcept;
+void run_creation_hook() noexcept;
 
 using ContextRecordHook = void (*)() noexcept;
 void arm_context_record_hook(ContextRecordHook hook) noexcept;

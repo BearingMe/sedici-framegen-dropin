@@ -8,6 +8,7 @@ std::atomic<BookkeepingFault> g_armed{BookkeepingFault::None};
 std::atomic<WrapperLookupHook> g_lookup_hook{nullptr};
 std::atomic<ContextRecordHook> g_record_hook{nullptr};
 std::atomic<QueueRecoveryHook> g_recovery_hook{nullptr};
+std::atomic<CreationHook> g_creation_hook{nullptr};
 std::atomic<unsigned> g_swapchain_retentions{0};
 }
 
@@ -31,6 +32,17 @@ void arm_wrapper_lookup_hook(WrapperLookupHook hook) noexcept
 void run_wrapper_lookup_hook() noexcept
 {
     const WrapperLookupHook hook = g_lookup_hook.exchange(nullptr, std::memory_order_acq_rel);
+    if (hook) hook();
+}
+
+void arm_creation_hook(CreationHook hook) noexcept
+{
+    g_creation_hook.store(hook, std::memory_order_release);
+}
+
+void run_creation_hook() noexcept
+{
+    const CreationHook hook = g_creation_hook.exchange(nullptr, std::memory_order_acq_rel);
     if (hook) hook();
 }
 
