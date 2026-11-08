@@ -2357,6 +2357,45 @@ bool check_routing(Device& state, bool wrapFirst = false)
         std::puts("PASS disabling or destroying an old session preserves a replacement generator");
         wrapperObject->set_generator(sedici::fg::GenerateSink{});
 
+        // K41: a destroy refused because GPU work has not retired parks the owner. The
+        // game's token is stale at once; the owner is freed on a later call after the
+        // work retires, and nothing is freed or double-parked in between.
+        {
+            ffxApiHeader parkProbe{};
+            parkProbe.type = UINT64_MAX;
+            ffxContext parkedContexts[3] = {};
+            bool created = true;
+            for (auto& parkedContext : parkedContexts)
+                created = created && sedici::fg::route_create(&parkedContext, &create.header, &result) &&
+                          result == FFX_API_RETURN_OK && parkedContext;
+            const unsigned parkedBefore = sedici::fg::route_parked_count();
+            sedici::fg::set_retirement_hold(true);
+            bool refused = created;
+            for (auto& parkedContext : parkedContexts) {
+                ffxContext token = parkedContext;
+                refused = refused && sedici::fg::route_destroy(&token, &result) &&
+                          result == FFX_API_RETURN_ERROR;
+            }
+            const unsigned parkedHeld = sedici::fg::route_parked_count();
+            // A repeated destroy and a configure of a stale token are rejected and
+            // must not park the owner a second time.
+            ffxContext repeated = parkedContexts[0];
+            const bool secondDestroy = sedici::fg::route_destroy(&repeated, &result) && result == FFX_API_RETURN_ERROR;
+            const bool staleConfigure = sedici::fg::route_configure(&repeated, &disabledConfigure.header, &result) &&
+                                        result == FFX_API_RETURN_ERROR;
+            sedici::fg::route_query(&contexts.session, &parkProbe, &result); // reaps; still held
+            const unsigned parkedStillHeld = sedici::fg::route_parked_count();
+            sedici::fg::set_retirement_hold(false);
+            sedici::fg::route_query(&contexts.session, &parkProbe, &result); // reaps
+            const unsigned parkedAfter = sedici::fg::route_parked_count();
+            const bool parking = created && refused && secondDestroy && staleConfigure &&
+                                 parkedHeld == parkedBefore + 3 && parkedStillHeld == parkedHeld &&
+                                 parkedAfter == parkedBefore;
+            std::printf("%s K41: refused destroys park their owners, a repeat does not double-park, and they are released once work retires (%u -> %u -> %u)%c",
+                        parking ? "PASS" : "FAIL", parkedBefore, parkedHeld, parkedAfter, 10);
+            if (!parking) return false;
+        }
+
         ffxApiHeader unsupported{};
         unsupported.type = UINT64_MAX;
         for (auto* context : {&contexts.session, &contexts.wrap}) {

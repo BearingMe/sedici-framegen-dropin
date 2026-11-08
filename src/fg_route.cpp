@@ -111,9 +111,11 @@ void log_route(const char* what, const std::string& detail) noexcept
 // process-exit path does not release owners whose GPU work may still be live.
 std::mutex g_parked_mutex;
 Owned* g_parked = nullptr;
+std::atomic<unsigned> g_parked_count{0};
 
 void reap_parked() noexcept
 {
+    if (!g_parked_count.load(std::memory_order_acquire)) return; // the common case: one atomic load
     for (;;) {
         Lease released;
         {
@@ -127,6 +129,7 @@ void reap_parked() noexcept
                     *link = owned->parked_next;
                     owned->parked_next = nullptr;
                     released = std::move(owned->parked_self);
+                    g_parked_count.fetch_sub(1, std::memory_order_release);
                     break;
                 }
                 link = &owned->parked_next;
@@ -369,6 +372,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context) return false;
+    reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
     if (!owned) return is_issued_token(*context)
         ? failure_result(result, "configure on a destroyed context") : false;
@@ -399,6 +403,7 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
 bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result || !context || !*context) return false;
+    reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
     if (!owned) return is_issued_token(*context)
         ? failure_result(result, "dispatch on a destroyed context") : false;
@@ -462,6 +467,7 @@ bool route_get_versions(const ffxQueryDescGetVersions& query, ffxReturnCode_t* r
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
     if (!result) return false;
+    reap_parked(); // K41: parked owners are released on any router call
     if (desc && desc->type == FFX_API_QUERY_DESC_TYPE_GET_VERSIONS)
         return route_get_versions(*reinterpret_cast<const ffxQueryDescGetVersions*>(desc), result);
     if (!context || !*context) return false;
@@ -519,6 +525,7 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
             owned->parked_self = owned;
             owned->parked_next = g_parked;
             g_parked = owned.get();
+            g_parked_count.fetch_add(1, std::memory_order_release);
         }
         log_route("retaining a frame generation context until GPU work retires", "");
     }
@@ -530,5 +537,7 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
     *result = ok ? FFX_API_RETURN_OK : failure("destroy before GPU retirement");
     return true;
 }
+
+unsigned route_parked_count() noexcept { return g_parked_count.load(std::memory_order_acquire); }
 
 } // namespace sedici::fg

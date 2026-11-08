@@ -45,6 +45,11 @@ void arm_queue_recovery_hook(QueueRecoveryHook hook) noexcept;
 void run_queue_recovery_hook() noexcept;
 void note_swapchain_retention() noexcept;
 unsigned swapchain_retention_count() noexcept;
+// Offline test seam: while held, no Context reports its GPU work as retired, so a
+// Session destroy is refused and the router must park the owner (K41). Sticky, not
+// one-shot, and never set outside the test host.
+void set_retirement_hold(bool held) noexcept;
+bool retirement_held() noexcept;
 // A parked swapchain whose GPU work later retired was destroyed normally (K47).
 void note_swapchain_release() noexcept;
 unsigned swapchain_release_count() noexcept;

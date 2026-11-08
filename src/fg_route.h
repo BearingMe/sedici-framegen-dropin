@@ -28,6 +28,10 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;
 bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept;
 
+// Owners kept alive because their GPU work had not retired when the game
+// destroyed them. They are released on a later router call once it has (K41).
+unsigned route_parked_count() noexcept;
+
 // Installs a hook that runs once per application Present on every swapchain
 // Sedici wraps. The DLL registers the real-frame limiter here; the offline host
 // leaves it unset, so nothing in the wrapper depends on the limiter.

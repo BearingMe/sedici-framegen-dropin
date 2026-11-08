@@ -11,7 +11,11 @@ std::atomic<QueueRecoveryHook> g_recovery_hook{nullptr};
 std::atomic<CreationHook> g_creation_hook{nullptr};
 std::atomic<unsigned> g_swapchain_retentions{0};
 std::atomic<unsigned> g_swapchain_releases{0};
+std::atomic<bool> g_retirement_hold{false};
 }
+
+void set_retirement_hold(bool held) noexcept { g_retirement_hold.store(held, std::memory_order_release); }
+bool retirement_held() noexcept { return g_retirement_hold.load(std::memory_order_acquire); }
 
 void note_swapchain_release() noexcept
 {

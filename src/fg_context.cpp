@@ -2,6 +2,7 @@
 
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
+#include "fg_bookkeeping_faults.h"
 #include "log.h"
 #include "overlay_compose.h"
 
@@ -86,6 +87,7 @@ bool Context::retired() const noexcept
     // can never be "in flight": without this, destroy was refused forever after
     // device loss (K38).
     if (m_device && FAILED(m_device->GetDeviceRemovedReason())) return true;
+    if (retirement_held()) return false; // offline seam, never set at runtime
     if (m_recorded) return false;
     if (!m_retirement_fence) return true;
     const uint64_t completed = m_retirement_fence->GetCompletedValue();
