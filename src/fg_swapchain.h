@@ -91,6 +91,13 @@ public:
     static void reap_retained() noexcept;
     static unsigned retained_now() noexcept;
 
+    // Presenter jobs admitted but not yet completed (0 without a presenter).
+    size_t presenter_outstanding() const noexcept { return m_presenter ? m_presenter->outstanding() : 0; }
+
+    // What parking does to the presenter, exposed so the offline host can cancel it
+    // at a chosen moment instead of racing the 5 s drain bound.
+    void cancel_presenter() noexcept { if (m_presenter) m_presenter->request_stop(); }
+
     // True when "vrr" is active (presenter thread and queue in use).
     bool async_present() const noexcept { return m_presenter != nullptr; }
     // "vrr": flips issued within 2 ms of the previous one (0 without a presenter).

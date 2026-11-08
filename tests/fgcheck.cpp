@@ -2887,6 +2887,178 @@ bool check_retention_timeout(Device& state)
     return ok;
 }
 
+// K77: consecutive timeouts. Two swapchains released while the same stall holds the
+// GPU are both parked (each after its own bounded wait), neither is freed early, and
+// both are destroyed once the stall clears.
+bool check_consecutive_retention(Device& state)
+{
+    const wchar_t* className = L"SediciFgConsecutive";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND windows[2] = {};
+    for (auto& w : windows)
+        w = CreateWindowW(className, L"Sedici consecutive", WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!windows[0] || !windows[1]) return false;
+    ComPtr<ID3D12Fence> gate;
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate))) ||
+            FAILED(state.queue->Wait(gate.Get(), 1))) return false;
+        sedici::fg::Swapchain* chains[2] = {};
+        for (int i = 0; i < 2; ++i) {
+            DXGI_SWAP_CHAIN_DESC1 desc{};
+            desc.Width = 320;
+            desc.Height = 180;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            desc.BufferCount = 3;
+            desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+            ComPtr<IDXGISwapChain1> created;
+            if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), windows[i], &desc,
+                nullptr, nullptr, &created))) { (void)gate->Signal(1); return false; }
+            ComPtr<IDXGISwapChain4> native;
+            if (FAILED(created.As(&native))) { (void)gate->Signal(1); return false; }
+            ComPtr<sedici::fg::Swapchain> wrapped;
+            created.Reset();
+            if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped))) {
+                (void)gate->Signal(1);
+                return false;
+            }
+            native.Detach();
+            if (FAILED(wrapped->Present(0, 0))) { (void)gate->Signal(1); return false; }
+            chains[i] = wrapped.Detach();
+        }
+        const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
+        const unsigned releasedBefore = sedici::fg::swapchain_release_count();
+        const ULONG first = chains[0]->Release();
+        const unsigned afterFirst = sedici::fg::Swapchain::retained_now();
+        const ULONG second = chains[1]->Release();
+        const unsigned afterSecond = sedici::fg::Swapchain::retained_now();
+        for (int i = 0; i < 3; ++i) sedici::fg::Swapchain::reap_retained();
+        const bool heldTogether = sedici::fg::Swapchain::retained_now() == 2 &&
+                                  sedici::fg::swapchain_release_count() == releasedBefore;
+        (void)gate->Signal(1);
+        const auto waitStart = std::chrono::steady_clock::now();
+        while (sedici::fg::Swapchain::retained_now() != 0 &&
+               std::chrono::steady_clock::now() - waitStart < std::chrono::seconds(5)) {
+            sedici::fg::Swapchain::reap_retained();
+            Sleep(5);
+        }
+        const bool released = sedici::fg::Swapchain::retained_now() == 0 &&
+                              sedici::fg::swapchain_release_count() == releasedBefore + 2;
+        const bool parked = first == 0 && second == 0 && afterFirst == 1 && afterSecond == 2 &&
+                            sedici::fg::swapchain_retention_count() == retainedBefore + 2;
+        const bool healthy = SUCCEEDED(state.device->GetDeviceRemovedReason()) && g_debug_errors.load() == 0;
+        std::printf("%s K77: two consecutive timeouts are both parked, kept while stalled and destroyed once it clears\n",
+                    parked && heldTogether && released && healthy ? "PASS" : "FAIL");
+        return parked && heldTogether && released && healthy;
+    }();
+    return ok;
+}
+
+// K48: a "vrr" swapchain released while the GPU is stalled has presenter jobs
+// admitted but not started. Parking cancels the presenter; the jobs that never
+// started must be discarded so the swapchain can be reaped once the stall clears.
+bool check_presenter_retention(Device& state)
+{
+    const wchar_t* className = L"SediciFgPresenterRetention";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici presenter retention", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    ComPtr<ID3D12Fence> gate;
+    bool ok = [&] {
+        ComPtr<IDXGIFactory5> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        BOOL tearing = FALSE;
+        const bool canTear = SUCCEEDED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &tearing, sizeof(tearing))) && tearing;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 320;
+        desc.Height = 180;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
+            (canTear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u);
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+        sedici::fg::PresentChoice choice;
+        choice.present = sedici::FrameGenerationSettings::Present::Vrr;
+        choice.guard = sedici::FrameGenerationSettings::TearGuard::Scanline;
+        choice.multiplier = sedici::FrameGenerationSettings::Multiplier::X2;
+        ComPtr<sedici::fg::Swapchain> wrapped;
+        created.Reset();
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped, &choice, 1))) return false;
+        native.Detach();
+        if (!wrapped->async_present()) { std::puts("FAIL K48: presenter did not start"); return false; }
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        const UINT presentFlags = canTear ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+        if (FAILED(wrapped->Present(0, presentFlags))) return false; // warm-up, completes
+        if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate))) ||
+            FAILED(state.queue->Wait(gate.Get(), 1))) return false;
+        // Admit as many presents as the stalled GPU lets through, from a helper
+        // thread so a blocked admission cannot hang the test.
+        std::atomic<int> admitted{0};
+        std::atomic<bool> finished{false};
+        std::thread presenting([&] {
+            for (int i = 0; i < 3; ++i) {
+                if (FAILED(wrapped->Present(0, presentFlags | DXGI_PRESENT_DO_NOT_WAIT))) break;
+                ++admitted;
+            }
+            finished = true;
+        });
+        const auto begin = std::chrono::steady_clock::now();
+        while (!finished.load() && std::chrono::steady_clock::now() - begin < std::chrono::seconds(3))
+            Sleep(10);
+        if (!finished.load()) { (void)gate->Signal(1); presenting.join(); return false; }
+        presenting.join();
+        Sleep(300); // let the presenter pick up the first job and block on the gated GPU
+        const size_t outstanding = wrapped->presenter_outstanding();
+        std::printf("INFO K48: %d present(s) admitted, %zu presenter job(s) outstanding at release\n",
+                    admitted.load(), outstanding);
+        if (outstanding < 2) { (void)gate->Signal(1); return false; } // one running, one queued
+        // Cancel now, while the first job is blocked on the gated GPU, so the queued
+        // job is certain never to start (parking does the same after its drain bound).
+        wrapped->cancel_presenter();
+        const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
+        const unsigned releasedBefore = sedici::fg::swapchain_release_count();
+        auto* finalReference = wrapped.Detach();
+        const ULONG remaining = finalReference->Release();
+        const bool parked = sedici::fg::swapchain_retention_count() == retainedBefore + 1 &&
+                            sedici::fg::Swapchain::retained_now() == 1;
+        (void)gate->Signal(1);
+        const auto waitStart = std::chrono::steady_clock::now();
+        while (sedici::fg::Swapchain::retained_now() != 0 &&
+               std::chrono::steady_clock::now() - waitStart < std::chrono::seconds(10)) {
+            sedici::fg::Swapchain::reap_retained();
+            Sleep(5);
+        }
+        const bool released = sedici::fg::Swapchain::retained_now() == 0 &&
+                              sedici::fg::swapchain_release_count() == releasedBefore + 1;
+        const bool healthy = SUCCEEDED(state.device->GetDeviceRemovedReason()) && g_debug_errors.load() == 0;
+        std::printf("%s K48: a presenter with unstarted jobs is parked on release and destroyed once the stall clears\n",
+                    remaining == 0 && parked && released && healthy ? "PASS" : "FAIL");
+        return remaining == 0 && parked && released && healthy;
+    }();
+    return ok;
+}
+
 } // namespace
 
 
@@ -2981,7 +3153,8 @@ int main(int argc, char** argv)
                 kDisplayWidth, kDisplayHeight, kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
-    if (retention) return check_retention_timeout(state) ? 0 : 1;
+    if (retention) return (check_retention_timeout(state) && check_presenter_retention(state) &&
+                       check_consecutive_retention(state)) ? 0 : 1;
     if (contextRace) return check_session_window(state, false, false, false, false, true) ? 0 : 1;
     if (sessionRecovery || registrationRecovery)
         return check_session_window(state, false, false, false, false, false, true, registrationRecovery) ? 0 : 1;

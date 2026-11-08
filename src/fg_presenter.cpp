@@ -697,7 +697,20 @@ void Presenter::run() noexcept
         {
             std::unique_lock lock(m_mutex);
             m_wake.wait(lock, [&] { return m_stop || !m_jobs.empty(); });
-            if (m_cancel.load(std::memory_order_acquire) || m_jobs.empty()) return;
+            if (m_cancel.load(std::memory_order_acquire)) {
+                // Cancelled (the swapchain is being parked or torn down): jobs that
+                // never started are discarded and counted as completed. Leaving them
+                // outstanding would keep outstanding() above zero forever, so a
+                // parked swapchain could never be reaped (K48).
+                while (!m_jobs.empty()) {
+                    m_jobs.pop_front();
+                    ++m_completed;
+                }
+                lock.unlock();
+                m_done.notify_all();
+                return;
+            }
+            if (m_jobs.empty()) return;
             job = std::move(m_jobs.front());
             m_jobs.pop_front();
             m_job_hooks = m_hooks;
