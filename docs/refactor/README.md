@@ -37,6 +37,7 @@ and model/LUT export remain offline, outside the shipped runtime.
 | [file-structure.md](file-structure.md) | Target paths, placement rules, and migration from current files |
 | [configuration.md](configuration.md) | Proposed TOML, application semantics, defaults, and legacy migration |
 | [reliability.md](reliability.md) | Errors, watchdog behavior, diagnostics, and integrated acceptance |
+| [stage2-contract.md](stage2-contract.md) | Draft interface a residual network must meet: tensor layout, phase, colour, reset, padding, provenance, scratch and retirement |
 | [audit.md](audit.md) | Current code paths, ownership risks, evidence and prioritized P2.2 handoff |
 | [known-issues.md](known-issues.md) | Defects found and deliberately deferred until after the refactor, with evidence and owning milestone |
 

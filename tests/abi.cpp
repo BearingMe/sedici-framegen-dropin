@@ -1257,6 +1257,119 @@ int run_overlay_hotkey(Harness& h)
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// integrated (P2.11 offline part): one continuous story through the production
+// boundary. Generate, open Mini then Full, toggle FG and resize while Full is
+// showing, send hostile calls, leave Full, then end a session with GPU work
+// outstanding while Full is showing, replace the window and run again. Cap
+// edits and Save/Cancel are covered by the settings transaction checks in
+// sedici_regression; real mouse clicks wait for the game (K36).
+// ---------------------------------------------------------------------------
+int run_integrated(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host with the debug layer");
+    if (g_failures) return 1;
+    static volatile auto keepClip = &ClipCursor;
+    static volatile auto keepPos = &SetCursorPos;
+    (void)keepClip;
+    (void)keepPos;
+    RECT clipBefore{};
+    GetClipCursor(&clipBefore);
+    const auto alt_f10 = [&](HWND window) {
+        BYTE state[256]{};
+        GetKeyboardState(state);
+        state[VK_MENU] = 0x80;
+        SetKeyboardState(state);
+        SendMessageW(window, WM_SYSKEYDOWN, VK_F10, 0);
+        SendMessageW(window, WM_SYSKEYUP, VK_F10, 0);
+        state[VK_MENU] = 0;
+        SetKeyboardState(state);
+    };
+    const auto clip_is_restored = [&](const char* what) {
+        RECT now{};
+        GetClipCursor(&now);
+        expect(std::memcmp(&now, &clipBefore, sizeof now) == 0, std::string("cursor clip restored: ") + what);
+    };
+    const auto resize = [&](Rig& rig, const char* what) {
+        const HRESULT hr = rig.wrapper->ResizeBuffers(0, Rig::kWidth, Rig::kHeight, DXGI_FORMAT_UNKNOWN,
+            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+        expect(SUCCEEDED(hr), std::string("resize ") + what);
+    };
+
+    ffxContext staleFg = nullptr;
+    {
+        Rig rig(h, host);
+        expect(rig.create(" (session 1)"), "session 1 up");
+        rig.frames(60, true);                        // generate
+        alt_f10(host.window);                        // Mini
+        rig.frames(30, true);
+        SetForegroundWindow(host.window);
+        alt_f10(host.window);                        // Full
+        rig.frames(60, true);
+        rig.frames(10, true, false);                 // FG off while the menu shows
+        rig.frames(30, true);                        // and on again
+        resize(rig, "while the menu shows");
+        rig.frames(20, true);
+        {
+            // Declared failure paths in a live session: refused, never a crash,
+            // and the session keeps presenting afterwards.
+            ffxDispatchDescFrameGenerationPrepare prepare{};
+            prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+            prepare.frameID = rig.frameId + 500;
+            expect(h.ffx.dispatch(&rig.fg, &prepare.header) != FFX_API_RETURN_OK, "prepare without a command list is refused");
+            ffxDispatchDescHeader unknown{};
+            unknown.type = 0x7F5E0000ull;
+            expect(h.ffx.dispatch(&rig.fg, &unknown) != FFX_API_RETURN_OK, "an unknown dispatch type is refused");
+            ffxContext foreign = reinterpret_cast<ffxContext>(static_cast<uintptr_t>(0x1000));
+            expect(h.ffx.destroy(&foreign, nullptr) != FFX_API_RETURN_OK, "a foreign handle is refused");
+        }
+        rig.frames(20, true);
+        alt_f10(host.window);                        // Off
+        rig.frames(20, true);
+        clip_is_restored("Full -> Off");
+        rig.check_clean(" (session 1)");
+
+        alt_f10(host.window);                        // Mini
+        alt_f10(host.window);                        // Full
+        rig.frames(20, true);
+        rig.frames(25, false);                       // leave work outstanding
+        staleFg = rig.fg;
+        rig.destroy(" (Full, work outstanding)");
+    }
+    expect(host.idle(), "the GPU retires everything after destroy while Full");
+    clip_is_restored("destroy while Full");
+    {
+        ffxContext again = staleFg;
+        expect(h.ffx.destroy(&again, nullptr) != FFX_API_RETURN_OK, "the destroyed context is stale");
+    }
+
+    expect(host.replace_window(), "the window is replaced");
+    {
+        Rig rig(h, host);
+        expect(rig.create(" (session 2)"), "session 2 up on the new window");
+        rig.frames(40, true);
+        alt_f10(host.window);                        // Mini
+        rig.frames(30, true);
+        alt_f10(host.window);                        // Full
+        alt_f10(host.window);                        // Off
+        rig.frames(20, true);
+        rig.check_clean(" (session 2)");
+        rig.destroy(" (session 2)");
+    }
+    expect(host.idle(), "GPU idle at the end");
+    clip_is_restored("end");
+
+    const std::string text = h.log();
+    expect(count_of(text, "fg: context created") == 2, "log: two generator contexts (" +
+                                                          std::to_string(count_of(text, "fg: context created")) + ")");
+    expect(text.find("overlay ImGui initialized") != std::string::npos, "log: the overlay drew");
+    expect(text.find("stage 1 rejected") == std::string::npos && text.find("could not") == std::string::npos,
+           "log: no generator rejections or setup failures");
+    expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1337,6 +1450,10 @@ scale = 2
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n",
          false, run_overlay_hotkey},
+        {"integrated",
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n",
+         false, run_integrated},
     };
     for (const Scenario& entry : scenarios) {
         if (scenario != entry.name) continue;

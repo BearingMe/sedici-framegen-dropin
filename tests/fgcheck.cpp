@@ -57,10 +57,12 @@ namespace {
 std::atomic<unsigned> g_debug_errors{0};
 bool g_debug_callback_installed = false;
 
-constexpr uint32_t kDisplayWidth = 480;
-constexpr uint32_t kDisplayHeight = 270;
-constexpr uint32_t kRenderWidth = 320;
-constexpr uint32_t kRenderHeight = 180;
+// Test-sized by default; `--resolution WxH` runs the quality scenes at a production
+// size (render size = display size, as FSR 3.1 frame generation is driven).
+uint32_t kDisplayWidth = 480;
+uint32_t kDisplayHeight = 270;
+uint32_t kRenderWidth = 320;
+uint32_t kRenderHeight = 180;
 constexpr uint32_t kIterations = 40;
 
 struct SceneConfig {
@@ -3129,6 +3131,16 @@ int main(int argc, char** argv)
         present |= std::string(argv[i]) == "--present";
         routing |= std::string(argv[i]) == "--routing";
         retention |= std::string(argv[i]) == "--retention-timeout";
+        if (std::string(argv[i]) == "--resolution" && i + 1 < argc) {
+            unsigned w = 0, h = 0;
+            if (std::sscanf(argv[i + 1], "%ux%u", &w, &h) == 2 && w >= 64 && h >= 64 && w <= 7680 && h <= 4320) {
+                kDisplayWidth = kRenderWidth = w;
+                kDisplayHeight = kRenderHeight = h;
+            } else {
+                std::fprintf(stderr, "bad --resolution (use WxH, 64..7680 x 64..4320)\n");
+                return 2;
+            }
+        }
     }
 
     if (routing) {
@@ -3150,7 +3162,10 @@ int main(int argc, char** argv)
 
     {
         ComPtr<ID3D12Debug> debug;
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
+        // `--no-debug-layer` is for timing runs only: the layer's validation skews them.
+        bool layer = true;
+        for (int i = 1; i < argc; ++i) layer &= std::string(argv[i]) != "--no-debug-layer";
+        if (layer && SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
             debug->EnableDebugLayer();
         }
     }
