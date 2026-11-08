@@ -22,6 +22,28 @@ driven by `sedici.toml` beside the DLL, with environment overrides.
   default; the limiter is off by default. Both must remain fully opt-out.
 - Never fail a game call because of Sedici's own bookkeeping. Configuration
   errors, a rejected tuning and logging failures are all non-fatal.
+- **Owner-approved descriptor-copy exception, conditional:** for a recognized
+  FFX configure descriptor, a writable copy may be passed only when an async or
+  overlay rewrite is needed, and only after the relevant backend’s descriptor
+  lifetime has been verified. With no rewrite, forward the original pointer.
+  Unknown descriptor chains remain subject to the original forwarding rule.
+- **Owner-approved context-identity exception:** Sedici-owned FG context handles may
+  use a finite, process-lifetime reserved token namespace. Reserve the namespace
+  before backend creation; if it cannot be reserved or is exhausted, reject that
+  Sedici-owned create before consuming game resources. Assume foreign FFX handles
+  do not use values in the reserved namespace. Never reuse issued tokens, and
+  continue forwarding foreign values outside the namespace. This exception does not
+  authorize other bookkeeping failures or change the AMD forwarding path.
+- **Owner-approved create-allocation exception:** if routing-owner, routing-registry,
+  or wrapper-registry bookkeeping allocation fails before any native swapchain
+  ownership transfer, Sedici may return a non-fatal local create error. It must not
+  forward just that context to AMD, because another context may already be owned by
+  Sedici. This does not authorize a failure after consuming the native chain.
+- **Owner-approved Present1 metadata exception:** if Sedici cannot allocate its
+  owned copy of variable-size Present1 dirty-rectangle/scroll metadata, it may
+  return a local error before limiter admission, schedule advancement or GPU
+  submission. The game-facing frame must remain unconsumed so the caller can
+  retry. This exception does not authorize other presentation bookkeeping errors.
 - Do not touch `amd_fidelityfx_loader_dx12.dll` or
   `amd_fidelityfx_upscaler_dx12.dll`; the upscaler is owned by m-fsr.
 - Keep `third_party/ffx/`, `third_party/tomlplusplus/` and

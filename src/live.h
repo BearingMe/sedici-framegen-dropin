@@ -6,9 +6,23 @@
 
 namespace sedici {
 
-// Initialized once from `settings()`. Every setter is safe to call from the
-// overlay thread; readers use relaxed atomics because they only need a
-// consistent value, not ordering with other state.
+// A complete set of live controls. Call live_snapshot() once when several
+// fields must be read coherently; separate accessor calls may span revisions.
+struct LiveValues {
+    double limiter_fps = 0.0;
+    PacingMode pacing = PacingMode::Hybrid;
+    AsyncMode async = AsyncMode::Game;
+    int log_level = 1;
+    UiScaleMode scale_mode = UiScaleMode::Auto;
+    float ui_scale = 1.0f;
+
+    bool operator==(const LiveValues&) const = default;
+};
+
+LiveValues live_snapshot() noexcept;
+void live_apply(const LiveValues& values) noexcept;
+
+// Initialized once from settings().
 void live_initialize(const Settings& config) noexcept;
 
 double live_limiter_fps() noexcept;

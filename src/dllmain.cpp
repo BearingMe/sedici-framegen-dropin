@@ -126,10 +126,39 @@ extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
     return result;
 }
 
+// Only Sedici-owned standalone descriptors use a writable staging copy. Its
+// Session/Context consumes descriptor fields synchronously; AMD's unverified
+// pointer-retention contract is never routed through this helper.
+static ffxReturnCode_t configure_sedici_candidate(ffxContext* context,
+                                                  const ffxConfigureDescHeader* candidate,
+                                                  const ffxConfigureDescHeader* original)
+{
+    ScopedDescOverride desc_override(candidate);
+    ScopedOverlayCallback overlay_callback(candidate, context ? *context : nullptr);
+    const ffxConfigureDescHeader* effective = !desc_override.changed() && !overlay_callback.changed()
+        ? original : candidate;
+    ffxReturnCode_t routed = FFX_API_RETURN_ERROR;
+    void* existing = context ? *context : nullptr;
+    if (!sedici::fg::route_configure(context, effective, &routed)) return FFX_API_RETURN_ERROR;
+    describe_call(FfxExportKind::Configure, effective, routed, existing);
+    if (routed == FFX_API_RETURN_OK) toggles_note_fg_configure(effective);
+    return routed;
+}
+
 extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
                                         const ffxConfigureDescHeader* desc)
 {
     (void)sedici::settings();
+    if (sedici::fg::route_is_sedici_token(context) && desc && !desc->pNext) {
+        if (desc->type == FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION) {
+            auto copy = *reinterpret_cast<const ffxConfigureDescFrameGeneration*>(desc);
+            return configure_sedici_candidate(context, &copy.header, desc);
+        }
+        if (desc->type == FFX_API_FRAME_GENERATION_CONFIG) {
+            auto copy = *reinterpret_cast<const FfxFrameGenerationConfig*>(desc);
+            return configure_sedici_candidate(context, &copy.header, desc);
+        }
+    }
     ScopedDescOverride desc_override(desc);
     ScopedOverlayCallback overlay_callback(desc, context ? *context : nullptr);
 

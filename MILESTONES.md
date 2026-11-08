@@ -270,8 +270,8 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-07, branch `refactor/phase-2`
-at the commit that touched this file; 18 of 18 CTest entries pass; nothing has run in
+status, evidence or open items. Last updated: 2026-11-08, branch `refactor/phase-2`;
+this table includes uncommitted working-tree changes. Latest full CTest run: 37 of 37 passed, including explicit K9/K87 expected failures. An earlier `sedici_fgcheck_present` run produced a different skipped-frame count and failed its signature check (K72); the prior hotkey key-up timeout (K54) remains unproven despite the K93 pairing fix. The stale-handle test checks the owner-approved token namespace; guarded AMD descriptor variants 256–259 ran after explicit authorization; their evidence is bounded; nothing has run in
 the game.
 
 | Milestone | Status | Evidence | Open items |
@@ -279,18 +279,18 @@ the game.
 | P2.1 Audit and documentation | Complete | [audit](docs/refactor/audit.md) | None |
 | P2.2 Regression and integration coverage | Complete, with accepted gaps | [finding 010](docs/findings/010-p22-coverage-gaps.md), [reliability](docs/refactor/reliability.md) | Menu clicks (P2.6, P2.8), GPU failure injection (P2.5), Save-time failures (P2.6), vrr presenter readback (P2.7), production-resolution performance (P2.11) |
 | P2.3 AMD binary feasibility | Complete; gate decision awaiting owner review | [amd-binary](docs/refactor/amd-binary.md), [finding 011](docs/findings/011-p23-amd-binary-gaps.md), [NOTICE](NOTICE.md) | Owner review of the gate decision; production-size inputs and overlay through AMD's callback (P2.8, P2.9) |
-| P2.4 Session, context and callback ownership | Complete for the Sedici path | [finding 012](docs/findings/012-p24-ownership.md) | Backend identity and one session object (P2.9), degraded and device-lost states (P2.5), logging state changes (P2.10) |
-| P2.5 GPU submission, frame slots and retirement | Complete, with accepted gaps | [finding 013](docs/findings/013-p25-gpu-retirement.md) | Fault injection on a live device (K37, K41); descriptor/scratch retirement revisited with stage 2 |
-| P2.6 Settings transactions and TOML migration | Not started | None | None yet |
-| P2.7 Real-frame admission and output pacing | Not started | None | None yet |
-| P2.8 Composition, overlay and input integration | Not started | None | None yet |
+| P2.4 Session, context and callback ownership | Reopened; acceptance not established | [finding 012](docs/findings/012-p24-ownership.md), K29 | Token reservation and DLL unload/reload (K29, K57, K64), internal backend allocation and rollback (K63), hook, callback and descriptor lifetimes (K60, K65, K67–K70, K87–K88; AMD pointer-retention contract not fully established), backend/session identity and lifecycle acceptance remain |
+| P2.5 GPU submission, frame slots and retirement | In progress; prior completion claim withdrawn | [finding 013](docs/findings/013-p25-gpu-retirement.md) | Retirement, timeout and session-recovery hazards (K37, K41, K45–K48, K66); injected signal/Close/Reset checks and gated same-queue wrapper/session/registration recovery pass, acceptance not met |
+| P2.6 Settings transactions and TOML migration | In progress, not accepted | Uncommitted transaction prototype and regression checks | Worker unload/stall handling and atomic external-edit handling (K43, K83–K86), backend capability and coherent applied acknowledgements (K42, K56, K91–K92), persistence coordination (K80); schema and migration acceptance remain |
+| P2.7 Real-frame admission and output pacing | In progress, initial policy test only | `sedici_fgcheck` ratio boundary regression (K50) | Unified admission/output policy and integrated acceptance still pending; P2.5/P2.6 dependencies remain |
+| P2.8 Composition, overlay and input integration | In progress, initial boundary extraction | `Stage1::synthesize` / `composite_hud`, image tests and chained-callback error regression | Composition remains inside Stage1; HUD-less reset seed (K53), intermittent hotkey timeout (K54), AMD caller-callback/UI-resource gap (K62), dynamic probe input and readback (K90), independent ownership, overlay/input integration and both-backend acceptance are pending |
 | P2.9 Bundled AMD backend and packaging | Not started | None | Licence no longer a blocker (owner decision, [NOTICE](NOTICE.md)) |
 | P2.10 Errors, diagnostics and watchdog hardening | Not started | None | None yet |
 | P2.11 Integrated acceptance and Stage 2 handoff | Not started | None | Needs in-game runs by the owner |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 41 entries): 30 open
-(K1-K24, K26, K32, K35-K37, K41), 1 hazard (K31, AMD does not validate its inputs), 10
-fixed or resolved (K25, K27-K30, K33, K34, K38-K40). Decisions waiting on the owner: how the AMD
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 95 entries): 86 open
+(K1-K24, K26, K29, K32, K35-K37, K39-K93), 2 hazards (K31, K94), 6
+fixed or resolved (K25, K27, K28, K33, K34, K38), and 1 retracted claim (K30). Decisions waiting on the owner: how the AMD
 path validates inputs despite "forward everything" (K31), and the text of the
 `AGENTS.md` branch override (K35).
 
@@ -409,7 +409,7 @@ Re-estimate P2.4/P2.8/P2.9 after this gate; stubs cannot establish binary compat
 
 ### P2.4 — Establish session, context, and callback ownership
 
-**Status:** complete for the Sedici path, with deferred items below (evidence:
+**Status:** reopened; the earlier completion claim was not established. See K29 and deferred items below (evidence:
 [finding 012](docs/findings/012-p24-ownership.md)). Split this into lookup/identity, lifecycle transitions, and
 callback lifetime sub-gates; it is not a rename of `fg_route` or `fg_integration`.
 
@@ -431,7 +431,7 @@ authoritative lifetime/status bookkeeping is removed after its replacement passe
 
 ### P2.5 — Make GPU submission and retirement explicit
 
-**Status:** complete with accepted gaps ([finding 013](docs/findings/013-p25-gpu-retirement.md)). Treat allocation/descriptor ownership, queue ordering, and
+**Status:** in progress; prior completion claim withdrawn after review ([finding 013](docs/findings/013-p25-gpu-retirement.md)). Treat allocation/descriptor ownership, queue ordering, and
 resize/shutdown retirement as separate sub-gates with their own failure checks.
 
 - Attach resources, allocator memory, descriptor ranges, scratch, and output images
@@ -452,7 +452,7 @@ every frame, leaking without bounds, filtering warnings, or ignoring retirement 
 
 ### P2.6 — Implement coherent settings and safe TOML migration
 
-**Status:** pending. Parsing, live application, UI acknowledgement, and persistence
+**Status:** in progress; transaction prototype and tests are uncommitted and acceptance remains open (K42–K44, K49). Parsing, live application, UI acknowledgement, and persistence
 are a coordinated change, not a parser cleanup. Agree the schema before switching it.
 
 - Finalize supported user-facing keys, defaults, bounds, units, backend capability,
@@ -476,7 +476,7 @@ The proposed schema in docs/refactor is not enabled until this gate is satisfied
 
 ### P2.7 — Coordinate the real-frame cap and output pacing
 
-**Status:** pending. Separate deterministic policy extraction, wait/backpressure
+**Status:** initial policy boundary work only (K50); integrated milestone pending. Separate deterministic policy extraction, wait/backpressure
 integration, and production-path cadence validation. This is feedback/timing work,
 not simply reconnecting the limiter callback.
 
@@ -498,7 +498,7 @@ measured cadence and CPU/GPU wait costs with a configuration-matched baseline.
 
 ### P2.8 — Separate composition and integrate overlay/input
 
-**Status:** pending. Use distinct sub-gates for HUD-less generation, output rendering,
+**Status:** initial HUD-pass extraction in progress; acceptance pending. Use distinct sub-gates for HUD-less generation, output rendering,
 and window/input ownership; rendering a demo overlay does not complete this work.
 
 - Move final HUD composition out of the analytical stage. Preserve an explicit

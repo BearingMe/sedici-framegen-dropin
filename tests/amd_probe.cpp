@@ -33,6 +33,12 @@
 #include "ffx_api_dx12.h"
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
+#include "config.h"
+#include "live.h"
+#include "overlay.h"
+#include "ui.h"
+
+extern "C" const char g_sedici_proxy_marker[] = "SEDICI_PROXY_V1";
 
 #pragma warning(disable : 4996) // legacy prepare desc, as Cyberpunk sends it
 
@@ -143,6 +149,27 @@ ComPtr<ID3D12Device> make_device()
     ComPtr<ID3D12Device> device;
     if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)))) return nullptr;
     return device;
+}
+
+uint64_t debug_errors(ID3D12Device* device, bool& available)
+{
+    ComPtr<ID3D12InfoQueue> queue;
+    available = device && SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&queue)));
+    if (!available) return 0;
+    uint64_t errors = 0;
+    const UINT64 count = queue->GetNumStoredMessages();
+    for (UINT64 index = 0; index < count; ++index) {
+        SIZE_T bytes = 0;
+        if (FAILED(queue->GetMessage(index, nullptr, &bytes)) || !bytes) continue;
+        std::vector<char> buffer(bytes);
+        auto* message = reinterpret_cast<D3D12_MESSAGE*>(buffer.data());
+        if (FAILED(queue->GetMessage(index, message, &bytes))) continue;
+        if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+            ++errors;
+            if (errors <= 5) info(std::string("D3D12 validation error: ") + message->pDescription);
+        }
+    }
+    return errors;
 }
 
 // ---- stage 1: files, loading, coexistence, queries -------------------------
@@ -345,13 +372,17 @@ HWND make_window(UINT w, UINT h)
 // variant bit 0: install a present callback (else AMD's default composition)
 // variant bit 1: destroy the FG context before the swapchain context
 // variant bit 2: no frame-generation callback (AMD must cope on its own)
+// variant bit 8: protect the configure descriptor after the call returns
+// variant bit 9: use the legacy FG configure descriptor
+// variant bit 10: install Sedici's production Mini overlay callback
 int run_session(const fs::path& amdPath, int variant)
 {
     const bool presentCb = (variant & 1) != 0;
     const bool fgFirst = (variant & 2) != 0;
     const bool noGenCb = (variant & 4) != 0;
-    info(fmt("session variant %d: presentCallback=%d destroyFgFirst=%d generationCallback=%d", variant, presentCb,
-             fgFirst, !noGenCb));
+    const bool productionOverlay = (variant & 1024) != 0;
+    info(fmt("session variant %d: presentCallback=%d productionOverlay=%d destroyFgFirst=%d generationCallback=%d",
+             variant, presentCb, productionOverlay, fgFirst, !noGenCb));
 
     Session s;
     g_session = &s;
@@ -376,6 +407,13 @@ int run_session(const fs::path& amdPath, int variant)
     CreateDXGIFactory2(0, IID_PPV_ARGS(&factory));
     HWND hwnd = make_window(W, H);
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    if (productionOverlay) {
+        // Mini requires no foreground cursor capture. Use the same production
+        // callback and renderer as the proxy, not a separate demo overlay.
+        (void)sedici::settings();
+        sedici::live_set_ui_mode(sedici::UiMode::Mini);
+        sedici::ui_capture_window(hwnd);
+    }
 
     DXGI_SWAP_CHAIN_DESC1 sd{};
     sd.Width = W;
@@ -465,12 +503,53 @@ int run_session(const fs::path& amdPath, int variant)
         if (brc == FFX_API_RETURN_OK && none) s.api.destroy(&none, nullptr);
     }
 
-    auto hudless = texture(device.Get(), W, H, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE,
-                           D3D12_RESOURCE_STATE_COPY_DEST);
+    auto hudless = texture(device.Get(), W, H, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+                           D3D12_RESOURCE_STATE_RENDER_TARGET);
     auto depth = texture(device.Get(), W, H, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     auto motion = texture(device.Get(), W, H, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    if (!hudless || !depth || !motion) {
+        pass_fail(false, "create probe input resources");
+        return 1;
+    }
+
+    // Initialize the HUD-less texture once, then keep it in compute-read state
+    // for the whole session. AMD consumes it asynchronously on its own queue;
+    // transitioning it back for the next game frame without a cross-queue fence
+    // caused validation errors in the earlier probe (K90).
+    ComPtr<ID3D12DescriptorHeap> initialRtv;
+    D3D12_DESCRIPTOR_HEAP_DESC initialHeap{};
+    initialHeap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    initialHeap.NumDescriptors = 1;
+    ComPtr<ID3D12CommandAllocator> initialAllocator;
+    ComPtr<ID3D12GraphicsCommandList> initialList;
+    ComPtr<ID3D12Fence> initialFence;
+    HRESULT initial = device->CreateDescriptorHeap(&initialHeap, IID_PPV_ARGS(&initialRtv));
+    if (SUCCEEDED(initial)) initial = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                                       IID_PPV_ARGS(&initialAllocator));
+    if (SUCCEEDED(initial)) initial = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        initialAllocator.Get(), nullptr, IID_PPV_ARGS(&initialList));
+    if (SUCCEEDED(initial)) initial = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&initialFence));
+    if (FAILED(initial)) { pass_fail(false, "create probe input initialization commands"); return 1; }
+    const auto initialHandle = initialRtv->GetCPUDescriptorHandleForHeapStart();
+    device->CreateRenderTargetView(hudless.Get(), nullptr, initialHandle);
+    const float initialColor[4] = {0.2f, 0.3f, 0.4f, 1.0f};
+    initialList->ClearRenderTargetView(initialHandle, initialColor, 0, nullptr);
+    barrier(initialList.Get(), hudless.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    initial = initialList->Close();
+    if (SUCCEEDED(initial)) {
+        ID3D12CommandList* initialLists[]{initialList.Get()};
+        queue->ExecuteCommandLists(1, initialLists);
+        initial = queue->Signal(initialFence.Get(), 1);
+    }
+    HANDLE initialEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (SUCCEEDED(initial) && initialEvent) initial = initialFence->SetEventOnCompletion(1, initialEvent);
+    const bool initialized = SUCCEEDED(initial) && initialEvent && WaitForSingleObject(initialEvent, 5000) == WAIT_OBJECT_0;
+    if (initialized && initialEvent) CloseHandle(initialEvent);
+    pass_fail(initialized, "initialize static HUD-less input before AMD configure");
+    if (!initialized) return 1;
 
     ffxConfigureDescFrameGeneration cfg{};
     cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -482,9 +561,53 @@ int run_session(const fs::path& amdPath, int variant)
     cfg.HUDLessColor = ffxApiGetResourceDX12(hudless.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
     cfg.generationRect = {0, 0, W, H};
     cfg.frameID = 0;
-    rc = s.api.configure(&s.fg, &cfg.header);
+    // Variant 256 places the configure descriptor on a dedicated page, then
+    // makes that page inaccessible as soon as configure returns. The page stays
+    // inaccessible through presentation and both context destructions. A child
+    // crash demonstrates post-call access; survival is bounded evidence for this
+    // binary and workload, not proof about every possible internal path.
+    FfxFrameGenerationConfig legacy{};
+    const bool useLegacy = (variant & 512) != 0;
+    if (useLegacy) {
+        legacy.header.type = FFX_API_FRAME_GENERATION_CONFIG;
+        legacy.swapChain = cfg.swapChain;
+        legacy.presentCallback = cfg.presentCallback;
+        legacy.frameGenerationCallback = cfg.frameGenerationCallback;
+        legacy.frameGenerationEnabled = cfg.frameGenerationEnabled;
+        legacy.allowAsyncWorkloads = cfg.allowAsyncWorkloads;
+        legacy.HUDLessColor = cfg.HUDLessColor;
+        legacy.interpolationRect = cfg.generationRect;
+        legacy.frameID = cfg.frameID;
+    }
+    ffxConfigureDescHeader* configureDesc = useLegacy ? &legacy.header : &cfg.header;
+    const size_t configureBytes = useLegacy ? sizeof(legacy) : sizeof(cfg);
+    void* guardedDescriptor = nullptr;
+    if (variant & 256) {
+        guardedDescriptor = VirtualAlloc(nullptr, configureBytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        pass_fail(guardedDescriptor != nullptr, "allocate guarded configure descriptor");
+        if (!guardedDescriptor) return 1;
+        std::memcpy(guardedDescriptor, configureDesc, configureBytes);
+        configureDesc = static_cast<ffxConfigureDescHeader*>(guardedDescriptor);
+    }
+    if (productionOverlay) {
+        // Install the actual Sedici callback around the AMD configure call.
+        // The scope restores the caller's descriptor before any guard is set.
+        ScopedOverlayCallback overlay(configureDesc, s.fg);
+        rc = s.api.configure(&s.fg, configureDesc);
+        overlay.complete(rc);
+    } else {
+        rc = s.api.configure(&s.fg, configureDesc);
+    }
+    if (guardedDescriptor) {
+        DWORD previousProtection = 0;
+        const bool protectedPage = VirtualProtect(guardedDescriptor, configureBytes, PAGE_NOACCESS,
+                                                  &previousProtection) != 0;
+        pass_fail(protectedPage, "configure descriptor inaccessible after return");
+        if (!protectedPage) return 1;
+    }
     info(fmt("configure sent to the FG context: rc=%u", rc));
     pass_fail(rc == FFX_API_RETURN_OK, "FG configure accepted by the FG context");
+    if (rc != FFX_API_RETURN_OK) return 1;
     const ffxReturnCode_t other = s.api.configure(&s.sc, &cfg.header);
     info(fmt("same configure sent to the swapchain context instead: rc=%u", other));
 
@@ -535,10 +658,7 @@ int run_session(const fs::path& amdPath, int variant)
         D3D12_CPU_DESCRIPTOR_HANDLE h = rtvHeap->GetCPUDescriptorHandleForHeapStart();
         h.ptr += static_cast<SIZE_T>(idx) * rtvStep;
         list->ClearRenderTargetView(h, color, 0, nullptr);
-        barrier(list.Get(), back, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        list->CopyResource(hudless.Get(), back);
-        barrier(list.Get(), hudless.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        barrier(list.Get(), back, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
+        barrier(list.Get(), back, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
         ffxDispatchDescFrameGenerationPrepare prep{};
         prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
@@ -555,7 +675,6 @@ int run_session(const fs::path& amdPath, int variant)
         prep.motionVectors = ffxApiGetResourceDX12(motion.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
         const ffxReturnCode_t prc = s.fg ? s.api.dispatch(&s.fg, &prep.header) : FFX_API_RETURN_ERROR_PARAMETER;
         if (i < 2 || prc != FFX_API_RETURN_OK) info(fmt("frame %d prepare rc=%u", i, prc));
-        barrier(list.Get(), hudless.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
         list->Close();
         ID3D12CommandList* lists[] = {list.Get()};
         queue->ExecuteCommandLists(1, lists);
@@ -598,6 +717,20 @@ int run_session(const fs::path& amdPath, int variant)
     }
     pass_fail(presentFailures == 0, "every Present on the AMD chain succeeded");
     if (!noGenCb) pass_fail(s.generationCalls > 0, "AMD invokes the host's generation callback");
+    if (productionOverlay) {
+        const sedici::UiRenderStatus status = sedici::ui_render_status();
+        info(fmt("production Mini overlay: ready=%d real draws=%llu generated draws=%llu",
+                 status.ready ? 1 : 0, static_cast<unsigned long long>(status.realDraws),
+                 static_cast<unsigned long long>(status.generatedDraws)));
+        pass_fail(status.ready && status.realDraws > 0 && status.generatedDraws > 0,
+                  "production Mini overlay records on real and generated AMD callback outputs");
+        bool debugAvailable = false;
+        const uint64_t errors = debug_errors(device.Get(), debugAvailable);
+        if (debugAvailable) pass_fail(errors == 0, fmt("D3D12 debug layer reports %llu errors",
+                                                       static_cast<unsigned long long>(errors)));
+        else info("D3D12 debug-layer message queue unavailable; validation not performed");
+        info("overlay draw counts are command recording only; pixels and physical presentation are not verified");
+    }
 
     if (variant & (16 | 64)) {
         const bool quiesce = (variant & 64) != 0;
@@ -774,6 +907,12 @@ int wmain(int argc, wchar_t** argv)
         if (std::wstring(argv[i]) == L"--sha256") {
             wantHash = fs::path(argv[i + 1]).string();
         }
+    }
+    if (variant >= 0 && !wantHash.empty()) {
+        for (char& c : wantHash) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        const bool matches = sha256_of(amd) == wantHash;
+        pass_fail(matches, "variant binary matches the pinned SHA-256");
+        if (!matches) return 1;
     }
     if (variant == 9) return run_refusal(amd, true);
     if (variant >= 0) {

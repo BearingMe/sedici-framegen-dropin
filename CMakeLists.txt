@@ -56,6 +56,8 @@ add_library(sedici_core OBJECT
     src/overlay_compose.cpp
     src/timing.cpp
     src/live.cpp
+    src/settings_tx.cpp
+    src/settings_io.cpp
     src/ui.cpp
     src/ui_input.cpp
     src/config_patch.cpp
@@ -63,6 +65,7 @@ add_library(sedici_core OBJECT
     src/config.cpp
     src/log.cpp
     src/fg_params.cpp
+    src/fg_bookkeeping_faults.cpp
     src/fg_stage1.cpp
     src/fg_context.cpp
     src/fg_swapchain.cpp
@@ -96,7 +99,7 @@ if(MSVC)
     target_compile_options(sedici_core PUBLIC /utf-8 /W4 /permissive-)
 endif()
 
-target_link_libraries(sedici_core PUBLIC dxgi d3d12 d3dcompiler)
+target_link_libraries(sedici_core PUBLIC dxgi d3d12 d3dcompiler bcrypt)
 
 add_library(sedici SHARED src/dllmain.cpp exports.def)
 target_link_libraries(sedici PRIVATE sedici_core)
@@ -117,8 +120,27 @@ if(SEDICI_BUILD_TESTS)
     add_test(NAME sedici_regression COMMAND sedici_regression)
     add_test(NAME sedici_gpu_mini COMMAND sedici_regression gpu-mini)
     add_test(NAME sedici_gpu_full COMMAND sedici_regression gpu-full)
+    add_test(NAME sedici_settings_sedici_capability COMMAND sedici_regression settings-sedici)
+    add_test(NAME sedici_settings_env_priority COMMAND sedici_regression settings-env)
+
+    # Test-only module and isolated host: unlike the proxy, this helper exports
+    # one control entry so the host can verify the worker's DLL reference.
+    add_library(sedici_settings_worker_stub SHARED
+        tests/settings_worker_stub.cpp $<TARGET_OBJECTS:sedici_core>)
+    target_link_libraries(sedici_settings_worker_stub PRIVATE sedici_core)
+    set_target_properties(sedici_settings_worker_stub PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_executable(sedici_settings_worker_host tests/settings_worker_host.cpp)
+    set_target_properties(sedici_settings_worker_host PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_dependencies(sedici_settings_worker_host sedici_settings_worker_stub)
+    add_test(NAME sedici_settings_worker_lifetime
+        COMMAND sedici_settings_worker_host $<TARGET_FILE:sedici_settings_worker_stub>)
+    set_tests_properties(sedici_settings_worker_lifetime PROPERTIES RUN_SERIAL TRUE TIMEOUT 20 LABELS "settings")
+
     # Each process owns the same isolated test config beside its executable.
     set_tests_properties(sedici_regression sedici_gpu_mini sedici_gpu_full
+        sedici_settings_sedici_capability sedici_settings_env_priority
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
 
     # Export-level harness: the built DLL through its five exports, next to a
@@ -144,20 +166,20 @@ if(SEDICI_BUILD_TESTS)
     add_dependencies(sedici_abi sedici sedici_abi_stub)
     set_target_properties(sedici_abi PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    foreach(scenario IN ITEMS exports forward pacing async-off missing-orig bad-config session
-            window-replace destroy-inflight log-failure invalid-calls overlay-hotkey)
+    foreach(scenario IN ITEMS exports forward pacing async-off readonly-async readonly-overlay readonly-sedici missing-orig bad-config session
+            window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward)
         add_test(NAME sedici_abi_${scenario}
             COMMAND sedici_abi ${scenario} $<TARGET_FILE:sedici> $<TARGET_FILE:sedici_abi_stub>)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES TIMEOUT 60 LABELS "abi")
     endforeach()
     # The session scenario opens a window and presents; keep it alone on the GPU.
-    foreach(scenario IN ITEMS session window-replace destroy-inflight log-failure invalid-calls overlay-hotkey)
+    foreach(scenario IN ITEMS session window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward readonly-sedici)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")
     endforeach()
 
     # P2.3: drives an operator-supplied copy of the official AMD binary. The
     # path is never fetched by the build; without it no test is registered.
-    add_executable(sedici_amd_probe tests/amd_probe.cpp)
+    add_executable(sedici_amd_probe tests/amd_probe.cpp $<TARGET_OBJECTS:sedici_core>)
     target_include_directories(sedici_amd_probe PRIVATE
         third_party/ffx/api/include
         third_party/ffx/api/include/dx12
@@ -165,7 +187,7 @@ if(SEDICI_BUILD_TESTS)
         third_party/ffx/framegeneration/include/dx12)
     target_compile_definitions(sedici_amd_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     target_compile_options(sedici_amd_probe PRIVATE /utf-8 /W4 /permissive-)
-    target_link_libraries(sedici_amd_probe PRIVATE dxgi d3d12 bcrypt)
+    target_link_libraries(sedici_amd_probe PRIVATE sedici_core)
     set_target_properties(sedici_amd_probe PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     set(SEDICI_AMD_FG_BINARY "" CACHE FILEPATH
@@ -195,9 +217,24 @@ if(SEDICI_BUILD_FGCHECK)
         add_test(NAME sedici_fgcheck COMMAND sedici_fgcheck)
         add_test(NAME sedici_fgcheck_present COMMAND sedici_fgcheck --present)
         add_test(NAME sedici_fgcheck_routing COMMAND sedici_fgcheck --routing)
-        # P2.5: RemoveDevice with generation in flight, in its own process.
+        # P2.5: RemoveDevice after generation, in its own process.
         add_test(NAME sedici_fgcheck_device_loss COMMAND sedici_fgcheck --device-loss)
-        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing sedici_fgcheck_device_loss
+        add_test(NAME sedici_fgcheck_submission_fault COMMAND sedici_fgcheck --submission-fault)
+        add_test(NAME sedici_fgcheck_submission_fault_vrr COMMAND sedici_fgcheck --submission-fault-vrr)
+        add_test(NAME sedici_fgcheck_recording_fault COMMAND sedici_fgcheck --recording-fault)
+        add_test(NAME sedici_fgcheck_recording_fault_vrr COMMAND sedici_fgcheck --recording-fault-vrr)
+        add_test(NAME sedici_fgcheck_reset_fault COMMAND sedici_fgcheck --reset-fault)
+        add_test(NAME sedici_fgcheck_reset_fault_vrr COMMAND sedici_fgcheck --reset-fault-vrr)
+        add_test(NAME sedici_fgcheck_context_race COMMAND sedici_fgcheck --context-race)
+        add_test(NAME sedici_fgcheck_session_recovery COMMAND sedici_fgcheck --session-recovery)
+        add_test(NAME sedici_fgcheck_registration_recovery COMMAND sedici_fgcheck --registration-recovery)
+        add_test(NAME sedici_fgcheck_submission_recovery_vrr COMMAND sedici_fgcheck --submission-recovery-vrr)
+        add_test(NAME sedici_fgcheck_params_fault_vrr COMMAND sedici_fgcheck --params-fault-vrr)
+        set_tests_properties(sedici_fgcheck_device_loss sedici_fgcheck_submission_fault sedici_fgcheck_submission_fault_vrr
+            sedici_fgcheck_recording_fault sedici_fgcheck_recording_fault_vrr
+            sedici_fgcheck_reset_fault sedici_fgcheck_reset_fault_vrr
+            sedici_fgcheck_submission_recovery_vrr sedici_fgcheck_params_fault_vrr PROPERTIES SKIP_RETURN_CODE 77)
+        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing sedici_fgcheck_device_loss sedici_fgcheck_submission_fault sedici_fgcheck_submission_fault_vrr sedici_fgcheck_recording_fault sedici_fgcheck_recording_fault_vrr sedici_fgcheck_reset_fault sedici_fgcheck_reset_fault_vrr sedici_fgcheck_context_race sedici_fgcheck_session_recovery sedici_fgcheck_registration_recovery sedici_fgcheck_submission_recovery_vrr sedici_fgcheck_params_fault_vrr
             PROPERTIES RUN_SERIAL TRUE TIMEOUT 300 LABELS "fgcheck;gpu")
     endif()
 endif()

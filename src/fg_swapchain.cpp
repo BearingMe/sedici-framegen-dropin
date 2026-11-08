@@ -1,4 +1,7 @@
 #include "fg_swapchain.h"
+#include "fg_bookkeeping_faults.h"
+#include "fg_retirement_policy.h"
+#include "fg_slot_policy.h"
 
 #include <algorithm>
 #include <chrono>
@@ -192,42 +195,64 @@ Swapchain::~Swapchain()
 
 void Swapchain::retain_gpu_state() noexcept
 {
-    try {
-        auto* keep = new std::vector<Microsoft::WRL::ComPtr<IUnknown>>(); // leaked on purpose
-        const auto hold = [keep](auto& pointer) {
-            if (pointer) keep->emplace_back(pointer.Get());
-        };
-        hold(m_native);
-        hold(m_queue);
-        hold(m_device);
-        for (auto& v : m_allocator) hold(v);
-        for (auto& v : m_list) hold(v);
-        hold(m_generate_allocator);
-        hold(m_generate_list);
-        hold(m_fence);
-        for (auto& v : m_buffers) hold(v);
-        hold(m_generated);
-        for (auto& set : m_phase_outputs) for (auto& v : set) hold(v);
-        for (auto& v : m_snapshots) hold(v);
-        for (auto& v : m_snapshot_allocators) hold(v);
-        for (auto& v : m_snapshot_lists) hold(v);
-        for (auto& v : m_slot_generate_allocators) hold(v);
-        for (auto& v : m_slot_generate_lists) hold(v);
-        (void)m_presenter.release(); // its thread and native chain stay alive
-        log_event(1, "fg: swapchain destroyed with GPU work still in flight; "
-                     "resources retained, not freed, objects=" + std::to_string(keep->size()));
-    } catch (...) {
-    }
+    note_swapchain_retention();
+    // Transfer each existing COM reference without allocating. Leaking a
+    // reference is preferable to releasing GPU-visible memory after a timeout.
+    // This is still unbounded retention, not a completed P2.5 recovery design.
+    const auto hold = [](auto& pointer) { (void)pointer.Detach(); };
+    if (m_presenter) m_presenter->request_stop();
+    hold(m_native);
+    hold(m_queue);
+    hold(m_device);
+    for (auto& v : m_allocator) hold(v);
+    for (auto& v : m_list) hold(v);
+    hold(m_generate_allocator);
+    hold(m_generate_list);
+    hold(m_fence);
+    for (auto& v : m_buffers) hold(v);
+    hold(m_generated);
+    for (auto& set : m_phase_outputs) for (auto& v : set) hold(v);
+    for (auto& v : m_snapshots) hold(v);
+    for (auto& v : m_snapshot_allocators) hold(v);
+    for (auto& v : m_snapshot_lists) hold(v);
+    for (auto& v : m_slot_generate_allocators) hold(v);
+    for (auto& v : m_slot_generate_lists) hold(v);
+    (void)m_presenter.release(); // worker may be inside a driver call
+    // A pending fence completion may still signal m_event; do not close it.
+    if (m_pacing_timer) CloseHandle(m_pacing_timer);
+    try { log_event(1, "fg: swapchain GPU state retained after failed drain"); } catch (...) {}
+
 }
 
-void Swapchain::set_generator(const GenerateSink& sink) noexcept
+bool Swapchain::set_generator(const GenerateSink& sink) noexcept
 {
     std::lock_guard lock(m_mutex);
+    if (m_generator_closed) return false;
     if (sink.record != m_sink.record || sink.user != m_sink.user) {
         m_generated_ready = false;
         m_pacing = {};
     }
     m_sink = sink;
+    return true;
+}
+
+bool Swapchain::clear_generator_if_owner(const void* owner) noexcept
+{
+    std::lock_guard lock(m_mutex);
+    if (m_generator_closed || !owner || m_sink.user != owner) return false;
+    m_sink = {};
+    m_generated_ready = false;
+    m_pacing = {};
+    return true;
+}
+
+void Swapchain::close_generator() noexcept
+{
+    std::lock_guard lock(m_mutex);
+    m_generator_closed = true;
+    m_sink = {};
+    m_generated_ready = false;
+    m_pacing = {};
 }
 
 void Swapchain::set_present_hook(void (*hook)(uint64_t)) noexcept
@@ -331,6 +356,25 @@ HRESULT Swapchain::initialize_buffers() noexcept try
 }
 catch (...) { return E_OUTOFMEMORY; }
 
+void Swapchain::hold_untracked_generator() noexcept
+{
+    if (!m_sink.user || !m_sink.submitted || !m_sink.lifetime || !m_sink.needsSubmission ||
+        !m_sink.needsSubmission(m_sink.user)) return;
+    // Admission is serialized by m_mutex; an unresolved owner is never replaced.
+    if (m_untracked_sink.user) return;
+    m_untracked_sink = m_sink;
+    if (m_untracked_sink.abandoned) m_untracked_sink.abandoned(m_untracked_sink.user);
+}
+
+bool Swapchain::resolve_untracked_generator() noexcept
+{
+    if (!m_untracked_sink.user || !m_untracked_sink.submitted) return true;
+    if (!m_untracked_sink.submitted(m_untracked_sink.user, m_fence.Get(), m_fence_value))
+        return false; // Keep the owner lease; no retirement was acknowledged.
+    m_untracked_sink = {};
+    return true;
+}
+
 HRESULT Swapchain::drain() noexcept
 {
     if (m_presenter) {
@@ -338,16 +382,32 @@ HRESULT Swapchain::drain() noexcept
         const HRESULT hr = m_presenter->drain_gpu();
         if (FAILED(hr)) return hr;
     }
-    if (!m_fence || m_fence_value == 0) return S_OK;
-    const UINT64 completed = m_fence->GetCompletedValue();
-    if (completed == UINT64_MAX) return m_device->GetDeviceRemovedReason();
-    if (completed >= m_fence_value) return S_OK;
-    HRESULT hr = m_fence->SetEventOnCompletion(m_fence_value, m_event);
+    if (!m_fence || !m_queue) return S_OK;
+    if (FAILED(m_submission_failure)) {
+        // A failed signal left submitted wrapper work without a retirement
+        // token. A later queue-signalled fence can cover that work. Keep frame
+        // admission closed even if this bounded teardown attempt succeeds; a
+        // Session with its own untracked work is not declared retired here.
+        const HRESULT recovery = m_queue->Signal(m_fence.Get(), ++m_fence_value);
+        if (FAILED(recovery)) return recovery;
+        if (!resolve_untracked_generator()) return E_FAIL;
+        run_queue_recovery_hook(); // Unarmed outside the offline test host.
+    }
+    if (m_fence_value == 0) return S_OK;
+    auto progress = classify_fence(m_fence->GetCompletedValue(), m_fence_value);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::Complete) return S_OK;
+    const HRESULT hr = m_fence->SetEventOnCompletion(m_fence_value, m_event);
     if (FAILED(hr)) return hr;
     // Bounded wait: a removed/hung device must not trap teardown forever.
     const DWORD wait = WaitForSingleObject(m_event, 5000);
-    if (wait == WAIT_OBJECT_0) return m_device->GetDeviceRemovedReason();
-    return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+    if (wait != WAIT_OBJECT_0)
+        return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+    progress = classify_fence(m_fence->GetCompletedValue(), m_fence_value);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
 void Swapchain::wait_until(double deadline, double maxWait) noexcept{
@@ -491,12 +551,21 @@ HRESULT Swapchain::wait_slot(uint32_t slot) noexcept
     // once that frame's ready fence (signalled after its generation and
     // snapshot) has completed. Normally it has, because the presenter finished
     // that frame before this one was allowed in.
-    if (m_snapshot_fences[slot] && m_fence->GetCompletedValue() < m_snapshot_fences[slot]) {
-        HRESULT hr = m_fence->SetEventOnCompletion(m_snapshot_fences[slot], m_event);
-        if (FAILED(hr)) return hr;
-        if (WaitForSingleObject(m_event, 5000) != WAIT_OBJECT_0) return DXGI_ERROR_DEVICE_HUNG;
-    }
-    return S_OK;
+    if (!m_fence || slot >= kSlots) return E_INVALIDARG;
+    const UINT64 target = m_snapshot_fences[slot];
+    auto progress = classify_fence(m_fence->GetCompletedValue(), target);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::Complete) return S_OK;
+    const HRESULT hr = m_fence->SetEventOnCompletion(target, m_event);
+    if (FAILED(hr)) return hr;
+    const DWORD wait = WaitForSingleObject(m_event, 5000);
+    if (wait != WAIT_OBJECT_0)
+        return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+    progress = classify_fence(m_fence->GetCompletedValue(), target);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
 HRESULT Swapchain::snapshot_real(uint32_t slot) noexcept
@@ -531,13 +600,24 @@ HRESULT Swapchain::snapshot_real(uint32_t slot) noexcept
     return S_OK;
 }
 
-bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint32_t slot) noexcept
+bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint32_t slot,
+                              HRESULT& submissionFailure) noexcept
 {
+    submissionFailure = S_OK;
     if ((!m_sink.recordPhases && !m_sink.record) || count == 0 || slot >= kSlots) return false;
     auto* allocator = m_slot_generate_allocators[slot].Get();
     auto* list = m_slot_generate_lists[slot].Get();
-    if (!allocator || !list) return false;
-    if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator, nullptr))) return false;
+    if (!allocator || !list) {
+        submissionFailure = m_submission_failure = E_POINTER;
+        return false;
+    }
+    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset)
+        ? E_FAIL : allocator->Reset();
+    if (SUCCEEDED(reset)) reset = list->Reset(allocator, nullptr);
+    if (FAILED(reset)) {
+        submissionFailure = m_submission_failure = reset;
+        return false;
+    }
     auto* real = m_buffers[m_game_index].Get();
     bool recorded = true;
     if (m_sink.recordPhases) {
@@ -546,52 +626,88 @@ bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint3
         for (uint32_t i = 0; i < count && recorded; ++i)
             recorded = m_sink.record(m_sink.user, list, real, phases[i].output, phases[i].outputState);
     }
-    if (!recorded) {
-        // The list may hold partial work; close it so the next reset is legal.
-        list->Close();
+    // Even a generator refusal may leave a partially recorded list. A Close
+    // failure is a submission-path error, not an ordinary skipped frame.
+    const HRESULT closeResult = list->Close();
+    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose)
+        ? E_FAIL : closeResult;
+    if (FAILED(closed)) {
+        hold_untracked_generator();
+        submissionFailure = m_submission_failure = closed;
         return false;
     }
-    if (FAILED(list->Close())) return false;
+    if (!recorded) {
+        hold_untracked_generator();
+        return false;
+    }
     ID3D12CommandList* lists[]{list};
     m_queue->ExecuteCommandLists(1, lists);
-    if (FAILED(m_queue->Signal(m_fence.Get(), ++m_fence_value))) return false;
-    if (m_sink.submitted) m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value);
+    ++m_fence_value;
+    const HRESULT signaled = consume_bookkeeping_fault(BookkeepingFault::GenerationSignal)
+        ? E_FAIL : m_queue->Signal(m_fence.Get(), m_fence_value);
+    if (FAILED(signaled)) {
+        hold_untracked_generator();
+        submissionFailure = m_submission_failure = signaled;
+        return false;
+    }
+    if (m_sink.submitted && !m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value)) {
+        hold_untracked_generator();
+        submissionFailure = m_submission_failure = E_FAIL;
+        return false;
+    }
     return true;
 }
 
-void Swapchain::record_generated() noexcept
+HRESULT Swapchain::record_generated() noexcept
 {
-    if (!m_sink.record || !m_generated || m_generated_ready) return;
+    if (!m_sink.record || !m_generated || m_generated_ready) return S_OK;
     auto* allocator = m_generate_allocator.Get();
     auto* list = m_generate_list.Get();
-    if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator, nullptr))) return;
+    if (!allocator || !list) return m_submission_failure = E_POINTER;
+    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset)
+        ? E_FAIL : allocator->Reset();
+    if (SUCCEEDED(reset)) reset = list->Reset(allocator, nullptr);
+    if (FAILED(reset)) return m_submission_failure = reset;
     auto* real = m_buffers[m_game_index].Get();
     const bool recorded = m_sink.record(m_sink.user, list, real, m_generated.Get(), m_generated_state);
-    if (!recorded) {
+    const HRESULT closeResult = list->Close();
+    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose)
+        ? E_FAIL : closeResult;
+    if (FAILED(closed)) {
+        hold_untracked_generator();
         ++m_skipped_generates;
-        // The list may hold partial work; close it so the next reset is legal.
-        list->Close();
-        return;
+        return m_submission_failure = closed;
     }
-    if (FAILED(list->Close())) {
+    if (!recorded) {
+        hold_untracked_generator();
         ++m_skipped_generates;
-        return;
+        return S_OK;
     }
     ID3D12CommandList* lists[]{list};
     m_queue->ExecuteCommandLists(1, lists);
-    if (FAILED(m_queue->Signal(m_fence.Get(), ++m_fence_value))) {
+    ++m_fence_value;
+    const HRESULT signaled = consume_bookkeeping_fault(BookkeepingFault::GenerationSignal)
+        ? E_FAIL : m_queue->Signal(m_fence.Get(), m_fence_value);
+    if (FAILED(signaled)) {
+        hold_untracked_generator();
         ++m_skipped_generates;
-        return;
+        m_submission_failure = signaled;
+        return signaled;
     }
     // The sink restores the state it was given; do not invent a new state here.
+    if (m_sink.submitted && !m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value)) {
+        hold_untracked_generator();
+        return m_submission_failure = E_FAIL;
+    }
     m_generated_ready = true;
-    if (m_sink.submitted) m_sink.submitted(m_sink.user, m_fence.Get(), m_fence_value);
+    return S_OK;
 }
 
 HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
 {
     std::lock_guard lock(m_mutex);
     if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+    if (FAILED(m_submission_failure)) return m_submission_failure;
     if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
     if (m_presenter) return present_async(sync, flags, params);
     if ((flags & DXGI_PRESENT_DO_NOT_WAIT) && m_fence->GetCompletedValue() < m_fence_value)
@@ -621,7 +737,8 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     // real frame is already on screen; the next outputs must be midpoint(N-1,N)
     // and real N, not last cycle's midpoint followed by real N.
     m_generated_ready = false;
-    record_generated();
+    hr = record_generated();
+    if (FAILED(hr)) return hr;
     const bool hadHistory = m_pacing.cycleStarted;
     const PacingOutput plan = m_pacing.plan(now, m_generated_ready);
 
@@ -685,7 +802,8 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     // Retire our copy AND any work DXGI queues for Present. A fence before
     // Present is insufficient for releasing native buffers on resize.
     const HRESULT signaled = m_queue->Signal(m_fence.Get(), ++m_fence_value);
-    if (FAILED(signaled)) return signaled;
+    if (FAILED(signaled)) return m_submission_failure = signaled;
+    if (!resolve_untracked_generator()) return m_submission_failure = E_FAIL;
 
     if (SUCCEEDED(hr)) {
         if (presentedGenerated) {
@@ -746,16 +864,34 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     const HRESULT previous = m_presenter->last_result();
     if (FAILED(previous)) return previous;
 
+    // Own variable Present1 parameters before advancing the schedule or
+    // recording GPU work. Allocation failure is still a game-visible error
+    // (K76), but it must not leave partial GPU/history ownership behind.
+    PresentJob job;
+    if (params) {
+        job.hasParams = true;
+        if (params->DirtyRectsCount && params->pDirtyRects) {
+            if (consume_bookkeeping_fault(BookkeepingFault::PresentParametersAllocation))
+                throw std::bad_alloc();
+            job.dirty.assign(params->pDirtyRects, params->pDirtyRects + params->DirtyRectsCount);
+        }
+        if (params->pScrollRect) { job.hasScroll = true; job.scroll = *params->pScrollRect; }
+        if (params->pScrollOffset) { job.hasOffset = true; job.offset = *params->pScrollOffset; }
+    }
+
     if (m_present_hook) m_present_hook(now_ticks());
 
     const double now = now_seconds();
+    uint32_t slot = 0;
+    const HRESULT slotHr = acquire_frame_slot(m_phase_set, kSlots, slot,
+                                              [&](uint32_t candidate) noexcept { return wait_slot(candidate); });
+    if (FAILED(slotHr)) return slotHr;
+    // Planning follows admission so a failed slot wait cannot consume a grid
+    // point. `now` remains anchored before the wait, as in the existing path.
     OutputPlan plan = m_schedule.plan(now);
     // Generate every planned phase in one submission. The generator advances
     // its history once per real frame, so a frame with nothing generated to
     // show (adaptive target below the real rate) still runs one phase.
-    const uint32_t slot = m_phase_set;
-    m_phase_set = (m_phase_set + 1) % kSlots;
-    if (const HRESULT slotHr = wait_slot(slot); FAILED(slotHr)) return slotHr;
     auto& set = m_phase_outputs[slot];
     GeneratePhase phases[kMaxPhases]{};
     uint32_t phaseCount = 0;
@@ -768,7 +904,9 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     const bool showGenerated = phaseCount > 0;
     if (!showGenerated)
         phases[phaseCount++] = GeneratePhase{set[0].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, kMidpointAlpha};
-    const bool generated = record_phases(phases, phaseCount, slot);
+    HRESULT generationFailure = S_OK;
+    const bool generated = record_phases(phases, phaseCount, slot, generationFailure);
+    if (FAILED(generationFailure)) return generationFailure;
     if (!generated) {
         // Nothing usable was generated: show the real frame on its own.
         if (showGenerated && m_sink.record) ++m_skipped_generates;
@@ -779,18 +917,18 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     // The presenter reads the snapshot, so the game's own buffer is free again
     // once this copy has run, which queue order guarantees before its next use.
     HRESULT hr = snapshot_real(slot);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) return m_submission_failure = hr;
 
     // Everything the game and the generator queued for this frame.
     hr = m_queue->Signal(m_fence.Get(), ++m_fence_value);
-    if (FAILED(hr)) return hr;
+    if (FAILED(hr)) return m_submission_failure = hr;
+    if (!resolve_untracked_generator()) return m_submission_failure = E_FAIL;
     m_snapshot_fences[slot] = m_fence_value;
 
     if (m_rate_window_start == 0.0) m_rate_window_start = now;
     m_rate_window_outputs += plan.count;
     m_rate_window_generated += plan.generated();
 
-    PresentJob job;
     job.real = m_snapshots[slot];
     uint32_t nextPhase = 0;
     for (uint32_t i = 0; i < plan.count; ++i) {
@@ -805,14 +943,8 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     job.sync = sync;
     // DO_NOT_WAIT was answered above; the presenter itself must be allowed to wait.
     job.flags = flags & ~static_cast<UINT>(DXGI_PRESENT_DO_NOT_WAIT);
-    if (params) {
-        job.hasParams = true;
-        if (params->DirtyRectsCount && params->pDirtyRects)
-            job.dirty.assign(params->pDirtyRects, params->pDirtyRects + params->DirtyRectsCount);
-        if (params->pScrollRect) { job.hasScroll = true; job.scroll = *params->pScrollRect; }
-        if (params->pScrollOffset) { job.hasOffset = true; job.offset = *params->pScrollOffset; }
-    }
-    m_presenter->submit(std::move(job));
+    hr = m_presenter->submit(std::move(job));
+    if (FAILED(hr)) return hr; // Do not advance ownership for an unqueued job (K51).
     m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
 
     if (++m_present_cycles % 300 == 0) {

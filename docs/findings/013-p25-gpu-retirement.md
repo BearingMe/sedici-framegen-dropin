@@ -3,6 +3,8 @@
 Records the retirement audit, the defects it found, how they are covered and what is
 left. Nothing here has run in the game.
 
+**Correction:** P2.5 is not complete. The timeout-retention approach below has safety and boundedness defects (K45–K48); its original unconditional safety claims and device-loss test characterization are superseded by this correction. The test does not prove generation was in flight or that the post-loss Present failed.
+
 ## What the audit checked
 
 Every place that waits on or releases GPU-visible state: `Context::retired`,
@@ -28,8 +30,7 @@ a timeout is not permission to free in-flight memory, and no completion is faked
 | K39 | `~Swapchain` freed all GPU objects after a timed-out drain on a live device | All GPU objects and the presenter are retained for the process lifetime and logged |
 | K40 | A refused `Session::destroy` left the session usable and the owner was freed anyway | The session stays Draining; the owner is parked, reaped on later calls once it retires, and never freed while work is in flight. The parked list is leaked deliberately at process exit. |
 
-Retention is bounded by the number of destroys the game issues while the GPU is stuck;
-the count is logged (`retaining a frame generation context ..., retained=N`).
+Retention has no fixed bound and is not exception-safe; a leaked presenter may continue callbacks (K47, K48). The count logged for parked sessions is not a bound.
 
 ## Not done, with owner
 

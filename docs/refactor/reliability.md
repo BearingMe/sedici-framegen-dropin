@@ -126,13 +126,21 @@ relabeled green, and an unexpected pass fails the run.
 
 Evidence record: [finding 010](../findings/010-p22-coverage-gaps.md).
 
-These are the gaps that remain after P2.2. They are **accepted, not forgotten**: each
-needs a seam that does not exist yet and that production code must add in a named
-milestone; building it as a test-only hack now would test the hack.
+This is the historical P2.2 baseline, not a claim that later work has made no
+progress. The gaps were **accepted, not forgotten**. Current status is in the
+[Phase 2 progress table](../../MILESTONES.md#phase-2-progress) and
+[known issues](known-issues.md). The uncommitted P2.5 work now injects selected
+bookkeeping, queue-signal, command-list Close and allocator Reset failures in the
+production-object host; it does not yet establish bounded live-device recovery.
+The P2.6 prototype tests settings-model save/cancel and some failure cases without
+clicks. Full-menu Begin/Save now use a bounded worker in the working tree, with a
+paused-I/O callback test, an actual-DLL baseline-completion check, and an isolated
+shared-core test-module unload check; actual proxy-DLL unload verification and the
+external-edit replacement race remain open. Full foreground input and integrated UI interactions remain unaccepted.
 
 | Gap | Why it is not covered | Where it is closed |
 | --- | --- | --- |
-| Click-driven cap change, Save, Cancel and the settings round trip in the Full menu | The Full menu is immediate-mode ImGui laid out at runtime; its controls have no stable coordinates and there is no UI model to drive. Full input also needs the host to be the foreground window, which an unattended CTest run does not get (`sedici_abi overlay-hotkey` records this as an INFO line). | P2.6 (settings transactions) and P2.8 introduce a settings/UI model that a test can drive without pixels. The hotkey, Full draw, clip restoration and Save-path code are exercised; only the click is missing. |
+| Click-driven cap change, Save, Cancel and the settings round trip in the Full menu | The Full menu is immediate-mode ImGui laid out at runtime; its controls have no stable coordinates and there is no UI model to drive. Full input also needs the host to be the foreground window, which an unattended CTest run does not get (`sedici_abi overlay-hotkey` records this as an INFO line). | P2.6 (settings transactions) and P2.8 introduce a settings/UI model that a test can drive without pixels. The hotkey and clip restoration are exercised; availability of actual Full input depends on foreground access, and click-driven Save/Cancel remain uncovered. |
 | Allocation and submission failures (device removed, `CreateCommittedResource`/`ExecuteCommandLists` failing) | D3D12 offers no portable fault injection on a real device; it needs a device/queue abstraction in production code. | P2.5 (GPU submission and retirement) defines that boundary; its tests inject here. |
 | Save-time failures (read-only or externally edited `sedici.toml`) | Reachable only through the Full menu's Save button (see first row). `config_save` itself is covered in `sedici_regression`. | P2.6. |
 | Chronological readback through the vrr presenter | The presenter hands images to DXGI, not to a readable queue; the FLIP_SEQUENTIAL readback exists only for the old path. | P2.7 (output pacing) when the presenter gets a testable output sink. |

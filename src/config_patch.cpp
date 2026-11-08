@@ -1,9 +1,11 @@
 #include "config_patch.h"
 
 #include <windows.h>
+#include <bcrypt.h>
 #include "toml.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <iomanip>
@@ -16,6 +18,8 @@
 
 namespace sedici {
 namespace {
+
+std::atomic<ConfigBeforeReplaceHook> g_before_replace_hook{nullptr};
 
 struct Line {
     std::string text;
@@ -213,23 +217,103 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
 {
     ConfigFileStamp stamp;
     try {
-        WIN32_FILE_ATTRIBUTE_DATA data{};
-        if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) return stamp;
+        struct FileGuard {
+            HANDLE value = INVALID_HANDLE_VALUE;
+            ~FileGuard() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+        } file;
+        file.value = CreateFileW(path.c_str(), GENERIC_READ,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                 nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (file.value == INVALID_HANDLE_VALUE) {
+            const DWORD error = GetLastError();
+            stamp.valid = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+            return stamp;
+        }
+        BY_HANDLE_FILE_INFORMATION before{}, after{};
+        if (!GetFileInformationByHandle(file.value, &before) ||
+            (before.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return stamp;
+
+        struct AlgorithmGuard {
+            BCRYPT_ALG_HANDLE value = nullptr;
+            ~AlgorithmGuard() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+        } algorithm;
+        if (BCryptOpenAlgorithmProvider(&algorithm.value, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0)
+            return stamp;
+        DWORD objectBytes = 0, received = 0;
+        if (BCryptGetProperty(algorithm.value, BCRYPT_OBJECT_LENGTH,
+                              reinterpret_cast<PUCHAR>(&objectBytes), sizeof(objectBytes), &received, 0) < 0 ||
+            received != sizeof(objectBytes) || objectBytes == 0) return stamp;
+        std::vector<unsigned char> object(objectBytes);
+        struct HashGuard {
+            BCRYPT_HASH_HANDLE value = nullptr;
+            ~HashGuard() { if (value) BCryptDestroyHash(value); }
+        } hash;
+        if (BCryptCreateHash(algorithm.value, &hash.value, object.data(), objectBytes, nullptr, 0, 0) < 0)
+            return stamp;
+        unsigned char buffer[16384];
+        uint64_t total = 0;
+        for (;;) {
+            DWORD count = 0;
+            if (!ReadFile(file.value, buffer, sizeof(buffer), &count, nullptr)) return stamp;
+            if (count == 0) break;
+            if (BCryptHashData(hash.value, buffer, count, 0) < 0) return stamp;
+            total += count;
+        }
+        if (BCryptFinishHash(hash.value, stamp.sha256.data(),
+                             static_cast<ULONG>(stamp.sha256.size()), 0) < 0 ||
+            !GetFileInformationByHandle(file.value, &after)) return ConfigFileStamp{};
+        const uint64_t size = (static_cast<uint64_t>(before.nFileSizeHigh) << 32) | before.nFileSizeLow;
+        if (total != size || before.nFileSizeHigh != after.nFileSizeHigh ||
+            before.nFileSizeLow != after.nFileSizeLow ||
+            before.ftLastWriteTime.dwHighDateTime != after.ftLastWriteTime.dwHighDateTime ||
+            before.ftLastWriteTime.dwLowDateTime != after.ftLastWriteTime.dwLowDateTime ||
+            before.dwVolumeSerialNumber != after.dwVolumeSerialNumber ||
+            before.nFileIndexHigh != after.nFileIndexHigh || before.nFileIndexLow != after.nFileIndexLow)
+            return ConfigFileStamp{};
         stamp.exists = true;
-        stamp.last_write = (static_cast<uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) |
-                           data.ftLastWriteTime.dwLowDateTime;
-        stamp.size = (static_cast<uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+        stamp.valid = true;
+        stamp.size = size;
+        stamp.last_write = (static_cast<uint64_t>(before.ftLastWriteTime.dwHighDateTime) << 32) |
+                           before.ftLastWriteTime.dwLowDateTime;
+        stamp.file_id = (static_cast<uint64_t>(before.nFileIndexHigh) << 32) | before.nFileIndexLow;
+        stamp.volume_serial = before.dwVolumeSerialNumber;
     } catch (...) {
+        return ConfigFileStamp{};
     }
     return stamp;
 }
 
-bool config_save(const std::filesystem::path& path, const ConfigValues& values,
-                 std::string& error)
+bool config_same_stamp(const ConfigFileStamp& a, const ConfigFileStamp& b) noexcept
 {
+    if (!a.valid || !b.valid || a.exists != b.exists) return false;
+    if (!a.exists) return true;
+    return a.last_write == b.last_write && a.size == b.size && a.file_id == b.file_id &&
+           a.volume_serial == b.volume_serial && a.sha256 == b.sha256;
+}
+
+void config_arm_before_replace_hook(ConfigBeforeReplaceHook hook) noexcept
+{
+    g_before_replace_hook.store(hook, std::memory_order_release);
+}
+
+bool config_save(const std::filesystem::path& path, const ConfigValues& values,
+                 std::string& error, const ConfigFileStamp* expectedStamp, bool* conflict,
+                 ConfigFileStamp* writtenStamp)
+{
+    if (conflict) *conflict = false;
     try {
         std::string text;
-        if (config_file_stamp(path).exists) {
+        const ConfigFileStamp initial = config_file_stamp(path);
+        if (!initial.valid) {
+            error = "could not determine the state of sedici.toml";
+            return false;
+        }
+        if (expectedStamp && !config_same_stamp(initial, *expectedStamp)) {
+            if (conflict) *conflict = true;
+            error = "sedici.toml changed before save";
+            return false;
+        }
+        if (initial.exists) {
             std::ifstream stream(path, std::ios::binary);
             if (!stream) {
                 error = "could not open sedici.toml for reading";
@@ -295,30 +379,69 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             return false;
         }
 
-        std::filesystem::path temporary = path;
-        temporary += L".tmp";
-        {
-            std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
-            if (!stream) {
-                error = "could not open the temporary file for writing";
-                return false;
+        // Create a private, unique sibling with CREATE_NEW. A fixed .tmp name
+        // could truncate someone else's file before save failed (K49).
+        static std::atomic<unsigned long long> sequence{0};
+        std::filesystem::path temporary;
+        HANDLE file = INVALID_HANDLE_VALUE;
+        for (unsigned attempt = 0; attempt != 64; ++attempt) {
+            temporary = path;
+            temporary += L".sedici-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                         std::to_wstring(sequence.fetch_add(1, std::memory_order_relaxed)) + L".tmp";
+            file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE) break;
+            if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) break;
+        }
+        if (file == INVALID_HANDLE_VALUE) {
+            error = "could not create a unique temporary file";
+            return false;
+        }
+        bool written = true;
+        size_t offset = 0;
+        while (offset < output.size()) {
+            const DWORD chunk = static_cast<DWORD>(std::min<size_t>(output.size() - offset, 1u << 20));
+            DWORD count = 0;
+            if (!WriteFile(file, output.data() + offset, chunk, &count, nullptr) || count != chunk) {
+                written = false;
+                break;
             }
-            stream.write(output.data(), static_cast<std::streamsize>(output.size()));
-            stream.flush();
-            if (!stream) {
-                error = "could not write the temporary file";
-                stream.close();
+            offset += count;
+        }
+        if (written) written = FlushFileBuffers(file) != 0;
+        if (!CloseHandle(file)) written = false;
+        if (!written) {
+            error = "could not write the temporary file";
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
+
+        ConfigFileStamp stagedStamp;
+        if (writtenStamp) {
+            stagedStamp = config_file_stamp(temporary);
+            if (!stagedStamp.valid || !stagedStamp.exists) {
+                error = "could not verify the temporary settings file";
                 DeleteFileW(temporary.c_str());
                 return false;
             }
         }
-
+        if (const ConfigBeforeReplaceHook hook = g_before_replace_hook.exchange(nullptr, std::memory_order_acq_rel))
+            hook();
+        // This narrows, but cannot eliminate, the external-writer race: another
+        // process can still replace the path after this check and before rename.
+        if (expectedStamp && !config_same_stamp(config_file_stamp(path), *expectedStamp)) {
+            if (conflict) *conflict = true;
+            error = "sedici.toml changed before replacement";
+            DeleteFileW(temporary.c_str());
+            return false;
+        }
         if (!MoveFileExW(temporary.c_str(), path.c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
             error = "could not replace sedici.toml (error " + std::to_string(GetLastError()) + ")";
             DeleteFileW(temporary.c_str());
             return false;
         }
+        if (writtenStamp) *writtenStamp = stagedStamp;
         return true;
     } catch (const toml::parse_error&) {
         error = "invalid or unsupported TOML layout; original file was not changed";

@@ -58,15 +58,26 @@ public:
     // the prepare the game submitted in the same frame.
     void note_ordered_submission() noexcept
     {
-        m_recorded = false;
+        // Queue ordering permits split recording, but it is not a retirement
+        // token: keep the prepare marked recorded until a fence is registered.
         m_prepare_waited = true;
     }
+    // Invalidate CPU-side generation history after a frame cannot be presented.
+    // Recorded/borrowed work remains unretired until a queue token is registered.
+    void abandon_generation() noexcept
+    {
+        m_prepare_valid = false;
+        m_history_valid = false;
+        m_reset_requested = true;
+    }
+    bool has_untracked_work() const noexcept { return m_recorded; }
     bool retired() const noexcept;
     // Bounded wait for the last registered submission. Returns false if nothing
     // was submitted yet or the wait timed out; never waits unbounded.
     bool wait_for_retirement(uint32_t timeoutMs) noexcept;
 
     bool ready() const noexcept { return m_stage.ready() && m_display_width != 0; }
+    bool device_lost() const noexcept { return m_device && FAILED(m_device->GetDeviceRemovedReason()); }
     bool enabled() const noexcept { return m_enabled; }
     bool pending() const noexcept { return m_prepare_valid; }
     bool have_history() const noexcept { return m_history_valid; }

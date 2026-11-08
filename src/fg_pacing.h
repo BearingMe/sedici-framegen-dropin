@@ -30,6 +30,11 @@ struct PacingOutput {
     double realDeadline = 0.0; // absolute deadline anchored at wrapper entry
 };
 
+// Current presenter policy: a later output whose content-time deadline is due
+// supersedes this output, regardless of whether either output is real or generated.
+// Inputs are seconds on the same monotonic clock; no later output means keep it.
+bool later_output_is_due(bool hasLater, double laterContent, double latency, double now) noexcept;
+
 // No wait before the midpoint. The real-frame deadline is at most half an
 // interval after entry; work/API time already spent consumes that budget.
 PacingOutput plan_present(const PacingInput& input) noexcept;

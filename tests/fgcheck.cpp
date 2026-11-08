@@ -35,6 +35,7 @@
 #include "fg_pacing.h"
 #include "fg_params.h"
 #include "fg_route.h"
+#include "fg_bookkeeping_faults.h"
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
 #include "log.h"
@@ -51,6 +52,8 @@ using Microsoft::WRL::ComPtr;
 #pragma warning(disable : 4996) // Exercise the desc Cyberpunk actually uses.
 
 namespace {
+std::atomic<unsigned> g_debug_errors{0};
+bool g_debug_callback_installed = false;
 
 constexpr uint32_t kDisplayWidth = 480;
 constexpr uint32_t kDisplayHeight = 270;
@@ -852,6 +855,13 @@ int check_contract(Device& state)
     expect(!context.retired() && !context.destroy(),
            "recorded prepare prevents premature teardown");
 
+    // Queue ordering alone is not proof that the borrowed prepare retired.
+    // A generation rejection must leave its resources protected (K45).
+    context.note_ordered_submission();
+    expect(!context.generate(state.list.Get(), static_cast<ID3D12Resource*>(nullptr),
+                             D3D12_RESOURCE_STATE_COMMON) && !context.retired() && !context.destroy(),
+           "rejected ordered generation keeps the prepare unretired");
+
     const bool generated = context.generate(state.list.Get(), output.Get(),
                                             D3D12_RESOURCE_STATE_COMMON);
     expect(generated, "generate produces a frame");
@@ -961,6 +971,8 @@ int check_contract(Device& state)
     const HRESULT signaled = prepareQueue->Signal(prepareFence.Get(), 1);
     const bool tracked = SUCCEEDED(signaled) && context.track_submission(prepareFence.Get(), 1);
     expect(tracked && !context.retired(), "submitted prepare remains occupied behind its GPU fence");
+    expect(!context.wait_for_retirement(2) && !context.retired(),
+           "a bounded retirement timeout leaves gated GPU work unretired");
     expect(!context.prepare(&prepare.header) && !context.destroy(),
            "in-flight snapshot refuses reuse and teardown");
     // Always open the gate before any return or blocking wait.
@@ -1080,6 +1092,46 @@ bool check_pacing()
     expect(bounded && recovered && std::abs(pacing.interval - period) < 1e-7 && outputs > 39800,
            "20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall");
 
+    {
+        sedici::fg::OutputSchedule schedule;
+        schedule.set_ratio(UINT32_MAX, UINT32_MAX);
+        expect(schedule.numerator() == UINT32_MAX && schedule.denominator() == UINT32_MAX,
+               "ratio validation handles large denominators without overflow");
+        schedule.set_ratio(UINT32_MAX, 0);
+        expect(schedule.numerator() == 2 && schedule.denominator() == 1,
+               "ratio validation rejects a zero denominator");
+    }
+
+    // Current presenter policy, characterized without changing real-drop semantics.
+    expect(!sedici::fg::later_output_is_due(false, 1.0, 0.1, 9.0) &&
+           !sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.124) &&
+           sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.125) &&
+           sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.126),
+           "presenter stale-output policy uses the later deadline including equality");
+
+    {
+        // Characterize the production stale-output predicate after a hitch:
+        // overdue outputs are discarded in order and the newest remains eligible.
+        const double content[] = {1.0, 1.01, 1.02, 1.03};
+        const double now = 1.035;
+        unsigned dropped = 0;
+        unsigned shown = 0;
+        double lastShown = 0.0;
+        for (size_t i = 0; i < std::size(content); ++i) {
+            const bool hasLater = i + 1 < std::size(content);
+            const double nextContent = hasLater ? content[i + 1] : 0.0;
+            if (sedici::fg::later_output_is_due(hasLater, nextContent, 0.0, now)) {
+                ++dropped;
+            } else {
+                ++shown;
+                lastShown = content[i];
+            }
+        }
+        const double recovery = 1.04;
+        expect(dropped == 3 && shown == 1 && lastShown == 1.03 && recovery > lastShown,
+               "stale-output policy drains a hitch backlog chronologically");
+    }
+
     // Output schedule: every output lands on an even grid in content time.
     // For each ratio, count outputs over many real frames, check the pattern
     // never needs more than two generated frames per real frame, and that the
@@ -1196,12 +1248,22 @@ bool record_counted(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource*
     return true;
 }
 
+ID3D12Fence* recoveryTestGate = nullptr;
+std::atomic<bool> recoveryTestReleased{false};
+void release_recovery_test_gate() noexcept
+{
+    if (recoveryTestGate && SUCCEEDED(recoveryTestGate->Signal(1)))
+        recoveryTestReleased = true;
+}
+
 // `[fg] present = "vrr"`: the native chain moves to Sedici's present queue and
 // both outputs come from the presenter thread with the game's tearing flags.
 // Every midpoint is either shown or dropped as stale, never lost; resize keeps
 // the chain on the present queue; teardown drains the thread.
 bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier,
-                      const char* label, DWORD frameMs = 27)
+                      const char* label, DWORD frameMs = 27, bool signalFault = false,
+                      bool closeFault = false, bool resetFault = false, bool liveRecovery = false,
+                      bool paramsFault = false)
 {
     // Below ~20 ms per real frame at 1.5x the plan asks for more frames than a
     // 75 Hz panel can show. The game may then be held to the panel's pace, as
@@ -1267,6 +1329,80 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
 
         ShowWindow(window, SW_SHOWNOACTIVATE);
         const UINT presentFlags = canTear ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+        if (paramsFault) {
+            RECT dirty{0, 0, 16, 16};
+            DXGI_PRESENT_PARAMETERS parameters{};
+            parameters.DirtyRectsCount = 1;
+            parameters.pDirtyRects = &dirty;
+            const UINT beforeIndex = wrapped->GetCurrentBackBufferIndex();
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::PresentParametersAllocation);
+            const HRESULT first = wrapped->Present1(0, presentFlags, &parameters);
+            const bool reached = !sedici::fg::consume_bookkeeping_fault(
+                sedici::fg::BookkeepingFault::PresentParametersAllocation);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            if (!reached || first != E_OUTOFMEMORY || calls != 0 ||
+                wrapped->GetCurrentBackBufferIndex() != beforeIndex) {
+                std::puts("FAIL parameter-allocation failure changed frame admission");
+                return false;
+            }
+            const HRESULT retry = wrapped->Present1(0, presentFlags, &parameters);
+            const bool retried = SUCCEEDED(retry) && calls == 1;
+            std::puts(retried ? "PASS Present1 retry with the same metadata is accepted"
+                              : "FAIL Present1 retry after allocation error");
+            return retried;
+        }
+        if (signalFault || closeFault || resetFault) {
+            ComPtr<ID3D12Fence> recoveryGate;
+            if (liveRecovery) {
+                if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                     IID_PPV_ARGS(&recoveryGate))) ||
+                    FAILED(state.queue->Wait(recoveryGate.Get(), 1))) return false;
+            }
+            const auto fault = resetFault ? sedici::fg::BookkeepingFault::GenerationReset
+                             : closeFault ? sedici::fg::BookkeepingFault::GenerationClose
+                                          : sedici::fg::BookkeepingFault::GenerationSignal;
+            sedici::fg::arm_bookkeeping_fault(fault);
+            const HRESULT first = wrapped->Present(0, presentFlags);
+            const bool reachedInjection = !sedici::fg::consume_bookkeeping_fault(fault);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            const HRESULT retry = wrapped->Present(0, presentFlags);
+            const bool stopped = reachedInjection && first == E_FAIL && retry == E_FAIL &&
+                                 calls == (resetFault ? 0u : 1u) && g_debug_errors.load() == 0;
+            if (!g_debug_callback_installed) std::puts("INFO DX12 debug callback unavailable");
+            if (liveRecovery) {
+                if (!stopped) {
+                    (void)recoveryGate->Signal(1);
+                    return false;
+                }
+                // The generation list is queued behind recoveryGate. Release it
+                // only once teardown has queued the replacement retirement fence.
+                recoveryTestGate = recoveryGate.Get();
+                recoveryTestReleased = false;
+                const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
+                sedici::fg::arm_queue_recovery_hook(&release_recovery_test_gate);
+                const auto before = std::chrono::steady_clock::now();
+                auto* finalReference = wrapped.Detach();
+                const ULONG remaining = finalReference->Release();
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - before).count();
+                sedici::fg::arm_queue_recovery_hook(nullptr);
+                recoveryTestGate = nullptr;
+                (void)recoveryGate->Signal(1); // Unblock even if recovery failed.
+                const bool recovered = remaining == 0 && recoveryTestReleased.load() && elapsed < 3000 &&
+                                       sedici::fg::swapchain_retention_count() == retainedBefore &&
+                                       SUCCEEDED(state.device->GetDeviceRemovedReason()) &&
+                                       g_debug_errors.load() == 0;
+                std::puts(recovered ? "PASS wrapper teardown recovered gated GPU work on a live device"
+                                    : "FAIL wrapper teardown did not recover gated GPU work");
+                return recovered;
+            }
+            ComPtr<ID3D12Device5> removable;
+            if (FAILED(state.device.As(&removable))) return false;
+            removable->RemoveDevice();
+            std::puts(stopped ? "PASS VRR injected failure stops later admission"
+                              : "FAIL VRR injected failure did not stop admission");
+            return stopped;
+        }
         const UINT cycles = 40;
         uint64_t skippedAtTen = 0;
         HANDLE latency = wrapped->GetFrameLatencyWaitableObject();
@@ -1396,15 +1532,18 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
 
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
-    std::printf("%s vrr presentation %s: presenter thread, present queue, resize, teardown\n",
-                ok ? "PASS" : "FAIL", label);
+    std::printf("%s vrr presentation %s: %s\n", ok ? "PASS" : "FAIL", label,
+                paramsFault ? "parameter allocation failure and retry" :
+                (signalFault || closeFault || resetFault) ? "injected failure stops admission" :
+                "presenter thread, queue, resize, teardown");
     return ok;
 }
 
 // One generated frame is shown per cycle starting with the second: the midpoint
 // for a pair cannot be shown before the pair exists.
-bool check_generated_window(Device& state)
+bool check_generated_window(Device& state, bool* knownSignature = nullptr)
 {
+    if (knownSignature) *knownSignature = false;
     const wchar_t* className = L"SediciFgGenerated";
     WNDCLASSW wc{};
     wc.lpfnWndProc = DefWindowProcW;
@@ -1468,8 +1607,14 @@ bool check_generated_window(Device& state)
                     generator.calls,
                     static_cast<unsigned long long>(wrapped->generated_presents()),
                     static_cast<unsigned long long>(wrapped->skipped_generates()));
-        if (generator.calls != cycles || !generator.before_present) return false;
-        if (wrapped->generated_presents() != cycles - 1) return false;
+        if (generator.calls != cycles) return false;
+        if (!generator.before_present || wrapped->generated_presents() != cycles - 1) {
+            // The historical 2-shown/3-skipped result also causes the
+            // before-present count check to fail after the first skipped frame.
+            if (knownSignature && wrapped->generated_presents() == 2 && wrapped->skipped_generates() == 3)
+                *knownSignature = true;
+            return false;
+        }
         if (wrapped->skipped_generates() != 0) return false;
         UINT presented = 0;
         if (FAILED(wrapped->GetLastPresentCount(&presented))) return false;
@@ -1498,8 +1643,20 @@ bool check_generated_window(Device& state)
 // generation session bound to it, and generated frames coming out of Sedici's
 // own presentation schedule. Native buffer readback verifies temporal order,
 // current-frame HUD labels, and the actual midpoint image rather than counts.
-bool check_session_window(Device& state, bool loseDevice = false)
+HANDLE contextRecordArrived = nullptr;
+HANDLE contextRecordResume = nullptr;
+void pause_context_record() noexcept
 {
+    SetEvent(contextRecordArrived);
+    (void)WaitForSingleObject(contextRecordResume, 5000);
+}
+
+bool check_session_window(Device& state, bool loseDevice = false, bool signalFault = false,
+                          bool closeFault = false, bool resetFault = false,
+                          bool contextRace = false, bool sessionRecovery = false,
+                          bool registrationFault = false, bool* knownSignature = nullptr)
+{
+    if (knownSignature) *knownSignature = false;
     const wchar_t* className = L"SediciFgSession";
     WNDCLASSW wc{};
     wc.lpfnWndProc = DefWindowProcW;
@@ -1533,7 +1690,13 @@ bool check_session_window(Device& state, bool loseDevice = false)
             return false;
         }
 
-        sedici::fg::Session session;
+        sedici::fg::Session stackSession;
+        std::shared_ptr<sedici::fg::Session> ownedSession;
+        if (sessionRecovery) {
+            ownedSession = std::make_shared<sedici::fg::Session>();
+            ownedSession->set_callback_lifetime(ownedSession);
+        }
+        sedici::fg::Session& session = ownedSession ? *ownedSession : stackSession;
         ffxCreateBackendDX12Desc backend{};
         backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
         backend.device = state.device.Get();
@@ -1551,6 +1714,14 @@ bool check_session_window(Device& state, bool loseDevice = false)
             return false;
         }
         if (session.state() != sedici::fg::SessionState::Ready) return false;
+        ffxConfigureDescFrameGeneration stateProbe{};
+        stateProbe.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        stateProbe.frameGenerationEnabled = true;
+        if (!session.configure(&stateProbe.header) ||
+            session.state() != sedici::fg::SessionState::Degraded) return false;
+        stateProbe.frameGenerationEnabled = false;
+        if (!session.configure(&stateProbe.header) ||
+            session.state() != sedici::fg::SessionState::Suspended) return false;
 
         // Five consecutive moving frames, not repeating/resetting one pair.
         constexpr uint32_t cycles = 5;
@@ -1632,6 +1803,7 @@ bool check_session_window(Device& state, bool loseDevice = false)
                 std::printf("session: configure failed: %s\n", session.context().last_error());
                 return false;
             }
+            if (cycle == 0 && session.state() != sedici::fg::SessionState::Warmup) return false;
             if (!session.prepare(&prepare.header)) {
                 std::printf("session: prepare failed: %s\n", session.context().last_error());
                 return false;
@@ -1672,30 +1844,154 @@ bool check_session_window(Device& state, bool loseDevice = false)
                        D3D12_RESOURCE_STATE_PRESENT);
             if (!state.submit()) return false;
 
+            if (contextRace && cycle == 0) {
+                contextRecordArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                contextRecordResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                HANDLE configureStarted = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                HANDLE configureDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                HANDLE prepareStarted = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                HANDLE prepareDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                if (!contextRecordArrived || !contextRecordResume || !configureStarted || !configureDone ||
+                    !prepareStarted || !prepareDone) {
+                    if (contextRecordArrived) CloseHandle(contextRecordArrived);
+                    if (contextRecordResume) CloseHandle(contextRecordResume);
+                    if (configureStarted) CloseHandle(configureStarted);
+                    if (configureDone) CloseHandle(configureDone);
+                    if (prepareStarted) CloseHandle(prepareStarted);
+                    if (prepareDone) CloseHandle(prepareDone);
+                    contextRecordArrived = contextRecordResume = nullptr;
+                    return false;
+                }
+                sedici::fg::arm_context_record_hook(&pause_context_record);
+                HRESULT presentResult = E_FAIL;
+                std::thread presenting([&] { presentResult = handle.swapchain()->Present(1, 0); });
+                const bool arrived = WaitForSingleObject(contextRecordArrived, 5000) == WAIT_OBJECT_0;
+                bool configured = false;
+                bool prepareAccepted = true;
+                bool blocked = false;
+                std::thread configuring;
+                std::thread preparing;
+                if (arrived) {
+                    auto configureAgain = configure;
+                    configuring = std::thread([&, configureAgain]() mutable {
+                        SetEvent(configureStarted);
+                        configured = session.configure(&configureAgain.header);
+                        SetEvent(configureDone);
+                    });
+                    preparing = std::thread([&] {
+                        ffxDispatchDescFrameGenerationPrepare invalid{};
+                        invalid.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+                        SetEvent(prepareStarted);
+                        prepareAccepted = session.prepare(&invalid.header);
+                        SetEvent(prepareDone);
+                    });
+                    const bool started = WaitForSingleObject(configureStarted, 5000) == WAIT_OBJECT_0 &&
+                                         WaitForSingleObject(prepareStarted, 5000) == WAIT_OBJECT_0;
+                    blocked = started && WaitForSingleObject(configureDone, 50) == WAIT_TIMEOUT &&
+                              WaitForSingleObject(prepareDone, 50) == WAIT_TIMEOUT;
+                }
+                SetEvent(contextRecordResume);
+                presenting.join();
+                if (configuring.joinable()) configuring.join();
+                if (preparing.joinable()) preparing.join();
+                sedici::fg::arm_context_record_hook(nullptr);
+                CloseHandle(contextRecordArrived);
+                CloseHandle(contextRecordResume);
+                CloseHandle(configureStarted);
+                CloseHandle(configureDone);
+                CloseHandle(prepareStarted);
+                CloseHandle(prepareDone);
+                contextRecordArrived = contextRecordResume = nullptr;
+                const bool serialized = arrived && blocked && SUCCEEDED(presentResult) && configured &&
+                                        !prepareAccepted && g_debug_errors.load() == 0;
+                std::puts(serialized ? "PASS configure and prepare wait for an active context callback"
+                                     : "FAIL configure/context callback synchronization");
+                return serialized;
+            }
+
+            ComPtr<ID3D12Fence> sessionRecoveryGate;
+            if (sessionRecovery && cycle == 0) {
+                if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                                     IID_PPV_ARGS(&sessionRecoveryGate))) ||
+                    FAILED(state.queue->Wait(sessionRecoveryGate.Get(), 1))) return false;
+            }
             const UINT firstNative = native->GetCurrentBackBufferIndex();
-            if (FAILED(handle.swapchain()->Present(1, 0))) {
-                std::printf("session: present failed\n");
+            const auto fault = registrationFault ? sedici::fg::BookkeepingFault::SubmissionRegistration
+                             : resetFault ? sedici::fg::BookkeepingFault::GenerationReset
+                             : closeFault ? sedici::fg::BookkeepingFault::GenerationClose
+                                          : sedici::fg::BookkeepingFault::GenerationSignal;
+            if ((signalFault || closeFault || resetFault || sessionRecovery) && cycle == 0)
+                sedici::fg::arm_bookkeeping_fault(fault);
+            const HRESULT presentResult = handle.swapchain()->Present(1, 0);
+            if ((signalFault || closeFault || resetFault || sessionRecovery) && cycle == 0) {
+                const bool reachedInjection = !sedici::fg::consume_bookkeeping_fault(fault);
+                sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+                const HRESULT retry = handle.swapchain()->Present(1, 0);
+                const bool stopped = reachedInjection && presentResult == E_FAIL && retry == E_FAIL &&
+                                     !session.retired() && g_debug_errors.load() == 0;
+                if (!g_debug_callback_installed) std::puts("INFO DX12 debug callback unavailable");
+                if (sessionRecovery) {
+                    if (!stopped) {
+                        (void)sessionRecoveryGate->Signal(1);
+                        return false;
+                    }
+                    const bool firstDestroyRefused = !session.destroy() &&
+                        session.state() == sedici::fg::SessionState::Draining;
+                    recoveryTestGate = sessionRecoveryGate.Get();
+                    recoveryTestReleased = false;
+                    const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
+                    sedici::fg::arm_queue_recovery_hook(&release_recovery_test_gate);
+                    const auto before = std::chrono::steady_clock::now();
+                    handle.destroy();
+                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - before).count();
+                    sedici::fg::arm_queue_recovery_hook(nullptr);
+                    recoveryTestGate = nullptr;
+                    (void)sessionRecoveryGate->Signal(1);
+                    const bool retired = session.retired();
+                    const bool destroyed = session.destroy();
+                    const bool recovered = firstDestroyRefused && recoveryTestReleased.load() &&
+                        elapsed < 3000 && sedici::fg::swapchain_retention_count() == retainedBefore &&
+                        retired && destroyed && session.state() == sedici::fg::SessionState::Stopped &&
+                        SUCCEEDED(state.device->GetDeviceRemovedReason()) && g_debug_errors.load() == 0;
+                    std::puts(recovered ? "PASS session retires after a replacement queue fence"
+                                        : "FAIL session retirement after signal failure");
+                    return recovered;
+                }
+                // Remove only this isolated test process's device before teardown.
+                ComPtr<ID3D12Device5> removable;
+                if (FAILED(state.device.As(&removable))) return false;
+                removable->RemoveDevice();
+                std::puts(stopped ? "PASS injected generation failure stops later admission"
+                                  : "FAIL injected generation failure did not stop admission");
+                return stopped;
+            }
+            if (FAILED(presentResult)) {
+                std::puts("session: present failed");
                 return false;
             }
+            if (cycle == 0 && session.state() != sedici::fg::SessionState::Active) return false;
             std::printf("session: cycle %u generated %llu shown %llu skipped %llu\n", cycle,
                         static_cast<unsigned long long>(session.context().frames_generated()),
                         static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
                          static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
 
             if (loseDevice && cycle == 1) {
-                // P2.5 device loss: with generation submitted and tracked, remove the
-                // device. Nothing may hang or crash; presenting fails or is a no-op;
-                // retirement must still let the session and wrapper be destroyed
-                // (K38), and the wrapper's teardown must not wait out its timeout.
+                // P2.5 device loss after generation; this does not claim that
+                // the earlier GPU work is still in flight at removal time.
+                // Present must fail and teardown must remain bounded (K38/K73).
                 ComPtr<ID3D12Device5> device5;
                 if (FAILED(state.device.As(&device5))) {
                     std::printf("SKIP device loss: ID3D12Device5 unavailable\n");
                     return true;
                 }
                 device5->RemoveDevice();
+                if (session.state() != sedici::fg::SessionState::DeviceLost || session.ready() ||
+                    session.configure(&configure.header) || session.prepare(&prepare.header)) return false;
                 const HRESULT afterLoss = handle.swapchain()->Present(1, 0);
                 std::printf("session: present after device removal -> 0x%08lx\n",
                             static_cast<unsigned long>(afterLoss));
+                if (SUCCEEDED(afterLoss)) return false;
                 const auto begin = std::chrono::steady_clock::now();
                 if (!session.destroy()) {
                     std::printf("session: destroy refused after device removal: %s\n",
@@ -1738,7 +2034,14 @@ bool check_session_window(Device& state, bool loseDevice = false)
                     actual[label + 1] == 255 && actual[label + 2] == 0;
                 std::printf("session: frame %u %s time=%.1f psnr=%.2f HUD=%s\n", cycle,
                     midpoint ? "midpoint" : "real", time, score, matchingHud ? "current" : "WRONG");
-                if (!matchingHud || (midpoint ? score < 35.0 : sceneActual != sceneExpected)) return false;
+                if (!matchingHud || (midpoint ? score < 35.0 : sceneActual != sceneExpected)) {
+                    if (knownSignature && cycle == 2 && midpoint && matchingHud &&
+                        score >= 15.5 && score <= 16.5 &&
+                        handle.wrapper()->generated_presents() == 1 &&
+                        handle.wrapper()->skipped_generates() == 1)
+                        *knownSignature = true;
+                    return false;
+                }
             }
         }
 
@@ -1765,7 +2068,7 @@ bool check_session_window(Device& state, bool loseDevice = false)
         off.swapChain = handle.swapchain();
         off.frameID = cycles;
         if (!session.configure(&off.header)) return false;
-        if (session.state() != sedici::fg::SessionState::Ready) return false;
+        if (session.state() != sedici::fg::SessionState::Suspended) return false;
         if (FAILED(handle.swapchain()->Present(1, 0))) return false;
         if (handle.wrapper()->generated_presents() != cycles - 1) return false;
 
@@ -1782,10 +2085,26 @@ bool check_session_window(Device& state, bool loseDevice = false)
 
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
-    std::printf("%s session: describe, prepare, generate and present through the wrapper\n",
-                ok ? "PASS" : "FAIL");
+    std::printf("%s session: %s\n", ok ? "PASS" : "FAIL",
+                contextRace ? "context callback synchronization" :
+                sessionRecovery ? "session retirement recovery" :
+                (signalFault || closeFault || resetFault) ? "injected failure stops admission" :
+                "describe, prepare, generate and present through the wrapper");
     return ok;
 }
+
+HANDLE routingLookupArrived = nullptr;
+HANDLE routingLookupResume = nullptr;
+void pause_routing_after_lookup() noexcept
+{
+    SetEvent(routingLookupArrived);
+    (void)WaitForSingleObject(routingLookupResume, 5000);
+}
+
+std::atomic<unsigned> routingHookA{0};
+std::atomic<unsigned> routingHookB{0};
+void routing_hook_a(uint64_t) { ++routingHookA; }
+void routing_hook_b(uint64_t) { ++routingHookB; }
 
 bool check_routing(Device& state, bool wrapFirst = false)
 {
@@ -1848,14 +2167,58 @@ bool check_routing(Device& state, bool wrapFirst = false)
                    result == FFX_API_RETURN_OK && contexts.session;
         };
         const auto createWrap = [&] {
+            // Each injected bookkeeping failure must reject locally before the
+            // native chain is touched. Normal wrapping immediately afterwards
+            // exercises rollback and proves the chain remains usable.
+            for (const auto point : {sedici::fg::BookkeepingFault::OwnerAllocation,
+                                     sedici::fg::BookkeepingFault::RouteRegistryAllocation,
+                                     sedici::fg::BookkeepingFault::WrapperRegistryAllocation}) {
+                IDXGISwapChain4* untouched = native.Get();
+                ffxContext failedContext = nullptr;
+                auto failedWrap = wrap;
+                failedWrap.swapchain = &untouched;
+                ffxReturnCode_t failedResult = FFX_API_RETURN_OK;
+                sedici::fg::arm_bookkeeping_fault(point);
+                const bool answered = sedici::fg::route_create(&failedContext, &failedWrap.header,
+                                                                &failedResult);
+                const bool reachedInjection = !sedici::fg::consume_bookkeeping_fault(point);
+                sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+                if (!reachedInjection || !answered || failedResult == FFX_API_RETURN_OK ||
+                    failedContext || untouched != native.Get()) return false;
+            }
+            std::puts("PASS injected create-bookkeeping failures leave the native swapchain untouched");
             if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
                 result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) return false;
             caller.Attach(replacement); // Adopt the reference returned to the caller.
             return true;
         };
-        // Separate contexts may be created in either order (P2.4).
-        if (wrapFirst ? !(createWrap() && createSession()) : !(createSession() && createWrap())) return false;
-        if (contexts.wrap == contexts.session) return false;
+        // Exercise hook updates concurrently with both creation orders. This
+        // is stress coverage; it does not force every possible interleaving.
+        std::atomic<bool> stopHooks{false};
+        std::atomic<bool> hooksStarted{false};
+        std::thread hookUpdater([&] {
+            hooksStarted = true;
+            while (!stopHooks.load()) {
+                sedici::fg::route_set_present_hook(&routing_hook_a);
+                sedici::fg::route_set_present_hook(&routing_hook_b);
+                std::this_thread::yield();
+            }
+        });
+        while (!hooksStarted.load()) std::this_thread::yield();
+        const bool creationOk = wrapFirst ? (createWrap() && createSession())
+                                         : (createSession() && createWrap());
+        stopHooks = true;
+        hookUpdater.join();
+        if (!creationOk || contexts.wrap == contexts.session) {
+            sedici::fg::route_set_present_hook(nullptr);
+            return false;
+        }
+        routingHookA = 0;
+        routingHookB = 0;
+        sedici::fg::route_set_present_hook(&routing_hook_b);
+        const HRESULT hookedPresent = caller->Present(0, 0);
+        sedici::fg::route_set_present_hook(nullptr);
+        if (FAILED(hookedPresent) || routingHookA != 0 || routingHookB != 1) return false;
 
         ffxConfigureDescFrameGeneration configure{};
         configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -1863,6 +2226,37 @@ bool check_routing(Device& state, bool wrapFirst = false)
         configure.frameGenerationEnabled = false;
         if (!sedici::fg::route_configure(&contexts.session, &configure.header, &result) ||
             result != FFX_API_RETURN_OK) return false;
+
+        // A different generator may replace this Session's sink. Destroying the
+        // old Session must not clear that newer owner (K79).
+        struct ExtraContext {
+            ffxContext value = nullptr;
+            ~ExtraContext() {
+                if (value) { ffxReturnCode_t ignored{}; (void)sedici::fg::route_destroy(&value, &ignored); }
+            }
+        } extra;
+        if (!sedici::fg::route_create(&extra.value, &create.header, &result) ||
+            result != FFX_API_RETURN_OK || !extra.value) return false;
+        auto enabledConfigure = configure;
+        enabledConfigure.frameGenerationEnabled = true;
+        if (!sedici::fg::route_configure(&extra.value, &enabledConfigure.header, &result) ||
+            result != FFX_API_RETURN_OK) return false;
+        auto* wrapperObject = static_cast<sedici::fg::Swapchain*>(caller.Get());
+        uint32_t replacementCalls = 0;
+        const sedici::fg::GenerateSink replacementSink{&replacementCalls, &record_counted, nullptr};
+        if (!wrapperObject->set_generator(replacementSink)) return false;
+        auto disabledConfigure = enabledConfigure;
+        disabledConfigure.frameGenerationEnabled = false;
+        if (!sedici::fg::route_configure(&extra.value, &disabledConfigure.header, &result) ||
+            result != FFX_API_RETURN_OK || FAILED(caller->Present(0, 0)) || replacementCalls != 1) return false;
+        if (!sedici::fg::route_configure(&extra.value, &enabledConfigure.header, &result) ||
+            result != FFX_API_RETURN_OK || !wrapperObject->set_generator(replacementSink)) return false;
+        if (!sedici::fg::route_destroy(&extra.value, &result) || result != FFX_API_RETURN_OK) return false;
+        extra.value = nullptr;
+        if (FAILED(caller->Present(0, 0)) || replacementCalls != 2) return false;
+        std::puts("PASS disabling or destroying an old session preserves a replacement generator");
+        wrapperObject->set_generator(sedici::fg::GenerateSink{});
+
         ffxApiHeader unsupported{};
         unsupported.type = UINT64_MAX;
         for (auto* context : {&contexts.session, &contexts.wrap}) {
@@ -1874,9 +2268,47 @@ bool check_routing(Device& state, bool wrapFirst = false)
         int unrelated = 0;
         ffxContext foreign = &unrelated;
         if (sedici::fg::route_query(&foreign, &unsupported, &result)) return false;
+
+        if (!wrapFirst) {
+            // Force the K68 window: configure has an owning wrapper reference,
+            // then wrapper-context destroy completes, then configure resumes.
+            routingLookupArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            routingLookupResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!routingLookupArrived || !routingLookupResume) {
+                if (routingLookupArrived) CloseHandle(routingLookupArrived);
+                if (routingLookupResume) CloseHandle(routingLookupResume);
+                routingLookupArrived = routingLookupResume = nullptr;
+                return false;
+            }
+            auto raceConfigure = configure;
+            raceConfigure.frameGenerationEnabled = true;
+            ffxContext session = contexts.session;
+            ffxReturnCode_t configureResult = FFX_API_RETURN_ERROR;
+            bool configureAnswered = false;
+            sedici::fg::arm_wrapper_lookup_hook(&pause_routing_after_lookup);
+            std::thread configuring([&] {
+                configureAnswered = sedici::fg::route_configure(
+                    &session, &raceConfigure.header, &configureResult);
+            });
+            const bool arrived = WaitForSingleObject(routingLookupArrived, 5000) == WAIT_OBJECT_0;
+            ffxReturnCode_t destroyResult = FFX_API_RETURN_ERROR;
+            const bool destroyed = arrived && sedici::fg::route_destroy(&contexts.wrap, &destroyResult) &&
+                                   destroyResult == FFX_API_RETURN_OK;
+            if (destroyed) contexts.wrap = nullptr;
+            SetEvent(routingLookupResume);
+            configuring.join();
+            sedici::fg::arm_wrapper_lookup_hook(nullptr);
+            CloseHandle(routingLookupArrived);
+            CloseHandle(routingLookupResume);
+            routingLookupArrived = routingLookupResume = nullptr;
+            if (!arrived || !destroyed || !configureAnswered || configureResult != FFX_API_RETURN_OK)
+                return false;
+            std::puts("PASS configure paused after lookup cannot reattach after wrapper destroy");
+        }
+
         // Calls racing a destroy of the same handle: each either runs on the live
-        // owner or is not found and forwarded; none may reach a torn-down owner
-        // (P2.4 lease contract). The registry lock is not held across these calls.
+        // owner or is refused as a stale issued token; none may reach a torn-down
+        // owner (P2.4 lease contract). The registry lock is not held across these calls.
         {
             const ffxContext racing = contexts.session;
             std::atomic<bool> go{false};
@@ -1897,23 +2329,50 @@ bool check_routing(Device& state, bool wrapFirst = false)
             }
             go = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            bool wrapDestroyed = true;
             if (wrapFirst) {
-                if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
-                contexts.wrap = nullptr;
+                wrapDestroyed = sedici::fg::route_destroy(&contexts.wrap, &result) &&
+                                result == FFX_API_RETURN_OK;
+                if (wrapDestroyed) contexts.wrap = nullptr;
             }
-            if (!sedici::fg::route_destroy(&contexts.session, &result) ||
-                result != FFX_API_RETURN_OK) return false;
+            const bool sessionDestroyed = sedici::fg::route_destroy(&contexts.session, &result) &&
+                                          result == FFX_API_RETURN_OK;
+            // Join on every path: returning with joinable threads terminates the host.
             for (auto& thread : threads) thread.join();
+            if (!wrapDestroyed || !sessionDestroyed) return false;
             ffxContext stale = racing;
-            if (sedici::fg::route_configure(&stale, &configure.header, &result)) return false;
-            if (sedici::fg::route_destroy(&stale, &result)) return false; // no double destroy
+            if (!sedici::fg::route_configure(&stale, &configure.header, &result) ||
+                result == FFX_API_RETURN_OK) return false;
+            if (!sedici::fg::route_destroy(&stale, &result) ||
+                result == FFX_API_RETURN_OK) return false; // no double destroy
             contexts.session = nullptr;
         }
+        // Hold a wrapper reference before destroying its FFX context, then
+        // force an attempted attachment only after destruction returns. This
+        // deterministically exercises the late-attachment gate (K68).
+        auto* survivingWrapper = static_cast<sedici::fg::Swapchain*>(caller.Get());
+        uint32_t lateCalls = 0;
+        const sedici::fg::GenerateSink lateSink{&lateCalls, &record_counted, nullptr};
         if (contexts.wrap) {
-            if (!sedici::fg::route_destroy(&contexts.wrap, &result) || result != FFX_API_RETURN_OK) return false;
+            ComPtr<sedici::fg::Swapchain> held = survivingWrapper;
+            std::atomic<bool> heldReady{false}, tryAttach{false}, attached{false};
+            std::thread late([&] {
+                heldReady = true;
+                while (!tryAttach.load()) std::this_thread::yield();
+                attached = held->set_generator(lateSink);
+            });
+            while (!heldReady.load()) std::this_thread::yield();
+            const bool destroyed = sedici::fg::route_destroy(&contexts.wrap, &result) &&
+                                   result == FFX_API_RETURN_OK;
+            tryAttach = true;
+            late.join();
+            if (!destroyed || attached.load()) return false;
             contexts.wrap = nullptr;
         }
-        // The caller's COM reference must survive destruction of the FFX owner.
+        // The caller's COM reference survives FFX wrapper-context destruction,
+        // but the closed generator gate must reject any late reattachment.
+        if (survivingWrapper->set_generator(lateSink)) return false;
+        if (FAILED(caller->Present(0, 0)) || lateCalls != 0) return false;
         DXGI_SWAP_CHAIN_DESC1 after{};
         return SUCCEEDED(caller->GetDesc1(&after)) && after.Width == kDisplayWidth;
     }();
@@ -2018,9 +2477,23 @@ bool check_window(Device& state)
 int main(int argc, char** argv)
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
-    bool keepImages = false, present = false, routing = false, deviceLoss = false;
+    bool keepImages = false, present = false, routing = false, deviceLoss = false, signalFault = false;
+    bool signalFaultVrr = false, closeFault = false, closeFaultVrr = false;
+    bool resetFault = false, resetFaultVrr = false, contextRace = false, recoveryVrr = false;
+    bool paramsFaultVrr = false, sessionRecovery = false, registrationRecovery = false;
     for (int i = 1; i < argc; ++i) {
         deviceLoss |= std::string(argv[i]) == "--device-loss";
+        signalFault |= std::string(argv[i]) == "--submission-fault";
+        signalFaultVrr |= std::string(argv[i]) == "--submission-fault-vrr";
+        closeFault |= std::string(argv[i]) == "--recording-fault";
+        closeFaultVrr |= std::string(argv[i]) == "--recording-fault-vrr";
+        resetFault |= std::string(argv[i]) == "--reset-fault";
+        resetFaultVrr |= std::string(argv[i]) == "--reset-fault-vrr";
+        recoveryVrr |= std::string(argv[i]) == "--submission-recovery-vrr";
+        paramsFaultVrr |= std::string(argv[i]) == "--params-fault-vrr";
+        sessionRecovery |= std::string(argv[i]) == "--session-recovery";
+        registrationRecovery |= std::string(argv[i]) == "--registration-recovery";
+        contextRace |= std::string(argv[i]) == "--context-race";
         keepImages |= std::string(argv[i]) == "--images";
         present |= std::string(argv[i]) == "--present";
         routing |= std::string(argv[i]) == "--routing";
@@ -2059,10 +2532,17 @@ int main(int argc, char** argv)
     ComPtr<ID3D12InfoQueue1> messages;
     DWORD callbackCookie = 0;
     if (SUCCEEDED(state.device.As(&messages))) {
-        messages->RegisterMessageCallback([](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
-            D3D12_MESSAGE_ID, LPCSTR description, void*) {
-                if (severity <= D3D12_MESSAGE_SEVERITY_ERROR) std::fprintf(stderr, "DX12: %s\n", description);
+        const HRESULT registered = messages->RegisterMessageCallback(
+            [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
+               D3D12_MESSAGE_ID, LPCSTR description, void*) {
+                if (severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+                    ++g_debug_errors;
+                    std::fputs("DX12 error: ", stderr);
+                    std::fputs(description, stderr);
+                    std::fputc(10, stderr);
+                }
             }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &callbackCookie);
+        g_debug_callback_installed = SUCCEEDED(registered);
     }
 
     D3D12_COMMAND_QUEUE_DESC queueDescription{};
@@ -2084,8 +2564,36 @@ int main(int argc, char** argv)
                 kDisplayWidth, kDisplayHeight, kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
+    if (contextRace) return check_session_window(state, false, false, false, false, true) ? 0 : 1;
+    if (sessionRecovery || registrationRecovery)
+        return check_session_window(state, false, false, false, false, false, true, registrationRecovery) ? 0 : 1;
+    if (signalFaultVrr || closeFaultVrr || resetFaultVrr || recoveryVrr || paramsFaultVrr) {
+        ComPtr<ID3D12Device5> removable;
+        if (FAILED(state.device.As(&removable)) ||
+            (GetModuleHandleW(L"RTSSHooks64.dll") &&
+             GetEnvironmentVariableW(L"SEDICI_FG_ALLOW_RTSS", nullptr, 0) == 0)) {
+            std::puts("SKIP VRR submission fault: device removal or VRR unavailable");
+            return 77;
+        }
+        return check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2,
+                                "submission fault", 27, signalFaultVrr || recoveryVrr,
+                                closeFaultVrr, resetFaultVrr, recoveryVrr, paramsFaultVrr) ? 0 : 1;
+    }
+    if (signalFault || closeFault || resetFault) {
+        ComPtr<ID3D12Device5> removable;
+        if (FAILED(state.device.As(&removable))) {
+            std::puts("SKIP submission fault: ID3D12Device5 unavailable");
+            return 77;
+        }
+        return check_session_window(state, false, signalFault, closeFault, resetFault) ? 0 : 1;
+    }
     if (deviceLoss) {
         // Own process: removing the device ends every later check on it.
+        ComPtr<ID3D12Device5> removable;
+        if (FAILED(state.device.As(&removable))) {
+            std::puts("SKIP device loss: ID3D12Device5 unavailable");
+            return 77;
+        }
         const bool lost = check_session_window(state, true);
         std::printf("%s device loss: session and wrapper tear down cleanly after RemoveDevice\n",
                     lost ? "PASS" : "FAIL");
@@ -2097,25 +2605,51 @@ int main(int argc, char** argv)
 
     const int contractFailures = check_contract(state);
     if (contractFailures != 0) ok = false;
+    {
+        std::string why;
+        auto presenter = sedici::fg::Presenter::create(
+            state.device.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
+        bool rejected = false;
+        if (presenter) {
+            presenter->request_stop();
+            sedici::fg::PresentJob job;
+            rejected = presenter->submit(std::move(job)) == DXGI_ERROR_INVALID_CALL &&
+                       presenter->outstanding() == 0;
+        }
+        std::printf("%s presenter refuses a job after stop without advancing its queue\n",
+                    rejected ? "PASS" : "FAIL");
+        ok = rejected && ok;
+    }
     ok = check_pacing() && ok;
     if (present) ok = check_window(state) && ok;
     // Known failures, tracked in docs/refactor/reliability.md ("Current coverage
     // and gaps"). They are reported as XFAIL and do not fail the run; if one
     // starts passing it is reported as XPASS and fails the run, so the record
     // is updated instead of silently turning green.
-    const auto knownFailure = [](bool passed, const char* name, const char* evidence) {
+    const auto knownFailure = [](bool passed, bool knownSignature, const char* name, const char* evidence) {
         if (passed) {
-            std::printf("XPASS %s: a tracked known failure passes; update docs/refactor/reliability.md\n", name);
+            std::printf("XPASS %s: tracked failure now passes; update reliability record", name);
+            std::putchar(10);
             return false;
         }
-        std::printf("XFAIL %s (%s)\n", name, evidence);
+        if (!knownSignature) {
+            std::printf("FAIL %s: failure did not match the tracked signature", name);
+            std::putchar(10);
+            return false;
+        }
+        std::printf("XFAIL %s (%s)", name, evidence);
+        std::putchar(10);
         return true;
     };
     if (present) {
-        ok = knownFailure(check_generated_window(state), "generated presentation",
-                          "vsync path skips 3 of 5 midpoints; fails identically at a87d145, finding 009") && ok;
-        ok = knownFailure(check_session_window(state), "session",
-                          "vsync path frame 2 midpoint reads back at 16 dB; fails at a87d145, finding 009") && ok;
+        bool generatedKnown = false;
+        const bool generatedPass = check_generated_window(state, &generatedKnown);
+        ok = knownFailure(generatedPass, generatedKnown, "generated presentation",
+                          "vsync path skips 3 of 5 midpoints; finding 009") && ok;
+        bool sessionKnown = false;
+        const bool sessionPass = check_session_window(state, false, false, false, false, false, false, false, &sessionKnown);
+        ok = knownFailure(sessionPass, sessionKnown, "session",
+                          "vsync path frame 2 midpoint reads back at 16 dB; finding 009") && ok;
     }
     if (routing) ok = check_routing(state) && check_routing(state, true) && ok;
     // Last: overlays that hook Present (RTSS) keep using the queue of the most

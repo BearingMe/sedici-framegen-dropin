@@ -139,7 +139,9 @@ private:
     bool dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline,
                   uint32_t groupsX, uint32_t groupsY) noexcept;
     void synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous,
-                    const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept;
+                    float alpha, uint32_t block) noexcept;
+    void composite_hud(ID3D12GraphicsCommandList* list, uint32_t current,
+                       const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept;
 
     ID3D12Device* m_device = nullptr;
     bool m_pipelines_ready = false;

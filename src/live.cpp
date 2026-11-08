@@ -2,75 +2,65 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 
 namespace sedici {
 namespace {
 
-std::atomic<double> g_limiter_fps{0.0};
-std::atomic<int> g_pacing_mode{static_cast<int>(PacingMode::Hybrid)};
-std::atomic<int> g_async_mode{static_cast<int>(AsyncMode::Game)};
-std::atomic<int> g_log_level{1};
+std::mutex g_values_mutex;
+LiveValues g_values;
 std::atomic<int> g_ui_mode{static_cast<int>(UiMode::Off)};
-std::atomic<int> g_ui_scale_mode{static_cast<int>(UiScaleMode::Auto)};
-std::atomic<float> g_ui_scale{1.0f};
 
 } // namespace
 
+LiveValues live_snapshot() noexcept
+{
+    std::lock_guard lock(g_values_mutex);
+    return g_values;
+}
+
+void live_apply(const LiveValues& values) noexcept
+{
+    std::lock_guard lock(g_values_mutex);
+    g_values = values;
+}
+
 void live_initialize(const Settings& config) noexcept
 {
-    g_limiter_fps.store(config.limiter.fps, std::memory_order_relaxed);
-    g_pacing_mode.store(static_cast<int>(config.pacing.mode), std::memory_order_relaxed);
-    g_async_mode.store(static_cast<int>(config.async.mode), std::memory_order_relaxed);
-    g_log_level.store(config.log.level, std::memory_order_relaxed);
+    LiveValues values;
+    values.limiter_fps = config.limiter.fps;
+    values.pacing = config.pacing.mode;
+    values.async = config.async.mode;
+    values.log_level = config.log.level;
+    values.scale_mode = config.ui.scale_mode;
+    values.ui_scale = config.ui.scale;
+    live_apply(values);
     g_ui_mode.store(static_cast<int>(config.ui.mode), std::memory_order_relaxed);
-    g_ui_scale_mode.store(static_cast<int>(config.ui.scale_mode), std::memory_order_relaxed);
-    g_ui_scale.store(config.ui.scale, std::memory_order_relaxed);
 }
 
-double live_limiter_fps() noexcept
-{
-    return g_limiter_fps.load(std::memory_order_relaxed);
-}
-
+double live_limiter_fps() noexcept { return live_snapshot().limiter_fps; }
 void live_set_limiter_fps(double fps) noexcept
 {
-    if (fps < 0.0) fps = 0.0;
-    if (fps > 1000.0) fps = 1000.0;
-    g_limiter_fps.store(fps, std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.limiter_fps = std::clamp(fps, 0.0, 1000.0);
 }
-
-PacingMode live_pacing_mode() noexcept
-{
-    return g_pacing_mode.load(std::memory_order_relaxed) == static_cast<int>(PacingMode::Off)
-        ? PacingMode::Off
-        : PacingMode::Hybrid;
-}
-
+PacingMode live_pacing_mode() noexcept { return live_snapshot().pacing; }
 void live_set_pacing_mode(PacingMode mode) noexcept
 {
-    g_pacing_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.pacing = mode;
 }
-
-AsyncMode live_async_mode() noexcept
-{
-    return g_async_mode.load(std::memory_order_relaxed) == static_cast<int>(AsyncMode::Off)
-        ? AsyncMode::Off
-        : AsyncMode::Game;
-}
-
+AsyncMode live_async_mode() noexcept { return live_snapshot().async; }
 void live_set_async_mode(AsyncMode mode) noexcept
 {
-    g_async_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.async = mode;
 }
-
-int live_log_level() noexcept
-{
-    return g_log_level.load(std::memory_order_relaxed);
-}
-
+int live_log_level() noexcept { return live_snapshot().log_level; }
 void live_set_log_level(int level) noexcept
 {
-    g_log_level.store(std::clamp(level, 0, 2), std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.log_level = std::clamp(level, 0, 2);
 }
 
 UiMode live_ui_mode() noexcept
@@ -86,27 +76,17 @@ void live_set_ui_mode(UiMode mode) noexcept
     g_ui_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
 }
 
-UiScaleMode live_ui_scale_mode() noexcept
-{
-    return g_ui_scale_mode.load(std::memory_order_relaxed) ==
-                   static_cast<int>(UiScaleMode::Fixed)
-        ? UiScaleMode::Fixed
-        : UiScaleMode::Auto;
-}
-
+UiScaleMode live_ui_scale_mode() noexcept { return live_snapshot().scale_mode; }
 void live_set_ui_scale_mode(UiScaleMode mode) noexcept
 {
-    g_ui_scale_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.scale_mode = mode;
 }
-
-float live_ui_scale() noexcept
-{
-    return g_ui_scale.load(std::memory_order_relaxed);
-}
-
+float live_ui_scale() noexcept { return live_snapshot().ui_scale; }
 void live_set_ui_scale(float scale) noexcept
 {
-    g_ui_scale.store(std::clamp(scale, 0.5f, 2.0f), std::memory_order_relaxed);
+    std::lock_guard lock(g_values_mutex);
+    g_values.ui_scale = std::clamp(scale, 0.5f, 2.0f);
 }
 
 } // namespace sedici

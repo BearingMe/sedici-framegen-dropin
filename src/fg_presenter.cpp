@@ -1,6 +1,9 @@
 #include "fg_presenter.h"
+#include "fg_retirement_policy.h"
+#include "fg_queue_policy.h"
 
 #include <algorithm>
+#include <new>
 #include <iterator>
 #include <chrono>
 #include <cmath>
@@ -262,6 +265,17 @@ Presenter::~Presenter()
     if (m_timer) CloseHandle(m_timer);
 }
 
+void Presenter::request_stop() noexcept
+{
+    m_cancel.store(true, std::memory_order_release);
+    {
+        std::lock_guard lock(m_mutex);
+        m_stop = true;
+        m_hooks = {};
+    }
+    m_wake.notify_all();
+}
+
 size_t Presenter::outstanding() const noexcept
 {
     std::lock_guard lock(m_mutex);
@@ -275,16 +289,21 @@ bool Presenter::wait_outstanding(size_t max, DWORD timeoutMs) noexcept
         [&] { return m_submitted - m_completed <= max; });
 }
 
-void Presenter::submit(PresentJob&& job) noexcept try
+HRESULT Presenter::submit(PresentJob&& job) noexcept try
 {
     {
         std::lock_guard lock(m_mutex);
-        m_jobs.push_back(std::move(job));
+        if (m_stop) return DXGI_ERROR_INVALID_CALL;
+        // The swapchain admits at most kPresenterQueueCapacity outstanding
+        // jobs, including the worker's job. This fixed ring never allocates.
+        if (!m_jobs.push_back(std::move(job))) return DXGI_ERROR_WAS_STILL_DRAWING;
         ++m_submitted;
     }
     m_wake.notify_one();
+    return S_OK;
 }
-catch (...) {}
+catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
+catch (...) { return E_FAIL; }
 
 void Presenter::set_output_hooks(const OutputHooks& hooks) noexcept
 {
@@ -300,22 +319,28 @@ HRESULT Presenter::last_result() const noexcept
 
 HRESULT Presenter::wait_fence(uint64_t value) noexcept
 {
-    const uint64_t completed = m_fence->GetCompletedValue();
-    if (completed == UINT64_MAX) return m_device->GetDeviceRemovedReason();
-    if (completed >= value) return S_OK;
-    HRESULT hr = m_fence->SetEventOnCompletion(value, m_event);
+    auto progress = classify_fence(m_fence->GetCompletedValue(), value);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::Complete) return S_OK;
+    const HRESULT hr = m_fence->SetEventOnCompletion(value, m_event);
     if (FAILED(hr)) return hr;
     const DWORD wait = WaitForSingleObject(m_event, kGpuTimeoutMs);
-    if (wait == WAIT_OBJECT_0) return m_device->GetDeviceRemovedReason();
-    return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+    if (wait != WAIT_OBJECT_0)
+        return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
+    progress = classify_fence(m_fence->GetCompletedValue(), value);
+    if (progress == FenceProgress::DeviceRemoved)
+        return removed_device_error(m_device->GetDeviceRemovedReason());
+    return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
 HRESULT Presenter::drain_gpu() noexcept
 {
     if (!m_fence || !m_queue) return S_OK;
     // Covers the native Present work DXGI queued after the last copy, too.
-    if (FAILED(m_queue->Signal(m_fence.Get(), ++m_fence_value))) return m_device->GetDeviceRemovedReason();
-    return wait_fence(m_fence_value);
+    return signal_then_wait(
+        [&]() noexcept { return m_queue->Signal(m_fence.Get(), ++m_fence_value); },
+        [&]() noexcept { return wait_fence(m_fence_value); });
 }
 
 HRESULT Presenter::resize_native(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) noexcept try
@@ -496,7 +521,7 @@ HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES 
     add(source, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     if (count) list->ResourceBarrier(count, barriers);
     // The overlay draws on the final image, as it does from AMD's callback.
-    if (m_job_hooks.draw) m_job_hooks.draw(m_device.Get(), list, destination.Get(), generated);
+    if (!m_cancel.load(std::memory_order_acquire) && m_job_hooks.draw) m_job_hooks.draw(m_device.Get(), list, destination.Get(), generated);
     hr = list->Close();
     if (FAILED(hr)) return hr;
     ID3D12CommandList* lists[]{list};
@@ -537,7 +562,7 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
         hr = m_native->Present(job.sync, job.flags);
     }
     m_last_flip = before;
-    if (SUCCEEDED(hr) && m_job_hooks.presented) m_job_hooks.presented(generated);
+    if (SUCCEEDED(hr) && !m_cancel.load(std::memory_order_acquire) && m_job_hooks.presented) m_job_hooks.presented(generated);
     const double call = now_seconds() - before;
     m_window.callSum += call;
     m_window.callMax = std::max(m_window.callMax, call);
@@ -653,10 +678,12 @@ void Presenter::track_latency(double structural, double gpu, bool measured) noex
 
 bool Presenter::later_output_due(const PresentJob& job, uint32_t index, double now) noexcept
 {
-    if (index + 1 < job.count) return job.outputs[index + 1].content + m_latency <= now;
+    if (index + 1 < job.count)
+        return later_output_is_due(true, job.outputs[index + 1].content, m_latency, now);
     std::lock_guard lock(m_mutex);
-    if (m_jobs.empty() || m_jobs.front().count == 0) return false;
-    return m_jobs.front().outputs[0].content + m_latency <= now;
+    if (m_jobs.empty() || m_jobs.front().count == 0)
+        return later_output_is_due(false, 0.0, m_latency, now);
+    return later_output_is_due(true, m_jobs.front().outputs[0].content, m_latency, now);
 }
 
 void Presenter::run() noexcept
@@ -668,7 +695,7 @@ void Presenter::run() noexcept
         {
             std::unique_lock lock(m_mutex);
             m_wake.wait(lock, [&] { return m_stop || !m_jobs.empty(); });
-            if (m_jobs.empty()) return; // stop requested and nothing left
+            if (m_cancel.load(std::memory_order_acquire) || m_jobs.empty()) return;
             job = std::move(m_jobs.front());
             m_jobs.pop_front();
             m_job_hooks = m_hooks;

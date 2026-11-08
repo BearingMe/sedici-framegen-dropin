@@ -47,6 +47,44 @@ own scratch directory, never touches the game folder, and launches no game. The
 first three runs found probe mistakes (descriptor chain, configure target, a double
 release); those are findings below, not product defects.
 
+### Guarded configure-descriptor probe (2026-11-08)
+
+With owner authorization, the hash-pinned 4.0.1.2740 binary was run in four
+isolated child-process variants (256–259). A modern FG configure descriptor was
+placed on its own page and changed to `PAGE_NOACCESS` immediately after
+`ffxConfigure` returned. Each variant completed 90 Presents and both context
+destructions; variants with and without the present callback and both destruction
+orders were covered. The descriptor page remained inaccessible throughout.
+
+A later debug-layer run found that the probe’s HUD-less resource state was invalid
+(K90), so these observations must be repeated with corrected resource ownership.
+They do not establish clean GPU behavior. A corrected, hash-checked legacy
+configure attempt (variant 768) returned `ERROR_PARAMETER` (6) before frames
+were presented (K94), so no legacy descriptor-lifetime conclusion can be drawn.
+Even a corrected successful run demonstrates only no post-return **access** in
+the tested workload; it cannot prove the binary never retained its address unused,
+nor cover all
+configuration shapes, version providers, devices or later paths. The owner-approved
+copy policy is therefore used only for source-verified Sedici-owned standalone
+descriptors; AMD forwarding remains unchanged pending a stronger lifetime contract
+(K87/K88). No game was launched.
+
+### Production Mini callback probe (2026-11-08)
+
+The first authorized production-overlay run (variant 1280) recorded Mini draws
+on 90 real and 90 generated callbacks, but reported 268 D3D12 errors. The probe
+had transitioned its HUD-less texture back to COPY_DEST before AMD consumed it
+(K90). After initializing a static HUD-less texture once and keeping it in
+compute-read state, the same hash-checked guarded variant completed 90 Presents,
+recorded 90 real and 90 generated Mini draws through Sedici’s production callback,
+and reported zero D3D12 debug-layer errors. The descriptor page remained
+inaccessible after configure until destruction.
+
+This is command-recording evidence with a static 640×360 synthetic input, not
+pixel readback, physical presentation or an in-game test. It does not cover a
+caller-provided present callback, separate game UI resource, dynamic HUD-less
+updates, or all AMD descriptor-lifetime paths.
+
 | Question | Result |
 | --- | --- |
 | Loads privately under another file name; dependencies resolve | **Yes.** `sedici_amd_a.dll` loads, five exports resolve. No file beside the DLL is needed; `dxgi`, `d3d12`, `winmm`, `version` and the VC runtime are mapped. |

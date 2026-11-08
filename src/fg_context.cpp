@@ -128,14 +128,15 @@ bool Context::wait_for_retirement(uint32_t timeoutMs) noexcept
     if (!m_retirement_fence) return true;
     if (retired()) return true;
 
-    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!event) return false;
-    const HRESULT armed = m_retirement_fence->SetEventOnCompletion(m_retirement_value, event);
-    const DWORD awaited = SUCCEEDED(armed) ? WaitForSingleObject(event, timeoutMs) : WAIT_FAILED;
-    CloseHandle(event);
-    if (awaited == WAIT_TIMEOUT) return fail("retirement timed out");
-    if (awaited != WAIT_OBJECT_0) return fail("retirement wait failed");
-    return true;
+    // A timed-out SetEventOnCompletion registration can outlive the waiting
+    // handle. Poll the actual queue-signalled fence instead: there is no event
+    // registration to cancel or retain, and no CPU-signalled completion.
+    const ULONGLONG start = GetTickCount64();
+    for (;;) {
+        if (retired()) return true;
+        if (GetTickCount64() - start >= timeoutMs) return fail("retirement timed out");
+        Sleep(1);
+    }
 }
 
 bool Context::destroy() noexcept
@@ -371,7 +372,7 @@ bool Context::generate(ID3D12GraphicsCommandList* list, const GeneratePhase* pha
     if (!list || !phases || count == 0) return fail("generate without a command list or output");
     if (!m_enabled) return fail("frame generation disabled");
     if (!m_prepare_valid) return fail("generate without prepare");
-    if (m_recorded && list != m_prepare_list)
+    if (m_recorded && list != m_prepare_list && !m_prepare_waited)
         return fail("split generation before prepare submission registration");
     if (!m_recorded && !m_prepare_waited)
         return fail("split generation without a prepare queue dependency");

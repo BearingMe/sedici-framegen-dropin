@@ -14,6 +14,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -467,6 +468,8 @@ int run_async_off(Harness& h)
     expect(h.ffx.configure(&fg, &configure.header) == FFX_API_RETURN_OK, "configure forwarded");
     expect(h.state->sawFgConfigure && !h.state->fgConfigureAllowAsync,
            "the original sees allowAsyncWorkloads = false");
+    expect(h.state->last[StubConfigure].desc == &configure.header,
+           "AMD path retains the caller's descriptor pointer during rewrite");
     expect(same_bytes(&configure, &configureBefore, sizeof(configure)), "the caller's configure desc is restored");
     expect(h.ffx.destroy(&fg, nullptr) == FFX_API_RETURN_OK, "destroy forwarded");
     return 0;
@@ -879,6 +882,252 @@ int run_log_failure(Harness& h)
 // fail (or be ignored) without crashing, leave the caller's swapchain intact on
 // a refused wrap, and leave a running session working.
 // ---------------------------------------------------------------------------
+// Catch only writes into the deliberately protected descriptor page. Any other
+// structured exception remains a real test failure rather than an XFAIL.
+LONG readonly_descriptor_filter(EXCEPTION_POINTERS* info, uintptr_t begin, uintptr_t end) noexcept
+{
+    if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
+    const auto* record = info->ExceptionRecord;
+    if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || record->NumberParameters < 2 ||
+        record->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
+    const uintptr_t address = static_cast<uintptr_t>(record->ExceptionInformation[1]);
+    return address >= begin && address < end ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
+}
+
+bool invoke_readonly_configure(PfnFfxConfigure function, ffxContext* context,
+                               const ffxConfigureDescHeader* descriptor,
+                               uintptr_t begin, uintptr_t end, ffxReturnCode_t* result) noexcept
+{
+    __try {
+        *result = function(context, descriptor);
+        return true;
+    } __except (readonly_descriptor_filter(GetExceptionInformation(), begin, end)) {
+        return false;
+    }
+}
+
+int run_readonly_configure(Harness& h, bool expectAsyncAllowed)
+{
+    auto* descriptor = static_cast<ffxConfigureDescFrameGeneration*>(
+        VirtualAlloc(nullptr, sizeof(ffxConfigureDescFrameGeneration), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    expect(descriptor != nullptr, "allocate isolated configure descriptor");
+    if (!descriptor || !h.state) return 1;
+    *descriptor = {};
+    descriptor->header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+    descriptor->allowAsyncWorkloads = true;
+    unsigned char original[sizeof(*descriptor)]{};
+    std::memcpy(original, descriptor, sizeof(original));
+    DWORD previous = 0;
+    const bool protectedPage = VirtualProtect(descriptor, sizeof(*descriptor), PAGE_READONLY, &previous) != 0;
+    expect(protectedPage, "protect configure descriptor read-only");
+    if (!protectedPage) { VirtualFree(descriptor, 0, MEM_RELEASE); return 1; }
+    ffxContext foreign = reinterpret_cast<void*>(uintptr_t{0x10000});
+    const uint32_t before = h.state->calls[StubConfigure];
+    const uintptr_t begin = reinterpret_cast<uintptr_t>(descriptor);
+    ffxReturnCode_t result = FFX_API_RETURN_ERROR;
+    const bool returned = invoke_readonly_configure(h.ffx.configure, &foreign, &descriptor->header,
+                                                     begin, begin + sizeof(*descriptor), &result);
+    const bool unchanged = std::memcmp(original, descriptor, sizeof(original)) == 0;
+    DWORD ignored = 0;
+    (void)VirtualProtect(descriptor, sizeof(*descriptor), previous, &ignored);
+    VirtualFree(descriptor, 0, MEM_RELEASE);
+    if (!returned && unchanged && h.state->calls[StubConfigure] == before) {
+        std::puts("XFAIL proxy writes a standalone read-only configure descriptor (K87)");
+    } else if (returned) {
+        expect(false, "XPASS standalone read-only configure returned; update K87 and assert forwarding");
+    } else {
+        expect(false, "unexpected original call or mutation during protected-descriptor fault");
+    }
+
+    // Unknown prefixes cannot be copied without knowing their full layout. Keep
+    // the unresolved chained-descriptor defect explicit rather than greenwashing it.
+    struct Chain { ffxApiHeader prefix; ffxConfigureDescFrameGeneration configure; };
+    auto* chain = static_cast<Chain*>(VirtualAlloc(nullptr, sizeof(Chain), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    expect(chain != nullptr, "allocate isolated read-only descriptor chain");
+    if (!chain) return 1;
+    *chain = {};
+    chain->prefix.type = UINT64_MAX;
+    chain->prefix.pNext = &chain->configure.header;
+    chain->configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+    chain->configure.allowAsyncWorkloads = true;
+    previous = 0;
+    const bool chainProtected = VirtualProtect(chain, sizeof(*chain), PAGE_READONLY, &previous) != 0;
+    expect(chainProtected, "protect descriptor chain read-only");
+    if (!chainProtected) { VirtualFree(chain, 0, MEM_RELEASE); return 1; }
+    const uint32_t beforeChain = h.state->calls[StubConfigure];
+    const uintptr_t chainBegin = reinterpret_cast<uintptr_t>(chain);
+    result = FFX_API_RETURN_ERROR;
+    const bool chainReturned = invoke_readonly_configure(h.ffx.configure, &foreign, &chain->prefix,
+                                                          chainBegin, chainBegin + sizeof(*chain), &result);
+    (void)VirtualProtect(chain, sizeof(*chain), previous, &ignored);
+    VirtualFree(chain, 0, MEM_RELEASE);
+    if (!chainReturned && h.state->calls[StubConfigure] == beforeChain) {
+        std::puts("XFAIL proxy writes a read-only chained configure descriptor (K87)");
+    } else if (chainReturned) {
+        expect(false, "XPASS read-only descriptor chain returned; update K87 and assert forwarding");
+    } else {
+        expect(false, "unexpected original call before protected-chain fault");
+    }
+
+    if (expectAsyncAllowed) {
+        // With a registered separate UI resource the overlay leaves FFX in
+        // control. No rewrite means even the original descriptor pointer stays.
+        ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 registration{};
+        registration.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
+        registration.uiResource.resource = reinterpret_cast<void*>(uintptr_t{1});
+        expect(h.ffx.configure(&foreign, &registration.header) == FFX_API_RETURN_OK,
+               "register separate UI for no-rewrite characterization");
+        ffxConfigureDescFrameGeneration passthrough{};
+        passthrough.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        passthrough.allowAsyncWorkloads = true;
+        const ffxConfigureDescFrameGeneration beforePassthrough = passthrough;
+        expect(h.ffx.configure(&foreign, &passthrough.header) == FFX_API_RETURN_OK &&
+                   h.state->last[StubConfigure].desc == &passthrough.header &&
+                   same_bytes(&passthrough, &beforePassthrough, sizeof(passthrough)),
+               "known descriptor retains its original pointer when no rewrite is needed");
+    }
+    return g_failures ? 1 : 0;
+}
+
+int run_readonly_async(Harness& h) { return run_readonly_configure(h, false); }
+int run_readonly_overlay(Harness& h) { return run_readonly_configure(h, true); }
+
+int run_readonly_sedici(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host for read-only Sedici configure");
+    if (g_failures || !h.state) return 1;
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = host.device.Get();
+    ffxCreateContextDescFrameGeneration create{};
+    create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    create.header.pNext = &backend.header;
+    create.displaySize = {Rig::kWidth, Rig::kHeight};
+    create.maxRenderSize = {Rig::kWidth, Rig::kHeight};
+    create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    ffxContext owned = nullptr;
+    expect(h.ffx.create(&owned, &create.header, nullptr) == FFX_API_RETURN_OK && owned,
+           "Sedici-owned FG context created");
+    if (!owned) return 1;
+
+    auto* descriptor = static_cast<ffxConfigureDescFrameGeneration*>(
+        VirtualAlloc(nullptr, sizeof(ffxConfigureDescFrameGeneration), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    expect(descriptor != nullptr, "allocate read-only Sedici descriptor");
+    if (!descriptor) { (void)h.ffx.destroy(&owned, nullptr); return 1; }
+    *descriptor = {};
+    descriptor->header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+    descriptor->allowAsyncWorkloads = true;
+    unsigned char original[sizeof(*descriptor)]{};
+    std::memcpy(original, descriptor, sizeof(original));
+    DWORD previous = 0;
+    const bool protectedPage = VirtualProtect(descriptor, sizeof(*descriptor), PAGE_READONLY, &previous) != 0;
+    expect(protectedPage, "protect Sedici configure descriptor read-only");
+    const uint32_t before = h.state->calls[StubConfigure];
+    ffxReturnCode_t result = FFX_API_RETURN_ERROR;
+    const uintptr_t begin = reinterpret_cast<uintptr_t>(descriptor);
+    const bool returned = protectedPage && invoke_readonly_configure(
+        h.ffx.configure, &owned, &descriptor->header, begin, begin + sizeof(*descriptor), &result);
+    const bool unchanged = std::memcmp(original, descriptor, sizeof(original)) == 0;
+    DWORD ignored = 0;
+    if (protectedPage) (void)VirtualProtect(descriptor, sizeof(*descriptor), previous, &ignored);
+    VirtualFree(descriptor, 0, MEM_RELEASE);
+    expect(returned && result == FFX_API_RETURN_OK && unchanged && h.state->calls[StubConfigure] == before,
+           "Sedici-owned read-only standalone configure is consumed locally without mutation");
+
+    auto* legacy = static_cast<FfxFrameGenerationConfig*>(
+        VirtualAlloc(nullptr, sizeof(FfxFrameGenerationConfig), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    expect(legacy != nullptr, "allocate read-only Sedici legacy descriptor");
+    if (legacy) {
+        *legacy = {};
+        legacy->header.type = FFX_API_FRAME_GENERATION_CONFIG;
+        legacy->allowAsyncWorkloads = true;
+        unsigned char legacyOriginal[sizeof(*legacy)]{};
+        std::memcpy(legacyOriginal, legacy, sizeof(legacyOriginal));
+        DWORD legacyPrevious = 0;
+        const bool legacyProtected = VirtualProtect(legacy, sizeof(*legacy), PAGE_READONLY, &legacyPrevious) != 0;
+        ffxReturnCode_t legacyResult = FFX_API_RETURN_ERROR;
+        const uintptr_t legacyBegin = reinterpret_cast<uintptr_t>(legacy);
+        const bool legacyReturned = legacyProtected && invoke_readonly_configure(
+            h.ffx.configure, &owned, &legacy->header, legacyBegin, legacyBegin + sizeof(*legacy), &legacyResult);
+        const bool legacyUnchanged = std::memcmp(legacyOriginal, legacy, sizeof(legacyOriginal)) == 0;
+        if (legacyProtected) (void)VirtualProtect(legacy, sizeof(*legacy), legacyPrevious, &ignored);
+        VirtualFree(legacy, 0, MEM_RELEASE);
+        expect(legacyProtected && legacyReturned && legacyResult == FFX_API_RETURN_OK && legacyUnchanged &&
+                   h.state->calls[StubConfigure] == before,
+               "Sedici-owned read-only legacy configure is consumed locally without mutation");
+    }
+    expect(h.ffx.destroy(&owned, nullptr) == FFX_API_RETURN_OK, "Sedici-owned FG context destroyed");
+    expect(host.idle() && host.debugErrors == 0, "read-only Sedici configure leaves the device clean");
+    return g_failures ? 1 : 0;
+}
+
+// Exercise K29/K57 with a real proxy and a recording original: stale owned
+// tokens must be refused locally, while foreign handles still forward.
+int run_stale_forward(Harness& h)
+{
+    Host host;
+    expect(host.create(), "DX12 host for stale handle characterization");
+    if (g_failures || !h.state) return 1;
+    ffxCreateBackendDX12Desc backend{};
+    backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    backend.device = host.device.Get();
+    ffxCreateContextDescFrameGeneration desc{};
+    desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    desc.header.pNext = &backend.header;
+    desc.displaySize = {Rig::kWidth, Rig::kHeight};
+    desc.maxRenderSize = {Rig::kWidth, Rig::kHeight};
+    desc.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    ffxContext context = nullptr;
+    expect(h.ffx.create(&context, &desc.header, nullptr) == FFX_API_RETURN_OK && context,
+           "owned FG context created");
+    if (!context) return 1;
+    const uint32_t beforeNullQuery = h.state->calls[StubQuery];
+    const uint32_t beforeNullConfigure = h.state->calls[StubConfigure];
+    const uint32_t beforeNullDispatch = h.state->calls[StubDispatch];
+    expect(h.ffx.query(&context, nullptr) != FFX_API_RETURN_OK &&
+               h.ffx.configure(&context, nullptr) != FFX_API_RETURN_OK &&
+               h.ffx.dispatch(&context, nullptr) != FFX_API_RETURN_OK &&
+               h.state->calls[StubQuery] == beforeNullQuery &&
+               h.state->calls[StubConfigure] == beforeNullConfigure &&
+               h.state->calls[StubDispatch] == beforeNullDispatch,
+           "null descriptors on a live owned token never enter the original");
+    ffxContext stale = context;
+    expect(h.ffx.destroy(&context, nullptr) == FFX_API_RETURN_OK, "owned FG context destroyed");
+    if (g_failures) return 1;
+    const uint32_t prior = h.state->calls[StubQuery];
+    ffxQueryDescHeader query{};
+    query.type = UINT64_MAX; // Not the stub's 128-byte snapshot marker.
+    expect(h.ffx.query(&stale, nullptr) != FFX_API_RETURN_OK &&
+               h.ffx.configure(&stale, nullptr) != FFX_API_RETURN_OK &&
+               h.ffx.dispatch(&stale, nullptr) != FFX_API_RETURN_OK &&
+               h.state->calls[StubQuery] == prior &&
+               h.state->calls[StubConfigure] == beforeNullConfigure &&
+               h.state->calls[StubDispatch] == beforeNullDispatch,
+           "null descriptors on a stale token never enter the original");
+    const auto staleResult = h.ffx.query(&stale, &query);
+    expect(staleResult != FFX_API_RETURN_OK && h.state->calls[StubQuery] == prior,
+           "stale Sedici handle is rejected locally without entering the original");
+    ffxContext newer = nullptr;
+    expect(h.ffx.create(&newer, &desc.header, nullptr) == FFX_API_RETURN_OK && newer && newer != stale,
+           "new context receives a different token");
+    const uint32_t beforeReuse = h.state->calls[StubQuery];
+    expect(h.ffx.query(&stale, &query) != FFX_API_RETURN_OK && h.state->calls[StubQuery] == beforeReuse,
+           "stale token is rejected while a newer context is live");
+    if (newer) expect(h.ffx.destroy(&newer, nullptr) == FFX_API_RETURN_OK, "new context destroyed");
+    int foreignObject = 0;
+    ffxContext foreign = &foreignObject;
+    const uint32_t beforeForeign = h.state->calls[StubQuery];
+    (void)h.ffx.query(&foreign, &query);
+    expect(h.state->calls[StubQuery] == beforeForeign + 1,
+           "foreign handle outside the token namespace still reaches the original");
+    const uint32_t beforeForeignNull = h.state->calls[StubQuery];
+    (void)h.ffx.query(&foreign, nullptr);
+    expect(h.state->calls[StubQuery] == beforeForeignNull + 1,
+           "foreign handle with a null descriptor still reaches the original");
+    return g_failures ? 1 : 0;
+}
+
 int run_invalid_calls(Harness& h)
 {
     Host host;
@@ -1011,13 +1260,19 @@ int run_overlay_hotkey(Harness& h)
     BYTE keys[256]{};
     const auto alt_f10 = [&](HWND window) {
         BYTE state[256]{};
+        std::puts("INFO hotkey: get keyboard state");
         GetKeyboardState(state);
         state[VK_MENU] = 0x80;
+        std::puts("INFO hotkey: set Alt down");
         SetKeyboardState(state);
+        std::puts("INFO hotkey: send F10 down");
         SendMessageW(window, WM_SYSKEYDOWN, VK_F10, 0);
+        std::puts("INFO hotkey: send F10 up");
         SendMessageW(window, WM_SYSKEYUP, VK_F10, 0);
         state[VK_MENU] = 0;
+        std::puts("INFO hotkey: set Alt up");
         SetKeyboardState(state);
+        std::puts("INFO hotkey: dispatch complete");
     };
     (void)keys;
 
@@ -1029,9 +1284,20 @@ int run_overlay_hotkey(Harness& h)
         rig.frames(30, true);
         const bool foreground = (SetForegroundWindow(host.window), GetForegroundWindow() == host.window);
         std::printf("INFO foreground window available: %d\n", foreground);
+        std::puts("INFO hotkey: entering Full");
         alt_f10(host.window); // Full
+        std::puts("INFO hotkey: presenting while Full");
         rig.frames(90, true); // Full retries capture from the render path every half second
+        const std::string fullLog = h.log();
+        if (fullLog.find("Full menu unavailable") != std::string::npos) {
+            std::puts("INFO asynchronous edit-baseline check unavailable: Full menu not active");
+        } else {
+            expect(fullLog.find("settings edit baseline ready on worker") != std::string::npos,
+                   "actual DLL completed Full-menu edit baseline on its worker");
+        }
+        std::puts("INFO hotkey: entering Off");
         alt_f10(host.window); // Off
+        std::puts("INFO hotkey: presenting while Off");
         rig.frames(20, true);
         RECT clipOff{};
         GetClipCursor(&clipOff);
@@ -1088,6 +1354,8 @@ int main(int argc, char** argv)
         return 2;
     }
     const std::string scenario = argv[1];
+    if (scenario == "readonly-async" || scenario == "readonly-overlay" || scenario == "readonly-sedici")
+        SetEnvironmentVariableW(L"SEDICI_ASYNC", nullptr);
     const fs::path proxy = argv[2];
     const fs::path stub = argv[3];
     if (scenario == "exports") {
@@ -1107,6 +1375,30 @@ int main(int argc, char** argv)
         {"forward", "[pacing]\nmode = \"off\"\n[async]\nmode = \"game\"\n[fg]\nmode = \"amd\"\n", true, run_forward},
         {"pacing", "[fg]\nmode = \"amd\"\n", true, run_pacing},
         {"async-off", "[pacing]\nmode = \"off\"\n[async]\nmode = \"off\"\n[fg]\nmode = \"amd\"\n", true, run_async_off},
+        {"readonly-sedici", R"toml([pacing]
+mode = "off"
+[async]
+mode = "off"
+[fg]
+mode = "sedici"
+present = "game"
+[ui]
+mode = "off"
+)toml", true, run_readonly_sedici},
+        {"readonly-async", R"toml([pacing]
+mode = "off"
+[async]
+mode = "off"
+[fg]
+mode = "amd"
+)toml", true, run_readonly_async},
+        {"readonly-overlay", R"toml([pacing]
+mode = "off"
+[async]
+mode = "game"
+[fg]
+mode = "amd"
+)toml", true, run_readonly_overlay},
         {"missing-orig", "[fg]\nmode = \"amd\"\n", false, run_missing_orig},
         {"bad-config", "[fg\nmode = \n", true, run_bad_config},
         {"session",
@@ -1122,6 +1414,9 @@ int main(int argc, char** argv)
         {"log-failure",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"off\"\n", false, run_log_failure, true},
+        {"stale-forward",
+         "[fg]\nmode = \"sedici\"\npresent = \"game\"\n[ui]\nmode = \"off\"\n",
+         true, run_stale_forward},
         {"invalid-calls",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"off\"\n", false, run_invalid_calls},

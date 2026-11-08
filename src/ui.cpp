@@ -2,6 +2,8 @@
 
 #include "config.h"
 #include "config_patch.h"
+#include "settings_tx.h"
+#include "settings_io.h"
 #include "describe.h"
 #include "live.h"
 #include "limiter.h"
@@ -71,13 +73,9 @@ struct InputMessage {
     LPARAM lparam = 0;
 };
 
+// The values being edited live in settings_tx (revisioned, acknowledged); the
+// menu only remembers which mode to return to on Cancel.
 struct Snapshot {
-    double limiter_fps = 0.0;
-    int pacing_mode = 1;
-    int async_mode = 0;
-    int log_level = 1;
-    int scale_mode = 0;
-    float scale = 1.0f;
     int previous_mode = 0;
 };
 
@@ -101,13 +99,16 @@ struct UiState {
     ImGuiStyle base_style{};
     float applied_scale = 0.0f;
     uint64_t last_frame_qpc = 0;
+    uint64_t real_draws = 0;
+    uint64_t generated_draws = 0;
 
     UiMode last_mode = UiMode::Off;
     Snapshot snapshot{};
     bool snapshot_valid = false;
+    uint64_t edit_epoch = 0;
+    uint64_t edit_generation = 0;
+    bool begin_requested = false;
 
-    ConfigFileStamp stamp{};
-    bool stamp_valid = false;
     std::string save_status;
 
     float last_nonzero_limit = 36.5f;
@@ -122,6 +123,9 @@ struct UiState {
 
 UiState g_ui;
 std::atomic<HWND> g_hwnd{nullptr};
+// Pair a consumed hotkey press with its release even if modifiers or UI mode
+// change between the two messages. Never consume an unrelated key-up.
+std::atomic<HWND> g_hotkey_down_window{nullptr};
 std::mutex g_window_mutex;
 std::mutex g_render_mutex;
 std::once_flag g_hotkey_once;
@@ -276,7 +280,10 @@ LRESULT ui_window_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
             const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             if (ctrl == g_hotkey.ctrl && alt == g_hotkey.alt && shift == g_hotkey.shift) {
-                if ((lparam & (1LL << 30)) == 0) cycle_mode();
+                if ((lparam & (1LL << 30)) == 0) {
+                    g_hotkey_down_window.store(hwnd, std::memory_order_release);
+                    cycle_mode();
+                }
                 return 0;
             }
         }
@@ -314,6 +321,15 @@ LRESULT CALLBACK ui_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     if (msg == kHotkeyMessage && (g_disabled.load() || hwnd != g_hwnd.load())) {
         ui_input_leave_window(hwnd, true);
         return 0;
+    }
+    if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && static_cast<UINT>(wparam) == g_hotkey.vk) {
+        HWND expected = hwnd;
+        if (g_hotkey_down_window.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel))
+            return 0;
+    }
+    if (msg == WM_KILLFOCUS || msg == WM_NCDESTROY) {
+        HWND expected = hwnd;
+        (void)g_hotkey_down_window.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
     }
     if (msg == WM_DESTROY || msg == WM_NCDESTROY)
         ui_input_leave_window(hwnd, false);
@@ -580,11 +596,12 @@ bool ensure_imgui(ID3D12Device* device, DXGI_FORMAT format, HWND hwnd)
 
 float effective_scale(uint32_t height) noexcept
 {
-    if (live_ui_scale_mode() == UiScaleMode::Auto) {
+    const LiveValues values = live_snapshot();
+    if (values.scale_mode == UiScaleMode::Auto) {
         const float scale = height > 0 ? static_cast<float>(height) / 1080.0f : 1.0f;
         return std::clamp(scale, 0.5f, 2.0f);
     }
-    return std::clamp(live_ui_scale(), 0.5f, 2.0f);
+    return std::clamp(values.ui_scale, 0.5f, 2.0f);
 }
 
 void apply_scale(float scale)
@@ -596,26 +613,35 @@ void apply_scale(float scale)
     g_ui.applied_scale = scale;
 }
 
+// A rejected or conflicting request leaves the acknowledged values in place; say so
+// in the menu instead of pretending the control took effect.
+void report(const ApplyResult& result)
+{
+    if (result.status == ApplyStatus::Rejected || result.status == ApplyStatus::Conflict)
+        g_ui.save_status = "Not applied: " + result.reason;
+    else if (result.status == ApplyStatus::Pending)
+        g_ui.save_status = "Pending: " + result.reason;
+}
+
 void enter_full()
 {
-    g_ui.snapshot.limiter_fps = live_limiter_fps();
-    g_ui.snapshot.pacing_mode = static_cast<int>(live_pacing_mode());
-    g_ui.snapshot.async_mode = static_cast<int>(live_async_mode());
-    g_ui.snapshot.log_level = live_log_level();
-    g_ui.snapshot.scale_mode = static_cast<int>(live_ui_scale_mode());
-    g_ui.snapshot.scale = live_ui_scale();
+    ++g_ui.edit_epoch;
     g_ui.snapshot.previous_mode = static_cast<int>(g_ui.last_mode);
-    g_ui.snapshot_valid = true;
-
-    const std::filesystem::path path = dll_directory() / L"sedici.toml";
-    g_ui.stamp = config_file_stamp(path);
-    g_ui.stamp_valid = true;
-    g_ui.save_status.clear();
+    g_ui.snapshot_valid = false;
+    g_ui.edit_generation = settings_start_edit(); // In-memory only.
+    g_ui.begin_requested = g_ui.edit_generation != 0;
+    g_ui.save_status = g_ui.begin_requested ? "Loading settings..." : "Cannot start settings edit";
 }
 
 void apply_mode_transition(UiMode mode)
 {
     if (mode == g_ui.last_mode) return;
+    if (g_ui.last_mode == UiMode::Full && mode != UiMode::Full) {
+        ++g_ui.edit_epoch;
+        g_ui.snapshot_valid = false;
+        g_ui.begin_requested = false;
+        settings_invalidate_edit(); // Reject stale asynchronous completions.
+    }
     if (mode == UiMode::Full) enter_full();
     if (mode != UiMode::Full) {
         std::lock_guard<std::mutex> lock(g_message_mutex);
@@ -625,6 +651,30 @@ void apply_mode_transition(UiMode mode)
         PostMessageW(hwnd, kHotkeyMessage, static_cast<WPARAM>(mode), 0);
     }
     g_ui.last_mode = mode;
+}
+
+// Called under the render mutex, but performs no file I/O and never waits for
+// the worker. Results from an earlier Full-menu instance are discarded.
+void process_settings_io(UiMode mode)
+{
+    SettingsIoCompletion completed;
+    while (settings_io_poll(completed)) {
+        if (mode != UiMode::Full || completed.viewEpoch != g_ui.edit_epoch) continue;
+        if (completed.kind == SettingsIoKind::BeginEdit) {
+            g_ui.snapshot_valid = completed.beginOk;
+            g_ui.save_status = completed.beginOk ? "" : "Cannot edit: file state or settings changed";
+        } else {
+            g_ui.save_status = completed.save.message.empty() ? "Save failed" : completed.save.message;
+        }
+    }
+    if (mode == UiMode::Full && g_ui.begin_requested && !settings_io_busy()) {
+        if (settings_io_start_begin(g_ui.edit_generation, g_ui.edit_epoch)) {
+            g_ui.begin_requested = false;
+        } else {
+            g_ui.begin_requested = false;
+            g_ui.save_status = "Cannot start settings I/O";
+        }
+    }
 }
 
 void drain_messages()
@@ -717,8 +767,9 @@ void draw_scale_combo()
                                 "2.00\0";
 
     int index = 0;
-    if (live_ui_scale_mode() == UiScaleMode::Fixed) {
-        const float value = live_ui_scale();
+    const LiveValues values = live_snapshot();
+    if (values.scale_mode == UiScaleMode::Fixed) {
+        const float value = values.ui_scale;
         int best = 0;
         float best_distance = 1e9f;
         for (int i = 0; i < static_cast<int>(std::size(kScales)); ++i) {
@@ -732,79 +783,40 @@ void draw_scale_combo()
     }
 
     if (ImGui::Combo("Menu scale", &index, kItems)) {
-        if (index == 0) {
-            live_set_ui_scale_mode(UiScaleMode::Auto);
-        } else {
-            live_set_ui_scale_mode(UiScaleMode::Fixed);
-            live_set_ui_scale(kScales[index - 1]);
-        }
+        report(settings_change_edit([&](LiveValues& v) {
+            if (index == 0) {
+                v.scale_mode = UiScaleMode::Auto;
+            } else {
+                v.scale_mode = UiScaleMode::Fixed;
+                v.ui_scale = kScales[index - 1];
+            }
+        }));
     }
     ImGui::Text("Effective %.2fx", g_ui.applied_scale);
 }
 
 void save_config()
 {
-    const std::filesystem::path path = dll_directory() / L"sedici.toml";
-    const ConfigFileStamp current = config_file_stamp(path);
-    if (g_ui.stamp_valid &&
-        (current.exists != g_ui.stamp.exists || current.last_write != g_ui.stamp.last_write ||
-         current.size != g_ui.stamp.size)) {
-        g_ui.save_status = "sedici.toml changed on disk; not saved";
-        log_error("sedici: overlay save refused: sedici.toml changed on disk");
+    const SettingsSaveTicket ticket = settings_capture_save_ticket();
+    if (!ticket.valid) {
+        g_ui.save_status = "Settings changed; reopen the menu before saving";
         return;
     }
-
-    const Settings& config = settings();
-    ConfigValues values;
-    if (config.limiter.fps_source != Source::Env) {
-        values.write_limiter_fps = true;
-        values.limiter_fps = live_limiter_fps();
-    }
-    if (config.pacing.mode_source != Source::Env) {
-        values.write_pacing = true;
-        values.pacing = live_pacing_mode() == PacingMode::Hybrid ? "hybrid" : "off";
-    }
-    if (config.async.mode_source != Source::Env) {
-        values.write_async = true;
-        values.async = live_async_mode() == AsyncMode::Off ? "off" : "game";
-    }
-    if (config.log.level_source != Source::Env) {
-        values.write_log = true;
-        values.log_level = live_log_level();
-    }
-    // `[ui] mode` is a startup preference, not a control in this menu. Leaving
-    // it alone means Save does not unexpectedly make the menu open on launch.
-    values.write_ui_scale = true;
-    values.ui_scale_auto = live_ui_scale_mode() == UiScaleMode::Auto;
-    values.ui_scale = live_ui_scale();
-
-    std::string error;
-    if (config_save(path, values, error)) {
-        g_ui.save_status = "Saved";
-        g_ui.stamp = config_file_stamp(path);
-        g_ui.stamp_valid = true;
-        log_event(1, "sedici: overlay saved sedici.toml");
-    } else {
-        g_ui.save_status = "Save failed: " + error;
-        log_error("sedici: overlay save failed: " + error);
-    }
+    g_ui.save_status = settings_io_start_save(ticket, g_ui.edit_epoch)
+        ? "Saving..." : "Cannot start settings save";
 }
 
 void cancel_config()
 {
     if (!g_ui.snapshot_valid) return;
-
-    live_set_limiter_fps(g_ui.snapshot.limiter_fps);
-    live_set_pacing_mode(static_cast<PacingMode>(g_ui.snapshot.pacing_mode));
-    live_set_async_mode(static_cast<AsyncMode>(g_ui.snapshot.async_mode));
-    live_set_log_level(g_ui.snapshot.log_level);
-    live_set_ui_scale_mode(static_cast<UiScaleMode>(g_ui.snapshot.scale_mode));
-    live_set_ui_scale(g_ui.snapshot.scale);
-
-    limiter_on_config_changed();
-    toggles_apply_pacing_live();
+    const ApplyResult result = settings_cancel_edit();
+    if (result.status == ApplyStatus::Rejected || result.status == ApplyStatus::Conflict) {
+        report(result);
+        return;
+    }
     live_set_ui_mode(static_cast<UiMode>(g_ui.snapshot.previous_mode));
-    g_ui.save_status = "Cancelled";
+    g_ui.save_status = result.status == ApplyStatus::Pending
+        ? "Cancelled; " + result.reason : "Cancelled";
 }
 
 void draw_full()
@@ -855,6 +867,9 @@ void draw_full()
                 real.max_ms);
     draw_graph("##real_graph", real_samples, real_count, scale);
 
+    // Do not accept edits until the worker establishes the file baseline, or
+    // while a snapshot is being saved. Closing the menu remains available.
+    ImGui::BeginDisabled(!g_ui.snapshot_valid || settings_io_busy());
     ImGui::SeparatorText("FPS limit");
     const bool limiter_env = settings().limiter.fps_source == Source::Env;
     const double live_fps = live_limiter_fps();
@@ -863,13 +878,9 @@ void draw_full()
 
     ImGui::BeginDisabled(limiter_env);
     if (ImGui::Checkbox("Limit real frames", &limit_on)) {
-        if (limit_on) {
-            live_set_limiter_fps(g_ui.last_nonzero_limit > 0.0f ? g_ui.last_nonzero_limit : 36.5f);
-        } else {
-            if (live_fps > 0.0) g_ui.last_nonzero_limit = static_cast<float>(live_fps);
-            live_set_limiter_fps(0.0);
-        }
-        limiter_on_config_changed();
+        if (!limit_on && live_fps > 0.0) g_ui.last_nonzero_limit = static_cast<float>(live_fps);
+        const double next = limit_on ? (g_ui.last_nonzero_limit > 0.0f ? g_ui.last_nonzero_limit : 36.5) : 0.0;
+        report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = next; }));
     }
     if (limit_on) {
         float target = static_cast<float>(live_limiter_fps());
@@ -878,19 +889,16 @@ void draw_full()
                                ImGuiSliderFlags_AlwaysClamp)) {
             target = std::round(target * 2.0f) / 2.0f;
             g_ui.last_nonzero_limit = target;
-            live_set_limiter_fps(target);
-            limiter_on_config_changed();
+            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = target; }));
         }
         if (ImGui::Button("36.5")) {
             g_ui.last_nonzero_limit = 36.5f;
-            live_set_limiter_fps(36.5);
-            limiter_on_config_changed();
+            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = 36.5; }));
         }
         ImGui::SameLine();
         if (ImGui::Button("37")) {
             g_ui.last_nonzero_limit = 37.0f;
-            live_set_limiter_fps(37.0);
-            limiter_on_config_changed();
+            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = 37.0; }));
         }
     }
     ImGui::EndDisabled();
@@ -898,24 +906,30 @@ void draw_full()
 
     ImGui::SeparatorText("Pacing fix");
     const bool pacing_env = settings().pacing.mode_source == Source::Env;
+    const bool amd_only_unavailable = settings().fg.mode == FrameGenerationMode::Sedici;
     bool pacing_on = live_pacing_mode() == PacingMode::Hybrid;
-    ImGui::BeginDisabled(pacing_env);
+    ImGui::BeginDisabled(pacing_env || amd_only_unavailable);
     if (ImGui::Checkbox("Send hybrid pacing tuning", &pacing_on)) {
-        live_set_pacing_mode(pacing_on ? PacingMode::Hybrid : PacingMode::Off);
-        toggles_apply_pacing_live();
+        report(settings_change_edit([&](LiveValues& v) {
+            v.pacing = pacing_on ? PacingMode::Hybrid : PacingMode::Off;
+        }));
     }
     ImGui::EndDisabled();
     if (pacing_env) ImGui::TextDisabled("overridden by SEDICI_PACING");
+    if (amd_only_unavailable) ImGui::TextDisabled("AMD backend only");
 
     ImGui::SeparatorText("Async workloads");
     const bool async_env = settings().async.mode_source == Source::Env;
     int async_index = live_async_mode() == AsyncMode::Off ? 1 : 0;
-    ImGui::BeginDisabled(async_env);
+    ImGui::BeginDisabled(async_env || amd_only_unavailable);
     if (ImGui::Combo("Async workloads", &async_index, "game\0off\0")) {
-        live_set_async_mode(async_index == 1 ? AsyncMode::Off : AsyncMode::Game);
+        report(settings_change_edit([&](LiveValues& v) {
+            v.async = async_index == 1 ? AsyncMode::Off : AsyncMode::Game;
+        }));
     }
     ImGui::EndDisabled();
     if (async_env) ImGui::TextDisabled("overridden by SEDICI_ASYNC");
+    if (amd_only_unavailable) ImGui::TextDisabled("AMD backend only");
     ImGui::TextWrapped("Takes effect after frame generation restarts (toggle FG or restart "
                        "the game).");
 
@@ -924,7 +938,7 @@ void draw_full()
     int log_level = live_log_level();
     ImGui::BeginDisabled(log_env);
     if (ImGui::Combo("Log level", &log_level, "errors\0normal\0verbose\0")) {
-        live_set_log_level(log_level);
+        report(settings_change_edit([&](LiveValues& v) { v.log_level = log_level; }));
     }
     ImGui::EndDisabled();
     if (log_env) ImGui::TextDisabled("overridden by MFSRFG_LOG");
@@ -936,6 +950,7 @@ void draw_full()
     if (ImGui::Button("Save")) save_config();
     ImGui::SameLine();
     if (ImGui::Button("Cancel")) cancel_config();
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Close")) live_set_ui_mode(UiMode::Off);
     if (!g_ui.save_status.empty()) ImGui::TextWrapped("%s", g_ui.save_status.c_str());
@@ -943,11 +958,11 @@ void draw_full()
     ImGui::End();
 }
 
-void render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12Resource* output,
+bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12Resource* output,
                     DXGI_FORMAT format, uint32_t output_state, uint32_t width,
                      uint32_t height)
 {
-    if (g_disabled.load() || !command_list || !output || width == 0 || height == 0) return;
+    if (g_disabled.load() || !command_list || !output || width == 0 || height == 0) return false;
 
     // Windows gives input in client coordinates; the overlay draws at the
     // output resolution. Record both so drain_messages() can map clicks.
@@ -964,7 +979,7 @@ void render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
     }
     if (!backend_new_frame()) {
         disable_overlay("the DX12 backend failed while starting a frame");
-        return;
+        return false;
     }
     ImGui_ImplWin32_NewFrame();
     drain_messages();
@@ -991,7 +1006,7 @@ void render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
     ImGui::Render();
 
     ImDrawData* draw_data = ImGui::GetDrawData();
-    if (!draw_data) return;
+    if (!draw_data) return false;
 
     const UINT slot = g_ui.rtv_slot++ % kRtvDescriptors;
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_handle(slot);
@@ -1022,15 +1037,24 @@ void render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
             transition(command_list, output, D3D12_RESOURCE_STATE_RENDER_TARGET, before);
         }
         disable_overlay("an exception was thrown while drawing");
-        return;
+        return false;
     }
 
     if (before != D3D12_RESOURCE_STATE_RENDER_TARGET) {
         transition(command_list, output, D3D12_RESOURCE_STATE_RENDER_TARGET, before);
     }
+    return !g_disabled.load();
 }
 
 } // namespace
+
+UiRenderStatus ui_render_status() noexcept
+{
+    try {
+        std::lock_guard lock(g_render_mutex);
+        return {g_ui.ready && !g_disabled.load(), g_ui.real_draws, g_ui.generated_draws};
+    } catch (...) { return {}; }
+}
 
 void ui_disable(const char* reason) noexcept
 {
@@ -1102,6 +1126,7 @@ void ui_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
         if (g_disabled.load()) return;
         const UiMode mode = live_ui_mode();
         apply_mode_transition(mode);
+        process_settings_io(mode);
         if (mode == UiMode::Off) return;
         if (mode == UiMode::Full && !ui_input_active()) request_full_capture();
         if (!params || !params->commandList || !params->outputSwapChainBuffer.resource) return;
@@ -1114,8 +1139,11 @@ void ui_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
         const DXGI_FORMAT format = translate_typeless(desc.Format);
         if (!ensure_imgui(device, format, g_hwnd.load())) return;
 
-        render_overlay(mode, command_list, output, format, params->outputSwapChainBuffer.state,
-                       static_cast<uint32_t>(desc.Width), desc.Height);
+        if (render_overlay(mode, command_list, output, format, params->outputSwapChainBuffer.state,
+                           static_cast<uint32_t>(desc.Width), desc.Height)) {
+            if (params->isGeneratedFrame) ++g_ui.generated_draws;
+            else ++g_ui.real_draws;
+        }
     } catch (...) {
         disable_overlay("an exception was thrown while drawing");
     }

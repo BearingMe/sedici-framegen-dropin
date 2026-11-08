@@ -15,12 +15,15 @@
 //            mid-life, so an unsupported call is answered by Sedici and logged.
 //
 // Every function returns true when Sedici answered the call and false when the
-// caller must forward it to the original DLL. A call is only answered here when
-// it names a context Sedici itself created, so a context AMD owns can never be
-// routed into Sedici by mistake.
+// caller must forward it to the original DLL. Issued Sedici tokens remain locally
+// identifiable after destroy and are rejected rather than forwarded. Foreign
+// handles outside the reserved token namespace continue to forward; the owner
+// explicitly approved the namespace-separation assumption and exhaustion policy.
 namespace sedici::fg {
 
 bool routing_enabled() noexcept;
+// True for any issued Sedici token, including one already destroyed.
+bool route_is_sedici_token(ffxContext* context) noexcept;
 
 bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;
 bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept;

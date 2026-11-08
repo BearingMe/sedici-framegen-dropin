@@ -36,6 +36,7 @@ public:
     explicit ScopedOverlayCallback(const ffxApiHeader* desc, void* context = nullptr) noexcept;
     ~ScopedOverlayCallback();
     void complete(ffxReturnCode_t result) noexcept;
+    bool changed() const noexcept { return m_count != 0; }
 
     ScopedOverlayCallback(const ScopedOverlayCallback&) = delete;
     ScopedOverlayCallback& operator=(const ScopedOverlayCallback&) = delete;

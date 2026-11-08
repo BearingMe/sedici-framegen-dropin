@@ -23,6 +23,11 @@ double ticks_to_seconds(uint64_t ticks, uint64_t frequency) noexcept
     return frequency ? static_cast<double>(ticks) / static_cast<double>(frequency) : 0.0;
 }
 
+bool later_output_is_due(bool hasLater, double laterContent, double latency, double now) noexcept
+{
+    return hasLater && laterContent + latency <= now;
+}
+
 PacingOutput plan_present(const PacingInput& input) noexcept
 {
     PacingOutput output;
@@ -65,7 +70,8 @@ uint32_t OutputPlan::generated() const noexcept
 
 void OutputSchedule::set_ratio(uint32_t numerator, uint32_t denominator) noexcept
 {
-    if (denominator == 0 || numerator < denominator || numerator > 2 * denominator) {
+    if (denominator == 0 || numerator < denominator ||
+        static_cast<uint64_t>(numerator) > 2ull * denominator) {
         numerator = 2;
         denominator = 1;
     }

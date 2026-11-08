@@ -527,7 +527,9 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     //    in the root constants; the scratch targets are reused in order, which
     //    the transitions inside serialise on the GPU.
     for (uint32_t i = 0; i < count; ++i) {
-        synthesize(list, current, previous, phases[i], hud, kPrepareBlocks + kPhaseBlocks * i);
+        const uint32_t block = kPrepareBlocks + kPhaseBlocks * i;
+        synthesize(list, current, previous, phases[i].alpha, block);
+        composite_hud(list, current, phases[i], hud, block + 4);
     }
     m_alpha = m_params.alpha;
     m_current = previous;
@@ -536,14 +538,12 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
     return true;
 }
 
-// Splat, fill, warp and HUD-composite one phase between the two most recent
-// real frames into `phase.output`, using descriptor blocks `block`..`block + 4`.
+// Produce one HUD-less analytical phase in m_midpoint. HUD composition is a
+// separate recording step so a future correction stage can run at this boundary.
 void Stage1::synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous,
-                        const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept
+                        float alpha, uint32_t block) noexcept
 {
-    m_alpha = phase.alpha;
-    ID3D12Resource* const output = phase.output;
-    const D3D12_RESOURCE_STATES outputState = phase.outputState;
+    m_alpha = alpha;
 
     // 3. Clear, splat, fill.
     transition(list, m_reprojection, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -594,8 +594,14 @@ void Stage1::synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint3
     uav_barrier(list, m_midpoint.get());
     transition(list, m_midpoint, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    // 5. Composite the game's HUD layer (backbuffer minus HUD-less colour) onto
-    //    the midpoint. Without a HUD source the weight is zero and this is a copy.
+}
+
+// Compose only after analytical generation. Without a HUD source this is a copy.
+void Stage1::composite_hud(ID3D12GraphicsCommandList* list, uint32_t current,
+                           const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept
+{
+    ID3D12Resource* const output = phase.output;
+    const D3D12_RESOURCE_STATES outputState = phase.outputState;
     const bool hasHud = hud && hud->real;
     m_composite_weight = hasHud ? 1.0f : 0.0f;
     if (hasHud) {
@@ -603,7 +609,7 @@ void Stage1::synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint3
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
     transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    begin_block(block + 4);
+    begin_block(block);
     write_srv(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(1, hasHud ? hud->real : m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
     write_srv(2, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);

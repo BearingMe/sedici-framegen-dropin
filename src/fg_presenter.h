@@ -1,12 +1,13 @@
 #pragma once
 
+#include <atomic>
+
 #include <dxgi1_6.h>
 #include <d3d12.h>
 #include <wrl/client.h>
 
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include "config.h"
+#include "fg_queue_policy.h"
 
 // `[fg] present = "vrr"`: presentation off the game's thread and queue.
 //
@@ -107,7 +109,10 @@ public:
     size_t outstanding() const noexcept;
     // Blocks until at most `max` jobs are outstanding. False on timeout.
     bool wait_outstanding(size_t max, DWORD timeoutMs) noexcept;
-    void submit(PresentJob&& job) noexcept;
+    // Rejects stopped or unqueued jobs rather than silently dropping them.
+    HRESULT submit(PresentJob&& job) noexcept;
+    // Requests cancellation without waiting for a worker blocked in the driver.
+    void request_stop() noexcept;
     void set_output_hooks(const OutputHooks& hooks) noexcept;
     // Result of the most recent native Present, or the error that stopped a job.
     HRESULT last_result() const noexcept;
@@ -166,13 +171,14 @@ private:
     mutable std::mutex m_mutex;
     std::condition_variable m_wake;
     std::condition_variable m_done;
-    std::deque<PresentJob> m_jobs;
+    FixedQueue<PresentJob, kPresenterQueueCapacity> m_jobs;
     OutputHooks m_hooks{};        // guarded by m_mutex
     OutputHooks m_job_hooks{};    // presenter thread's copy for the current job
     uint64_t m_submitted = 0;
     uint64_t m_completed = 0;
     HRESULT m_last = S_OK;
     bool m_stop = false;
+    std::atomic<bool> m_cancel{false};
     std::thread m_thread;
 
     // Display. Only the presenter thread touches these after create().

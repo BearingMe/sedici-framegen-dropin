@@ -40,6 +40,7 @@ class ScopedDescOverride {
 public:
     explicit ScopedDescOverride(const ffxApiHeader* desc) noexcept;
     ~ScopedDescOverride();
+    bool changed() const noexcept { return m_count != 0; }
 
     ScopedDescOverride(const ScopedDescOverride&) = delete;
     ScopedDescOverride& operator=(const ScopedDescOverride&) = delete;
