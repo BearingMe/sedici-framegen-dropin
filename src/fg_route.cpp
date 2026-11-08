@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -99,6 +100,35 @@ const T* find_desc(const ffxApiHeader* desc, uint64_t type) noexcept
     return nullptr;
 }
 
+// Which router entry point is running on this thread and on which context, so a
+// rejection in the log names the call that was refused (P2.10).
+thread_local const char* t_call_op = nullptr;
+thread_local const void* t_call_context = nullptr;
+
+struct CallScope {
+    const char* previous_op;
+    const void* previous_context;
+    CallScope(const char* op, const void* context) noexcept
+        : previous_op(t_call_op), previous_context(t_call_context)
+    {
+        t_call_op = op;
+        t_call_context = context;
+    }
+    ~CallScope()
+    {
+        t_call_op = previous_op;
+        t_call_context = previous_context;
+    }
+};
+
+std::string call_identity()
+{
+    char text[64];
+    std::snprintf(text, sizeof(text), " [op=%s ctx=0x%llx]", t_call_op ? t_call_op : "?",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(t_call_context)));
+    return text;
+}
+
 void log_route(const char* what, const std::string& detail) noexcept
 {
     try {
@@ -175,7 +205,7 @@ ffxReturnCode_t failure(const char* reason) noexcept
 {
     // Converting the reason to a string can allocate; an error report must not
     // terminate the game when memory is already exhausted.
-    try { log_route("rejected: ", reason); } catch (...) {}
+    try { log_route("rejected: ", std::string(reason) + call_identity()); } catch (...) {}
     return FFX_API_RETURN_ERROR;
 }
 
@@ -246,6 +276,7 @@ void route_set_present_hook(void (*hook)(uint64_t)) noexcept
 
 bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
+    const CallScope scope("create", context ? *context : nullptr);
     if (!result || !context || !desc) return false;
     reap_parked();
 
@@ -371,6 +402,7 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 
 bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
+    const CallScope scope("configure", context ? *context : nullptr);
     if (!result || !context || !*context) return false;
     reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
@@ -402,6 +434,7 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
 
 bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
+    const CallScope scope("dispatch", context ? *context : nullptr);
     if (!result || !context || !*context) return false;
     reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
@@ -466,6 +499,7 @@ bool route_get_versions(const ffxQueryDescGetVersions& query, ffxReturnCode_t* r
 
 bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t* result) noexcept
 {
+    const CallScope scope("query", context ? *context : nullptr);
     if (!result) return false;
     reap_parked(); // K41: parked owners are released on any router call
     if (desc && desc->type == FFX_API_QUERY_DESC_TYPE_GET_VERSIONS)
@@ -485,6 +519,7 @@ bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t*
 
 bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
 {
+    const CallScope scope("destroy", context ? *context : nullptr);
     if (!result || !context || !*context) return false;
 
     // Unregister first so no new call can find the owner, then wait for calls

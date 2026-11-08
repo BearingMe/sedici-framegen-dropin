@@ -39,6 +39,7 @@
 #include "fg_bookkeeping_faults.h"
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
+#include "live.h"
 #include "log.h"
 
 #include "ffx_api_framegeneration_dx12.h"
@@ -2387,8 +2388,35 @@ bool check_routing(Device& state, bool wrapFirst = false)
             // must not park the owner a second time.
             ffxContext repeated = parkedContexts[0];
             const bool secondDestroy = sedici::fg::route_destroy(&repeated, &result) && result == FFX_API_RETURN_ERROR;
+            // P2.10(b): a rejection names the call and the context it refused.
+            std::error_code identityError;
+            const auto identityDir = std::filesystem::temp_directory_path(identityError) /
+                ("sedici-identity-" + std::to_string(GetCurrentProcessId()));
+            std::filesystem::create_directories(identityDir, identityError);
+            sedici::log_test_set_directory(identityDir);
+            const int savedLogLevel = log_level();
+            sedici::live_set_log_level(1);
             const bool staleConfigure = sedici::fg::route_configure(&repeated, &disabledConfigure.header, &result) &&
                                         result == FFX_API_RETURN_ERROR;
+            (void)sedici::log_flush(3000);
+            std::string identityLog;
+            {
+                std::ifstream in(identityDir / L"sedici.log", std::ios::binary);
+                identityLog.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            }
+            sedici::live_set_log_level(savedLogLevel);
+            sedici::log_test_set_directory({});
+            std::filesystem::remove_all(identityDir, identityError);
+            char expectedCtx[48];
+            std::snprintf(expectedCtx, sizeof(expectedCtx), "[op=configure ctx=0x%llx]",
+                          static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(repeated)));
+            const bool identified = identityLog.find(expectedCtx) != std::string::npos;
+            if (!identified)
+                std::printf("INFO log level %d, captured %zu bytes: %.200s%c", log_level(), identityLog.size(),
+                            identityLog.c_str(), 10);
+            std::printf("%s P2.10(b): a rejected call is logged with its operation and context%c",
+                        identified ? "PASS" : "FAIL", 10);
+            if (!identified) return false;
             sedici::fg::route_query(&contexts.session, &parkProbe, &result); // reaps; still held
             const unsigned parkedStillHeld = sedici::fg::route_parked_count();
             sedici::fg::set_retirement_hold(false);
