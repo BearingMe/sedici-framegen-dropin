@@ -1,0 +1,4 @@
+# Evidence (logs, captures) can hold usernames and paths: keep it out of git.
+*/*
+!*/.gitkeep
+!README.md
