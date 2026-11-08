@@ -204,11 +204,12 @@ if(SEDICI_BUILD_FGCHECK)
         add_test(NAME sedici_fgcheck_registration_recovery COMMAND sedici_fgcheck --registration-recovery)
         add_test(NAME sedici_fgcheck_submission_recovery_vrr COMMAND sedici_fgcheck --submission-recovery-vrr)
         add_test(NAME sedici_fgcheck_params_fault_vrr COMMAND sedici_fgcheck --params-fault-vrr)
+        add_test(NAME sedici_fgcheck_retention_timeout COMMAND sedici_fgcheck --retention-timeout)
         set_tests_properties(sedici_fgcheck_device_loss sedici_fgcheck_submission_fault sedici_fgcheck_submission_fault_vrr
             sedici_fgcheck_recording_fault sedici_fgcheck_recording_fault_vrr
             sedici_fgcheck_reset_fault sedici_fgcheck_reset_fault_vrr
             sedici_fgcheck_submission_recovery_vrr sedici_fgcheck_params_fault_vrr PROPERTIES SKIP_RETURN_CODE 77)
-        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing sedici_fgcheck_device_loss sedici_fgcheck_submission_fault sedici_fgcheck_submission_fault_vrr sedici_fgcheck_recording_fault sedici_fgcheck_recording_fault_vrr sedici_fgcheck_reset_fault sedici_fgcheck_reset_fault_vrr sedici_fgcheck_context_race sedici_fgcheck_session_recovery sedici_fgcheck_registration_recovery sedici_fgcheck_submission_recovery_vrr sedici_fgcheck_params_fault_vrr
+        set_tests_properties(sedici_fgcheck sedici_fgcheck_present sedici_fgcheck_routing sedici_fgcheck_device_loss sedici_fgcheck_submission_fault sedici_fgcheck_submission_fault_vrr sedici_fgcheck_recording_fault sedici_fgcheck_recording_fault_vrr sedici_fgcheck_reset_fault sedici_fgcheck_reset_fault_vrr sedici_fgcheck_context_race sedici_fgcheck_session_recovery sedici_fgcheck_registration_recovery sedici_fgcheck_submission_recovery_vrr sedici_fgcheck_params_fault_vrr sedici_fgcheck_retention_timeout
             PROPERTIES RUN_SERIAL TRUE TIMEOUT 300 LABELS "fgcheck;gpu")
     endif()
 endif()

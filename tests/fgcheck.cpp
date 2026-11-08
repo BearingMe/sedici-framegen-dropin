@@ -2677,6 +2677,73 @@ bool check_window(Device& state)
     return ok;
 }
 
+
+// K41: a live GPU stalled behind an unsignalled queue wait makes the bounded
+// drain time out. Teardown must then retain every GPU object (K39), return
+// within the wait bound, and leave the device healthy once the stall clears.
+bool check_retention_timeout(Device& state)
+{
+    const wchar_t* className = L"SediciFgRetention";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = className;
+    if (!RegisterClassW(&wc)) return false;
+    HWND window = CreateWindowW(className, L"Sedici retention", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    ComPtr<ID3D12Fence> gate;
+    bool ok = [&] {
+        ComPtr<IDXGIFactory4> factory;
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return false;
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 320;
+        desc.Height = 180;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 3;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        ComPtr<IDXGISwapChain1> created;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
+            nullptr, nullptr, &created))) return false;
+        ComPtr<IDXGISwapChain4> native;
+        if (FAILED(created.As(&native))) return false;
+        ComPtr<sedici::fg::Swapchain> wrapped;
+        created.Reset();
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped))) return false;
+        native.Detach();
+        if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate))) ||
+            FAILED(state.queue->Wait(gate.Get(), 1))) return false;
+        ComPtr<ID3D12Resource> buffer;
+        if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) return false;
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+        transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+        transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+        if (FAILED(state.list->Close())) return false;
+        ID3D12CommandList* gated[] = {state.list.Get()};
+        state.queue->ExecuteCommandLists(1, gated); // queued behind the gate; do not wait
+        buffer.Reset();
+        if (FAILED(wrapped->Present(0, 0))) return false;
+        const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
+        const auto before = std::chrono::steady_clock::now();
+        auto* finalReference = wrapped.Detach();
+        const ULONG remaining = finalReference->Release();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - before).count();
+        const bool retained = sedici::fg::swapchain_retention_count() == retainedBefore + 1;
+        const bool alive = SUCCEEDED(state.device->GetDeviceRemovedReason());
+        (void)gate->Signal(1); // End the stall so the retained work can finish.
+        const bool bounded = elapsed >= 4500 && elapsed < 15000;
+        std::printf("%s K41: a timed-out drain retains GPU state within the wait bound (%lld ms)\n",
+                    remaining == 0 && retained && alive && bounded ? "PASS" : "FAIL",
+                    static_cast<long long>(elapsed));
+        return remaining == 0 && retained && alive && bounded && g_debug_errors.load() == 0;
+    }();
+    // The window is left alone: the retained chain still references it.
+    return ok;
+}
+
 } // namespace
 
 
@@ -2686,7 +2753,7 @@ int main(int argc, char** argv)
     bool keepImages = false, present = false, routing = false, deviceLoss = false, signalFault = false;
     bool signalFaultVrr = false, closeFault = false, closeFaultVrr = false;
     bool resetFault = false, resetFaultVrr = false, contextRace = false, recoveryVrr = false;
-    bool paramsFaultVrr = false, sessionRecovery = false, registrationRecovery = false;
+    bool paramsFaultVrr = false, sessionRecovery = false, registrationRecovery = false, retention = false;
     for (int i = 1; i < argc; ++i) {
         deviceLoss |= std::string(argv[i]) == "--device-loss";
         signalFault |= std::string(argv[i]) == "--submission-fault";
@@ -2703,6 +2770,7 @@ int main(int argc, char** argv)
         keepImages |= std::string(argv[i]) == "--images";
         present |= std::string(argv[i]) == "--present";
         routing |= std::string(argv[i]) == "--routing";
+        retention |= std::string(argv[i]) == "--retention-timeout";
     }
 
     if (routing) {
@@ -2770,6 +2838,7 @@ int main(int argc, char** argv)
                 kDisplayWidth, kDisplayHeight, kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
+    if (retention) return check_retention_timeout(state) ? 0 : 1;
     if (contextRace) return check_session_window(state, false, false, false, false, true) ? 0 : 1;
     if (sessionRecovery || registrationRecovery)
         return check_session_window(state, false, false, false, false, false, true, registrationRecovery) ? 0 : 1;
