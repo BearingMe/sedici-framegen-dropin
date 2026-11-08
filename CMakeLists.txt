@@ -61,6 +61,7 @@ add_library(sedici_core OBJECT
     src/config_patch.cpp
     src/config.cpp
     src/log.cpp
+    src/diag.cpp
     src/fg_params.cpp
     src/fg_bookkeeping_faults.cpp
     src/fg_stage1.cpp

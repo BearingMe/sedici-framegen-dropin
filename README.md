@@ -298,7 +298,14 @@ of the path line.
 
 ## Logging
 
-The log is `sedici.log`, beside the deployed DLL, flushed on every line.
+The log is `sedici.log`, beside the deployed DLL. A background thread writes it, so a
+slow or failing disk can never stall a game call. Lines wait in a fixed 256-line queue;
+when it is full the extra lines are dropped, counted, and reported in the log once the
+disk keeps up. A message repeated in a tight loop is rate limited (a burst of eight,
+then two a second) and the next line that gets through says how many were suppressed.
+If the file cannot be written, the lines are discarded and counted, and the log says how
+many were lost when it becomes writable again. The last lines before a hard crash may
+not have reached the file.
 
 ```powershell
 $env:MFSRFG_LOG = "1"   # 0 = errors only, 1 = normal, 2 = verbose

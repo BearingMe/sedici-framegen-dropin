@@ -14,10 +14,14 @@
 
 extern "C" const char g_sedici_proxy_marker[] = "SEDICI_PROXY_V1";
 
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(instance);
+    } else if (reason == DLL_PROCESS_DETACH && reserved) {
+        // The process is exiting and the log writer thread is already gone: write
+        // what it had not yet written. Never waits on a lock (log_drain_at_exit).
+        sedici::log_drain_at_exit();
     }
     return TRUE;
 }

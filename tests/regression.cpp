@@ -983,6 +983,128 @@ void limiter_policy_checks()
     step = sedici::limiter_step(10, 5, true, 0);
     check(!step.wait, "limiter: a zero interval never waits");
 }
+// P2.10(b): the log must never stall, flood or silently lose the caller, whatever the
+// disk does. Everything here writes to a scratch directory, never to a game folder.
+std::string slurp(const std::filesystem::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+size_t occurrences(const std::string& text, const std::string& needle)
+{
+    size_t n = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) ++n;
+    return n;
+}
+
+std::string letters(int i)
+{
+    std::string s = "distinct line ";
+    do { s.push_back(static_cast<char>('a' + i % 26)); i /= 26; } while (i);
+    return s; // digits are ignored by the rate limiter, so only letters make lines distinct
+}
+
+void log_sink_checks()
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path(ec) / ("sedici-logcheck-" + std::to_string(GetCurrentProcessId()));
+    fs::create_directories(dir, ec);
+    const fs::path file = dir / L"sedici.log";
+    sedici::log_test_set_directory(dir);
+    sedici::log_test_reset_rate_limits();
+    using Clock = std::chrono::steady_clock;
+    const auto micros = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::micro>(b - a).count();
+    };
+
+    // Ordering and the cost of an accepted line on a healthy disk.
+    std::vector<double> costs;
+    for (int i = 0; i < 200; ++i) {
+        const auto t0 = Clock::now();
+        log_error(letters(i));
+        costs.push_back(micros(t0, Clock::now()));
+    }
+    check(sedici::log_flush(5000), "log: the queue drains");
+    std::sort(costs.begin(), costs.end());
+    double sum = 0;
+    for (double c : costs) sum += c;
+    std::printf("INFO log overhead: %.1f us average, %.1f us p99 per accepted line\n",
+                sum / costs.size(), costs[costs.size() * 99 / 100]);
+    const std::string healthy = slurp(file);
+    check(occurrences(healthy, "distinct line") == 200, "log: every line reached the file");
+    check(healthy.find(letters(0)) < healthy.find(letters(1)), "log: lines keep their order");
+    check(sum / costs.size() < 50.0, "log: an accepted line costs the caller under 50 us on average");
+
+    // A message repeated in a tight loop is rate limited, counted, and the next line
+    // that gets through says how many were suppressed.
+    const auto before = sedici::log_stats();
+    for (int i = 0; i < 1000; ++i) log_error("repeat storm " + std::to_string(i));
+    check(sedici::log_flush(5000), "log: the storm drains");
+    const std::string storm = slurp(file);
+    const auto stormStats = sedici::log_stats();
+    check(occurrences(storm, "repeat storm") <= 9, "log: a repeated message is rate limited");
+    check(stormStats.suppressed - before.suppressed >= 990, "log: suppressed repeats are counted");
+    Sleep(700); // one token refills at 2 per second
+    log_error("repeat storm " + std::to_string(1001));
+    check(sedici::log_flush(5000), "log: the follow-up drains");
+    check(slurp(file).find("similar suppressed]") != std::string::npos,
+          "log: the next admitted repeat reports how many were suppressed");
+
+    // A slow disk: the caller is never held, the ring is bounded, drops are counted
+    // and reported once the disk keeps up again.
+    sedici::log_test_reset_rate_limits();
+    sedici::log_test_set_sink_fault(sedici::LogSinkFault::Slow, 150);
+    const auto slowBefore = sedici::log_stats();
+    double worst = 0;
+    const auto burstStart = Clock::now();
+    for (int i = 0; i < 3000; ++i) {
+        const auto t0 = Clock::now();
+        log_error(letters(10000 + i));
+        worst = std::max(worst, micros(t0, Clock::now()));
+    }
+    const double burstMs = micros(burstStart, Clock::now()) / 1000.0;
+    const auto slowStats = sedici::log_stats();
+    std::printf("INFO log with a 150 ms sink: 3000 lines in %.1f ms, worst call %.0f us, max depth %u, dropped %llu\n",
+                burstMs, worst, slowStats.max_depth,
+                static_cast<unsigned long long>(slowStats.dropped - slowBefore.dropped));
+    check(worst < 20000.0, "log: a stalled disk never holds the caller (worst call under 20 ms)");
+    check(slowStats.max_depth <= 256, "log: the queue is bounded");
+    check(slowStats.dropped > slowBefore.dropped, "log: lines refused by a full queue are counted");
+    sedici::log_test_set_sink_fault(sedici::LogSinkFault::None, 0);
+    check(sedici::log_flush(20000), "log: the slow sink drains once it recovers");
+    log_error("after the slow disk");
+    check(sedici::log_flush(5000), "log: the report line drains");
+    check(slurp(file).find("line(s) were dropped because the queue was full") != std::string::npos,
+          "log: dropped lines are reported in the log");
+
+    // A file that cannot be written: the caller is unaffected, the failure is
+    // visible in the counters, and the log says what was lost when it comes back.
+    sedici::log_test_reset_rate_limits();
+    sedici::log_test_set_sink_fault(sedici::LogSinkFault::FailOpen, 0);
+    const auto failBefore = sedici::log_stats();
+    const auto failStart = Clock::now();
+    for (int i = 0; i < 20; ++i) log_error(letters(20000 + i));
+    check(micros(failStart, Clock::now()) < 20000.0, "log: a dead file never holds the caller");
+    for (int i = 0; i < 100 && sedici::log_stats().sink_failures == failBefore.sink_failures; ++i) Sleep(20);
+    const auto failed = sedici::log_stats();
+    check(failed.sink_failures > failBefore.sink_failures && !failed.sink_ok,
+          "log: a failed write is counted and the sink is marked unavailable");
+    sedici::log_test_set_sink_fault(sedici::LogSinkFault::None, 0);
+    log_error("after the outage");
+    check(sedici::log_flush(5000), "log: the outage ends");
+    const auto recovered = sedici::log_stats();
+    const std::string afterOutage = slurp(file);
+    check(recovered.sink_ok && recovered.lost > failBefore.lost, "log: the sink recovers and the lost lines are counted");
+    check(afterOutage.find("the file was unwritable") != std::string::npos &&
+          afterOutage.find("after the outage") != std::string::npos,
+          "log: the outage and its loss are reported once the file is writable");
+
+    sedici::log_test_set_directory({});
+    fs::remove_all(dir, ec);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1025,6 +1147,7 @@ fps = 0
             check(mapped.x == 0 && mapped.y == 0, "negative client coordinates map to the near edge");
             try { sedici::imgui_assert_failed("injected assertion"); }
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
+            log_sink_checks();
             limiter_policy_checks();
             limiter_live_checks();
             window_checks();

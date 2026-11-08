@@ -1,5 +1,6 @@
 #include "stats.h"
 
+#include "diag.h"
 #include "log.h"
 
 #include "ffx_framegeneration.h"
@@ -388,7 +389,11 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
         }
 
         if (!stall.empty()) log_event(1, stall);
-        if (!report.empty()) log_event(1, report);
+        if (!report.empty()) {
+            log_event(1, report);
+            const std::string notable = sedici::diag_notable_line();
+            if (!notable.empty()) log_event(1, notable);
+        }
     } catch (...) {
         log_error("failed to record prepare stats");
     }

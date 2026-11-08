@@ -31,6 +31,7 @@
 
 #include "fg_context.h"
 #include "config.h"
+#include "diag.h"
 #include "fg_integration.h"
 #include "fg_pacing.h"
 #include "fg_params.h"
@@ -2364,19 +2365,24 @@ bool check_routing(Device& state, bool wrapFirst = false)
             ffxApiHeader parkProbe{};
             parkProbe.type = UINT64_MAX;
             ffxContext parkedContexts[3] = {};
-            bool created = true;
+            bool allCreated = true;
             for (auto& parkedContext : parkedContexts)
-                created = created && sedici::fg::route_create(&parkedContext, &create.header, &result) &&
+                allCreated = allCreated && sedici::fg::route_create(&parkedContext, &create.header, &result) &&
                           result == FFX_API_RETURN_OK && parkedContext;
             const unsigned parkedBefore = sedici::fg::route_parked_count();
             sedici::fg::set_retirement_hold(true);
-            bool refused = created;
+            bool refused = allCreated;
             for (auto& parkedContext : parkedContexts) {
                 ffxContext token = parkedContext;
                 refused = refused && sedici::fg::route_destroy(&token, &result) &&
                           result == FFX_API_RETURN_ERROR;
             }
             const unsigned parkedHeld = sedici::fg::route_parked_count();
+            const bool snapshotRouter = sedici::diag_snapshot().router_owners_parked == parkedHeld &&
+                sedici::diag_notable_line().find("router_parked=" + std::to_string(parkedHeld)) != std::string::npos;
+            std::printf("%s P2.10(b): the diagnostics snapshot reports parked router owners%c",
+                        snapshotRouter ? "PASS" : "FAIL", 10);
+            if (!snapshotRouter) return false;
             // A repeated destroy and a configure of a stale token are rejected and
             // must not park the owner a second time.
             ffxContext repeated = parkedContexts[0];
@@ -2388,7 +2394,7 @@ bool check_routing(Device& state, bool wrapFirst = false)
             sedici::fg::set_retirement_hold(false);
             sedici::fg::route_query(&contexts.session, &parkProbe, &result); // reaps
             const unsigned parkedAfter = sedici::fg::route_parked_count();
-            const bool parking = created && refused && secondDestroy && staleConfigure &&
+            const bool parking = allCreated && refused && secondDestroy && staleConfigure &&
                                  parkedHeld == parkedBefore + 3 && parkedStillHeld == parkedHeld &&
                                  parkedAfter == parkedBefore;
             std::printf("%s K41: refused destroys park their owners, a repeat does not double-park, and they are released once work retires (%u -> %u -> %u)%c",
@@ -2866,7 +2872,16 @@ bool check_retention_timeout(Device& state)
         // however often the reaper runs; once the stall clears it must be destroyed.
         const unsigned releasedBefore = sedici::fg::swapchain_release_count();
         for (int i = 0; i < 5; ++i) sedici::fg::Swapchain::reap_retained();
-        const bool heldWhileStalled = sedici::fg::Swapchain::retained_now() == 1 &&
+        // The snapshot must tell the truth about the parked swapchain while it is held.
+        const sedici::DiagSnapshot parkedView = sedici::diag_snapshot();
+        const std::string parkedLine = sedici::diag_notable_line();
+        const bool snapshotTruthful = parkedView.swapchains_parked == 1 &&
+            parkedView.swapchains_parked_total == sedici::fg::swapchain_retention_count() &&
+            parkedLine.find("swapchains_parked=1") != std::string::npos &&
+            parkedLine.find("physical_flip_time") != std::string::npos;
+        std::printf("%s P2.10(b): the diagnostics snapshot reports the parked swapchain and names what it cannot measure\n",
+                    snapshotTruthful ? "PASS" : "FAIL");
+        const bool heldWhileStalled = snapshotTruthful && sedici::fg::Swapchain::retained_now() == 1 &&
                                       sedici::fg::swapchain_release_count() == releasedBefore;
         (void)gate->Signal(1); // End the stall so the retained work can finish.
         const auto waitStart = std::chrono::steady_clock::now();

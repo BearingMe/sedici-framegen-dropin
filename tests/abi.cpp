@@ -66,6 +66,18 @@ struct Harness {
 
     std::string log() const
     {
+        // The DLL writes its log from a background thread, so a line logged just
+        // before this call may not be on disk yet: wait for the file to stop growing.
+        std::error_code ec;
+        uintmax_t last = static_cast<uintmax_t>(-1);
+        int steady = 0;
+        for (int i = 0; i < 100 && steady < 3; ++i) {
+            const uintmax_t size = fs::exists(dir / L"sedici.log", ec) && fs::is_regular_file(dir / L"sedici.log", ec)
+                ? fs::file_size(dir / L"sedici.log", ec) : 0;
+            steady = size == last ? steady + 1 : 0;
+            last = size;
+            Sleep(30);
+        }
         std::ifstream in(dir / L"sedici.log", std::ios::binary);
         std::stringstream text;
         text << in.rdbuf();

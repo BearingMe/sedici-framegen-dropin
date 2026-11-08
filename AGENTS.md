@@ -168,8 +168,11 @@ alone.
   separate so it can be tested without a clock.
 - `src/stats.*` — rolling prepare/present stats every 300 prepares, plus the
   prepare stall detector.
-- `src/log.*` — `sedici.log` beside the DLL, flushed per write,
+- `src/log.*` — `sedici.log` beside the DLL, written by a background thread from a
+  bounded queue with per-message rate limiting and drop/loss counters,
   `MFSRFG_LOG=0/1/2`.
+- `src/diag.*` — read-only snapshot of the log counters and parked objects, and the
+  "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
 - `tools/` — deploy/restore with `.orig` safety rules, `games.json`.
 - `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.
