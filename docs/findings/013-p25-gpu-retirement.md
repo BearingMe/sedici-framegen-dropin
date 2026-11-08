@@ -40,3 +40,7 @@ Retention has no fixed bound and is not exception-safe; a leaked presenter may c
 | K41: tests for the retention paths (K39, K40) | A live GPU cannot be stalled on demand | P2.5 follow-up, P2.10 watchdog |
 | Per-slot descriptor ranges and scratch | The stage uses fixed objects, not descriptor ranges that move between slots, so there is no descriptor retirement to make explicit yet | Revisit when stage 2 adds inference scratch |
 | A device and queue abstraction for fault injection | Larger design change; the device-removal test covers the loss case without it | Decide after P2.7 |
+
+## Owner acceptance (2026-11-08)
+
+The owner accepted P2.5 with recorded gaps. Added since the correction above: K104 (destroy wait releases the context lock, tested with a mutation), K105 (schedule restored after a refused presenter job, fault-injected) and a live-GPU stall test for the swapchain retention path (`--retention-timeout`, K41). Open and accepted: K37 cross-queue work, K77, the router parking test, and unbounded timeout retention (K47, K48), which moves to the P2.10 watchdog.
