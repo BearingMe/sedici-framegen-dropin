@@ -1349,7 +1349,23 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             const bool retried = SUCCEEDED(retry) && calls == 1;
             std::puts(retried ? "PASS Present1 retry with the same metadata is accepted"
                               : "FAIL Present1 retry after allocation error");
-            return retried;
+            if (!retried) return false;
+            // K105: a refused presenter job leaves ownership unadvanced and a retry works.
+            const UINT indexBefore = wrapped->GetCurrentBackBufferIndex();
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::PresenterSubmit);
+            const HRESULT refused = wrapped->Present(0, presentFlags);
+            const bool hit = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::PresenterSubmit);
+            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
+            if (!hit || refused != E_OUTOFMEMORY || wrapped->GetCurrentBackBufferIndex() != indexBefore) {
+                std::puts("FAIL a refused presenter job advanced buffer ownership");
+                return false;
+            }
+            const HRESULT again = wrapped->Present(0, presentFlags);
+            const bool accepted = SUCCEEDED(again) && wrapped->GetCurrentBackBufferIndex() != indexBefore &&
+                                  g_debug_errors.load() == 0;
+            std::puts(accepted ? "PASS K105: a refused presenter job leaves ownership unchanged and a retry is accepted"
+                               : "FAIL retry after a refused presenter job");
+            return accepted;
         }
         if (signalFault || closeFault || resetFault) {
             ComPtr<ID3D12Fence> recoveryGate;

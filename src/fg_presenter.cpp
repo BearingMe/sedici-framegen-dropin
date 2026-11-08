@@ -1,4 +1,5 @@
 #include "fg_presenter.h"
+#include "fg_bookkeeping_faults.h"
 #include "fg_retirement_policy.h"
 #include "fg_queue_policy.h"
 
@@ -291,6 +292,7 @@ bool Presenter::wait_outstanding(size_t max, DWORD timeoutMs) noexcept
 
 HRESULT Presenter::submit(PresentJob&& job) noexcept try
 {
+    if (consume_bookkeeping_fault(BookkeepingFault::PresenterSubmit)) return E_OUTOFMEMORY;
     {
         std::lock_guard lock(m_mutex);
         if (m_stop) return DXGI_ERROR_INVALID_CALL;

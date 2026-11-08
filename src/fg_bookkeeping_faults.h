@@ -17,6 +17,7 @@ enum class BookkeepingFault {
     PresentParametersAllocation, // offline test: simulate dirty-rectangle allocation failure
     TokenReservation,            // offline test: simulate handle-namespace reservation failure (K29)
     BackendCreation,             // offline test: simulate backend allocation failure before creation (K63)
+    PresenterSubmit,             // offline test: simulate a refused presenter job (K105)
 };
 
 void arm_bookkeeping_fault(BookkeepingFault fault) noexcept;
