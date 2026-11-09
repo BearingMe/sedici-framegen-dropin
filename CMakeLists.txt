@@ -50,14 +50,14 @@ add_library(sedici_core OBJECT
     src/abi/describe.cpp
     src/diagnostics/stats.cpp
     src/presentation/limiter.cpp
-    src/overlay.cpp
+    src/ui/overlay.cpp
     src/presentation/overlay_compose.cpp
     src/diagnostics/timing.cpp
     src/settings/live.cpp
     src/settings/settings_tx.cpp
     src/settings/settings_io.cpp
-    src/ui.cpp
-    src/ui_input.cpp
+    src/ui/ui.cpp
+    src/ui/ui_input.cpp
     src/settings/config_patch.cpp
     src/settings/config.cpp
     src/diagnostics/log.cpp
@@ -90,7 +90,7 @@ target_compile_definitions(sedici_core PUBLIC
     WIN32_LEAN_AND_MEAN
     UNICODE
     _UNICODE
-    IMGUI_USER_CONFIG="imgui_config.h"
+    IMGUI_USER_CONFIG="ui/imgui_config.h"
 )
 
 if(MSVC)

@@ -1,4 +1,4 @@
-#include "ui.h"
+#include "ui/ui.h"
 
 #include "runtime/bookkeeping_faults.h"
 
@@ -14,7 +14,7 @@
 #include "diagnostics/stats.h"
 #include "diagnostics/timing.h"
 #include "abi/route.h"
-#include "ui_input.h"
+#include "ui/ui_input.h"
 
 #include "imgui.h"
 #include "imgui_impl_dx12.h"

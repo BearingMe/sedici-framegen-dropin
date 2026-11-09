@@ -150,13 +150,13 @@ alone.
 - `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
 - `src/abi/describe.*` — desc-chain walking and per-type logging.
-- `src/overlay.*` — output cadence recording and the overlay draw hooks the
+- `src/ui/ui/overlay.*` — output cadence recording and the overlay draw hooks the
   swapchain wrapper calls for each presented frame.
 - `src/presentation/overlay_compose.*` — the DX12 copy and resource-state restoration used by
   that callback.
-- `src/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live
+- `src/ui/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live
   controls, snapshot/cancel.
-- `src/ui_input.*` — Full-menu cursor ownership: executable import interception
+- `src/ui/ui_input.*` — Full-menu cursor ownership: executable import interception
   for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
 - `src/settings/live.*` — mutable live values shared by the overlay, limiter, pacing,
   async and logging.

@@ -1,8 +1,8 @@
-#include "overlay.h"
+#include "ui/overlay.h"
 
 #include "diagnostics/log.h"
 #include "diagnostics/timing.h"
-#include "ui.h"
+#include "ui/ui.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 
