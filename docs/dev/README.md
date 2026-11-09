@@ -16,5 +16,5 @@ The rules are in [`AGENTS.md`](../../AGENTS.md) (read them first); the plan and 
 Quick map: `src/dllmain.cpp` is the five exports; `src/abi/` receives the calls;
 `src/runtime/` owns contexts and sessions; `src/generator/` is Stage 1; `src/presentation/` owns
 the swapchain wrapper, pacing and limiter; `src/ui/` is the overlay and menu; `src/settings/`
-is `sedici.toml`; `src/diagnostics/` is log, stats and timing; `src/gpu/` holds pure GPU policies.
+is `sedici.toml`; `src/diagnostics/` is log, stats, timing and fault injection; `src/status/` is the diagnostic snapshot; `src/gpu/` holds pure GPU policies.
 Includes are written relative to `src/`, for example `#include "presentation/swapchain.h"`.

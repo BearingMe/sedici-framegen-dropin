@@ -4,8 +4,8 @@
 #include "presentation/limiter_schedule.h"
 #include "settings/live.h"
 #include "diagnostics/log.h"
-#include "abi/route.h"
 
+#include <atomic>
 #include <windows.h>
 #include <intrin.h>
 
@@ -240,6 +240,12 @@ std::string stats_line_locked(bool fg_active)
 
 } // namespace
 
+namespace {
+std::atomic<bool (*)() noexcept> g_fg_probe{nullptr};
+}
+
+void limiter_set_fg_probe(bool (*probe)() noexcept) noexcept { g_fg_probe.store(probe, std::memory_order_release); }
+
 void limiter_before_present(uint64_t now_qpc) noexcept
 {    // The overwhelmingly common case is the limiter being off. Keep it to one
     // immutable read so milestone-1 behaviour is untouched.
@@ -254,7 +260,9 @@ void limiter_before_present(uint64_t now_qpc) noexcept
             std::lock_guard<std::mutex> lock(g_mutex);
             if (!initialize_locked()) return;
 
-            const bool fg_active = sedici::fg::route_any_generation_enabled();
+            const auto probe = g_fg_probe.load(std::memory_order_acquire);
+            const bool fg_active = probe ? probe() : false;
+            sedici::live_set_cap_listener(&limiter_on_config_changed);
             if (!g_state.logged_mode || g_state.logged_fg != fg_active) {
                 g_state.logged_mode = true;
                 g_state.logged_fg = fg_active;

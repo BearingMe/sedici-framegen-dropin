@@ -16,6 +16,10 @@
 // inert it does no work at all: no timer, no wait, no allocation, no log.
 void limiter_before_present(uint64_t now_qpc) noexcept;
 
+// Reports whether frame generation is active, for the limiter's log label. Set
+// once by the DLL entry; unset (tests) means "off".
+void limiter_set_fg_probe(bool (*probe)() noexcept) noexcept;
+
 // Rebuilds the limiter schedule after the live target changes. Safe to call
 // from the overlay thread; no timer is created here, the next real Present
 // initializes with the new target.

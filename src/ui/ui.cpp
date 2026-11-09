@@ -1,6 +1,6 @@
 #include "ui/ui.h"
 
-#include "runtime/bookkeeping_faults.h"
+#include "diagnostics/bookkeeping_faults.h"
 
 #include "settings/config.h"
 #include "settings/config_patch.h"

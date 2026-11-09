@@ -11,8 +11,8 @@ The `fg_` prefix was dropped; nothing else was renamed.
 | `src/fg_route.cpp` | `src/abi/route.cpp` |
 | `src/fg_route.h` | `src/abi/route.h` |
 | `src/fg_token_namespace.h` | `src/abi/token_namespace.h` |
-| `src/diag.cpp` | `src/diagnostics/diag.cpp` |
-| `src/diag.h` | `src/diagnostics/diag.h` |
+| `src/diag.cpp` | `src/status/diag.cpp` (moved from `diagnostics/` in P4.5) |
+| `src/diag.h` | `src/status/diag.h` (moved from `diagnostics/` in P4.5) |
 | `src/log.cpp` | `src/diagnostics/log.cpp` |
 | `src/log.h` | `src/diagnostics/log.h` |
 | `src/stats.cpp` | `src/diagnostics/stats.cpp` |
@@ -40,8 +40,8 @@ The `fg_` prefix was dropped; nothing else was renamed.
 | `src/fg_presenter.h` | `src/presentation/presenter.h` |
 | `src/fg_swapchain.cpp` | `src/presentation/swapchain.cpp` |
 | `src/fg_swapchain.h` | `src/presentation/swapchain.h` |
-| `src/fg_bookkeeping_faults.cpp` | `src/runtime/bookkeeping_faults.cpp` |
-| `src/fg_bookkeeping_faults.h` | `src/runtime/bookkeeping_faults.h` |
+| `src/fg_bookkeeping_faults.cpp` | `src/diagnostics/bookkeeping_faults.cpp` (moved from `runtime/` in P4.5) |
+| `src/fg_bookkeeping_faults.h` | `src/diagnostics/bookkeeping_faults.h` (moved from `runtime/` in P4.5) |
 | `src/fg_context.cpp` | `src/runtime/context.cpp` |
 | `src/fg_context.h` | `src/runtime/context.h` |
 | `src/fg_integration.cpp` | `src/runtime/integration.cpp` |

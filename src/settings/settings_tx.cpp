@@ -1,7 +1,6 @@
 #include "settings/settings_tx.h"
 
 #include "settings/config_patch.h"
-#include "presentation/limiter.h"
 #include "settings/live.h"
 #include "diagnostics/log.h"
 
@@ -91,7 +90,7 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
     ++g_revision;
     result.revision = g_revision;
     if (before.target_fps != candidate.target_fps || before.target_auto != candidate.target_auto)
-        limiter_on_config_changed();
+        live_notify_cap_changed();
     return result;
 }
 

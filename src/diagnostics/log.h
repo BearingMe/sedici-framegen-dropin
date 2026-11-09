@@ -11,6 +11,10 @@ std::filesystem::path dll_directory();
 // 0 = errors only, 1 = normal (default), 2 = verbose.
 int log_level() noexcept;
 
+// The settings layer publishes the live log level here whenever it changes, so
+// diagnostics never has to read settings (P4.5).
+void log_publish_level(int level) noexcept;
+
 // Every function below only copies the message into a fixed ring and wakes a
 // writer thread: no file I/O, no allocation and no unbounded wait on the caller's
 // thread, so a slow or failing disk cannot stall a Present (P2.10). A full ring

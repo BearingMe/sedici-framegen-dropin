@@ -1,6 +1,5 @@
 #include "diagnostics/stats.h"
 
-#include "diagnostics/diag.h"
 #include "diagnostics/log.h"
 
 #include "ffx_framegeneration.h"
@@ -22,6 +21,7 @@
 #include <vector>
 
 namespace {
+std::atomic<StatsExtraLineFn> g_extra_line{nullptr};
 
 constexpr size_t kReportEvery = 300;
 constexpr size_t kMaxChainItems = 64;
@@ -392,8 +392,10 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
         if (!stall.empty()) log_event(1, stall);
         if (!report.empty()) {
             log_event(1, report);
-            const std::string notable = sedici::diag_notable_line();
-            if (!notable.empty()) log_event(1, notable);
+            if (const StatsExtraLineFn extra = g_extra_line.load(std::memory_order_acquire)) {
+                const std::string notable = extra();
+                if (!notable.empty()) log_event(1, notable);
+            }
         }
     } catch (...) {
         log_error("failed to record prepare stats");
@@ -435,6 +437,8 @@ void stats_on_swapchain_event(const char* kind) noexcept
 namespace {
 std::atomic<uint64_t> g_real_dropped{0};
 }
+
+void stats_set_extra_line(StatsExtraLineFn fn) noexcept { g_extra_line.store(fn, std::memory_order_release); }
 
 void stats_on_real_dropped() noexcept { g_real_dropped.fetch_add(1, std::memory_order_relaxed); }
 uint64_t stats_real_dropped() noexcept { return g_real_dropped.load(std::memory_order_relaxed); }

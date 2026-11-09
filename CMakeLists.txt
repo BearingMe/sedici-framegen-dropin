@@ -61,9 +61,9 @@ add_library(sedici_core OBJECT
     src/settings/config_patch.cpp
     src/settings/config.cpp
     src/diagnostics/log.cpp
-    src/diagnostics/diag.cpp
+    src/status/diag.cpp
     src/generator/params.cpp
-    src/runtime/bookkeeping_faults.cpp
+    src/diagnostics/bookkeeping_faults.cpp
     src/generator/stage1.cpp
     src/runtime/context.cpp
     src/presentation/swapchain.cpp
@@ -125,6 +125,11 @@ if(SEDICI_BUILD_TESTS)
     add_test(NAME sedici_deploy_tools COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
         -File ${CMAKE_SOURCE_DIR}/tests/tools/deploy_check.ps1 -Dll $<TARGET_FILE:sedici> -Repo ${CMAKE_SOURCE_DIR})
     set_tests_properties(sedici_deploy_tools PROPERTIES TIMEOUT 120 LABELS "packaging")
+
+    # P4.5: every module include goes to a strictly lower layer, so no cycle can form.
+    add_test(NAME sedici_layers COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+        -File ${CMAKE_SOURCE_DIR}/tools/check_layers.ps1 -Root ${CMAKE_SOURCE_DIR})
+    set_tests_properties(sedici_layers PROPERTIES TIMEOUT 60 LABELS "structure")
 
     # Test-only module and isolated host: unlike the proxy, this helper exports
     # one control entry so the host can verify the worker's DLL reference.

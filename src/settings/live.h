@@ -36,6 +36,12 @@ void live_set_target_auto(bool automatic) noexcept;
 // 1 when nothing is generated) and the refresh rate of the monitor in Hz (0 =
 // unknown). Returns true when the resolved real-frame cap changed, so the caller
 // can tell the limiter.
+// The cap's consumer (the limiter) registers here so a settings change can tell it
+// to reschedule without settings depending on presentation (P4.5).
+using LiveCapListener = void (*)() noexcept;
+void live_set_cap_listener(LiveCapListener listener) noexcept;
+void live_notify_cap_changed() noexcept;
+
 bool live_set_output_context(double ratio, double refresh_hz) noexcept;
 double live_output_refresh_hz() noexcept;
 

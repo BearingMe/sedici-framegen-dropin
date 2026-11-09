@@ -1,6 +1,6 @@
-#include "diagnostics/diag.h"
+#include "status/diag.h"
 
-#include "runtime/bookkeeping_faults.h"
+#include "diagnostics/bookkeeping_faults.h"
 #include "abi/route.h"
 #include "presentation/swapchain.h"
 

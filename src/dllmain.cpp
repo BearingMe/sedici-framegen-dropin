@@ -5,6 +5,7 @@
 #include "diagnostics/log.h"
 #include "ui/overlay.h"
 #include "diagnostics/stats.h"
+#include "status/diag.h"
 #include "diagnostics/timing.h"
 #include "ui/ui.h"
 
@@ -18,6 +19,8 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(instance);
+        limiter_set_fg_probe(&sedici::fg::route_any_generation_enabled);
+        stats_set_extra_line(&sedici::diag_notable_line); // the "diag:" line after each report
     } else if (reason == DLL_PROCESS_DETACH && reserved) {
         // The process is exiting and the log writer thread is already gone: write
         // what it had not yet written. Never waits on a lock (log_drain_at_exit).

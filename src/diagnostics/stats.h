@@ -2,6 +2,8 @@
 
 #include "ffx_api.h"
 
+#include <string>
+
 // Called after a successful ffxDispatch. Counts prepare descs only.
 void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept;
 
@@ -13,6 +15,12 @@ void stats_on_present(uint64_t qpc) noexcept;
 // detector, which reports whether a stall coincided with one of these. `kind`
 // must be a string literal; only the pointer is stored.
 void stats_on_swapchain_event(const char* kind) noexcept;
+
+// An optional extra line written after each periodic report (the "diag:" line,
+// registered by the DLL entry; diagnostics must not depend on the modules that
+// know the parked-object counters). Empty string = nothing to say.
+using StatsExtraLineFn = std::string (*)() noexcept;
+void stats_set_extra_line(StatsExtraLineFn fn) noexcept;
 
 // Read-only view for the overlay. Locks internally; safe from any thread.
 uint64_t stats_stall_count() noexcept;

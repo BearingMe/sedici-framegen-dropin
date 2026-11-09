@@ -40,11 +40,12 @@ sedici_fgcheck_submission_fault_vrr Passed
 sedici_fgcheck_submission_recovery_vrr Passed
 sedici_gpu_full Passed
 sedici_gpu_mini Passed
+sedici_layers Passed
 sedici_regression Passed
 sedici_settings_env_priority Passed
 sedici_settings_sedici_capability Passed
 sedici_settings_worker_lifetime Passed
-ctest-total 39
+ctest-total 40
 == fgcheck
 display 480x270, render 320x180, alpha 0.5, 40 iterations
 rightward pan      psnr  42.92 dB  ssim 0.9985

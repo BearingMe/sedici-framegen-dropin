@@ -171,11 +171,11 @@ alone.
 - `src/diagnostics/log.*` — `sedici.log` beside the DLL, written by a background thread from a
   bounded queue with per-message rate limiting and drop/loss counters,
   `MFSRFG_LOG=0/1/2`.
-- `src/diagnostics/diag.*` — read-only snapshot of the log counters and parked objects, and the
+- `src/status/diag.*` — read-only snapshot of the log counters and parked objects, and the
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
-- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, and the Phase 3 checks
-  `baseline.ps1` and `check_moves.ps1`.
+- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, the Phase 3 checks
+  `baseline.ps1` and `check_moves.ps1`, and `check_layers.ps1` (module layering, CTest `sedici_layers`).
 - `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools` — the
   offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`, the settings worker
   host, `deploy_check.ps1`).

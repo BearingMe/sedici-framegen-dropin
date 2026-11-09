@@ -1,5 +1,5 @@
 #include "presentation/presenter.h"
-#include "runtime/bookkeeping_faults.h"
+#include "diagnostics/bookkeeping_faults.h"
 #include "gpu/retirement_policy.h"
 #include "gpu/queue_policy.h"
 

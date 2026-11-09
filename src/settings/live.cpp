@@ -1,5 +1,6 @@
 #include "settings/live.h"
 #include "settings/target_rate.h"
+#include "diagnostics/log.h"
 
 #include <algorithm>
 #include <atomic>
@@ -11,6 +12,7 @@ namespace {
 std::mutex g_values_mutex;
 LiveValues g_values;
 std::atomic<int> g_ui_mode{static_cast<int>(UiMode::Off)};
+std::atomic<LiveCapListener> g_cap_listener{nullptr};
 std::atomic<double> g_ratio{1.0};
 std::atomic<double> g_refresh_hz{0.0};
 
@@ -26,6 +28,7 @@ void live_apply(const LiveValues& values) noexcept
 {
     std::lock_guard lock(g_values_mutex);
     g_values = values;
+    log_publish_level(values.log_level);
 }
 
 void live_initialize(const Settings& config) noexcept
@@ -57,6 +60,12 @@ void live_set_target_auto(bool automatic) noexcept
     std::lock_guard lock(g_values_mutex);
     g_values.target_auto = automatic;
 }
+void live_set_cap_listener(LiveCapListener listener) noexcept { g_cap_listener.store(listener, std::memory_order_release); }
+void live_notify_cap_changed() noexcept
+{
+    if (const LiveCapListener listener = g_cap_listener.load(std::memory_order_acquire)) listener();
+}
+
 bool live_set_output_context(double ratio, double refresh_hz) noexcept
 {
     const double before = live_limiter_fps();
@@ -70,6 +79,7 @@ void live_set_log_level(int level) noexcept
 {
     std::lock_guard lock(g_values_mutex);
     g_values.log_level = std::clamp(level, 0, 2);
+    log_publish_level(g_values.log_level);
 }
 
 UiMode live_ui_mode() noexcept

@@ -1,4 +1,4 @@
-#include "runtime/bookkeeping_faults.h"
+#include "diagnostics/bookkeeping_faults.h"
 
 #include <atomic>
 

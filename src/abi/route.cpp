@@ -4,7 +4,7 @@
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 #include "runtime/integration.h"
-#include "runtime/bookkeeping_faults.h"
+#include "diagnostics/bookkeeping_faults.h"
 #include "diagnostics/error_code.h"
 #include "abi/token_namespace.h"
 #include "diagnostics/log.h"

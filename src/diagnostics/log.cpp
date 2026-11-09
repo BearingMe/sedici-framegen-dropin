@@ -1,6 +1,5 @@
 #include "diagnostics/log.h"
 
-#include "settings/live.h"
 
 #include <windows.h>
 
@@ -364,11 +363,18 @@ std::filesystem::path dll_directory()
     return directory;
 }
 
+namespace {
+std::atomic<int> g_published_level{1};
+}
+
+void log_publish_level(int level) noexcept { g_published_level.store(level, std::memory_order_relaxed); }
+
 int log_level() noexcept
 {
     // Initialized from `[log] level`/MFSRFG_LOG by settings(), then updated
-    // live by the overlay. Reading an atomic keeps the hot path allocation-free.
-    return sedici::live_log_level();
+    // live by the overlay, both through log_publish_level(). Reading an atomic
+    // keeps the hot path allocation-free.
+    return g_published_level.load(std::memory_order_relaxed);
 }
 
 void log_error(std::string_view message) noexcept
