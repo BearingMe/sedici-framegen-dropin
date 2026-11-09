@@ -4,6 +4,10 @@ Why a deployed Sedici build cannot produce a single frame in Alan Wake 2, what
 the game's log and descriptors show, and what it would take to support the game.
 Recorded from a user-run session; nothing here was run by an automated check.
 
+**Update:** the `New` route was built and run on a temporary branch (`bearingme/aw2-patch`, not merged); see
+[finding 015](015-alan-wake-2-first-sedici-session.md) for the result and the
+blocker that remains (the HDR create flag, K129).
+
 **Status:** open. The game's only FFX call is answered with
 `FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE`, so frame generation is off and the game
 runs on its own chain. The return code is the documented one and the host did not
