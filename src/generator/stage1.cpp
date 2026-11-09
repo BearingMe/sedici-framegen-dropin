@@ -2,6 +2,7 @@
 
 #include <d3dcompiler.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -158,8 +159,7 @@ bool Stage1::initialize(ID3D12Device* device) noexcept try
     std::memcpy(mapped, kLutBits, sizeof(kLutBits));
     m_lut->Unmap(0, nullptr);
 
-    m_pipelines_ready = compile_pipeline(shaders::kDecode, "decode", m_decode.GetAddressOf()) &&
-                        compile_pipeline(shaders::kDilate, "dilate", m_dilate.GetAddressOf()) &&
+    m_pipelines_ready = compile_pipeline(shaders::kPrepare, "prepare", m_prepare.GetAddressOf()) &&
                         compile_pipeline(shaders::kClear, "clear", m_clear.GetAddressOf()) &&
                         compile_pipeline(shaders::kReproject, "reproject", m_reproject.GetAddressOf()) &&
                         compile_pipeline(shaders::kFill, "fill", m_fill.GetAddressOf()) &&
@@ -230,8 +230,6 @@ bool Stage1::create_target(Target& target, DXGI_FORMAT format, uint32_t width, u
 
 void Stage1::release_targets() noexcept
 {
-    m_decodedDepth = Target{};
-    m_decodedMotion = Target{};
     for (auto& target : m_depth) target = Target{};
     for (auto& target : m_motion) target = Target{};
     for (auto& target : m_color) target = Target{};
@@ -248,11 +246,6 @@ bool Stage1::create_targets() noexcept
 
     const auto uav = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto readOnly = D3D12_RESOURCE_FLAG_NONE;
-
-    if (!create_target(m_decodedDepth, DXGI_FORMAT_R32_FLOAT, m_params.renderWidth,
-                       m_params.renderHeight, uav)) return false;
-    if (!create_target(m_decodedMotion, DXGI_FORMAT_R16G16_FLOAT, m_params.renderWidth,
-                       m_params.renderHeight, uav)) return false;
 
     for (int index = 0; index < 2; ++index) {
         if (!create_target(m_depth[index], DXGI_FORMAT_R32_FLOAT, m_params.renderWidth,
@@ -364,6 +357,17 @@ void Stage1::copy_target(ID3D12GraphicsCommandList* list, Target& source,
     transition(list, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 }
 
+namespace {
+std::atomic<PassMarkFn> g_pass_mark{nullptr};
+std::atomic<void*> g_pass_user{nullptr};
+} // namespace
+
+void stage1_set_pass_mark(PassMarkFn fn, void* user) noexcept
+{
+    g_pass_user.store(user, std::memory_order_relaxed);
+    g_pass_mark.store(fn, std::memory_order_release);
+}
+
 bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline,
                       uint32_t groupX, uint32_t groupY) noexcept
 {
@@ -389,6 +393,13 @@ bool Stage1::dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipe
     list->SetComputeRootDescriptorTable(1, srv);
     list->SetComputeRootDescriptorTable(2, uav);
     list->Dispatch(groupX, groupY, 1);
+    if (const PassMarkFn mark = g_pass_mark.load(std::memory_order_acquire)) {
+        const char* name = pipeline == m_prepare.Get() ? "prepare"
+            : pipeline == m_clear.Get() ? "clear" : pipeline == m_reproject.Get() ? "reproject"
+            : pipeline == m_fill.Get() ? "fill" : pipeline == m_warp.Get() ? "warp"
+            : pipeline == m_composite.Get() ? "composite" : "pass";
+        mark(g_pass_user.load(std::memory_order_relaxed), list, name);
+    }
     return true;
 }
 
@@ -411,26 +422,14 @@ bool Stage1::capture_prepare(ID3D12GraphicsCommandList* list, const InputFrame& 
     const uint32_t current = m_current;
     transition_external(list, frame.depth, frame.depthState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     transition_external(list, frame.motion, frame.motionState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, m_decodedDepth, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    transition(list, m_decodedMotion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, m_depth[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, m_motion[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     begin_block(0);
     write_srv(0, frame.depth, frame.depthFormat);
     write_srv(1, frame.motion, frame.motionFormat);
-    write_uav(0, m_decodedDepth.get(), DXGI_FORMAT_R32_FLOAT);
-    write_uav(1, m_decodedMotion.get(), DXGI_FORMAT_R16G16_FLOAT);
-    dispatch(list, m_decode.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
-    uav_barrier(list, m_decodedDepth.get());
-    uav_barrier(list, m_decodedMotion.get());
-    transition(list, m_decodedDepth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, m_decodedMotion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, m_depth[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    transition(list, m_motion[current], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    begin_block(1);
-    write_srv(0, m_decodedDepth.get(), DXGI_FORMAT_R32_FLOAT);
-    write_srv(1, m_decodedMotion.get(), DXGI_FORMAT_R16G16_FLOAT);
     write_uav(0, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
     write_uav(1, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
-    dispatch(list, m_dilate.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
+    dispatch(list, m_prepare.Get(), groups(m_params.renderWidth), groups(m_params.renderHeight));
     uav_barrier(list, m_depth[current].get());
     uav_barrier(list, m_motion[current].get());
     transition(list, m_depth[current], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

@@ -78,6 +78,10 @@ constexpr SceneConfig kScenes[] = {
     {"rightward pan", 0.10f, 0.0f, 0.12f, 0.35f, 0.50f},
     {"leftward pan", -0.05f, 0.0f, 0.20f, 0.70f, 0.50f},
     {"diagonal thin bar", 0.06f, 0.04f, 0.03f, 0.30f, 0.40f},
+    // K120: a quarter of the screen per frame. The bar uncovers a large area of
+    // background between the two real frames, which is the disocclusion the owner
+    // saw at high speed. The score is recorded; there is no threshold to meet.
+    {"fast bar", 0.25f, 0.0f, 0.12f, 0.20f, 0.50f},
 };
 
 struct Image {
@@ -419,6 +423,23 @@ struct FrameTextures {
     ComPtr<ID3D12Resource> motion;
 };
 
+// P4.4 (K117): per-pass GPU time. With `--profile` a timestamp is written after each
+// Stage 1 pass and the deltas are printed beside the total.
+bool g_profile = false;
+struct PassProfile {
+    ID3D12QueryHeap* heap = nullptr;
+    static constexpr uint32_t kMaxMarks = 32;
+    uint32_t next = 2; // 0 and 1 are the frame start and end
+    std::vector<const char*> names;
+};
+void pass_mark(void* user, ID3D12GraphicsCommandList* list, const char* pass)
+{
+    auto* profile = static_cast<PassProfile*>(user);
+    if (!profile->heap || profile->next >= 2 + PassProfile::kMaxMarks) return;
+    list->EndQuery(profile->heap, D3D12_QUERY_TYPE_TIMESTAMP, profile->next++);
+    profile->names.push_back(pass);
+}
+
 bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 {
     const auto previousDisplay = make_scene(config, 0.0f, kDisplayWidth, kDisplayHeight);
@@ -511,14 +532,21 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     D3D12_QUERY_HEAP_DESC queryDescription{};
     queryDescription.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-    queryDescription.Count = 2;
+    queryDescription.Count = 2 + (g_profile ? PassProfile::kMaxMarks : 0);
     ComPtr<ID3D12QueryHeap> queryHeap;
     if (FAILED(state.device->CreateQueryHeap(&queryDescription, IID_PPV_ARGS(&queryHeap)))) {
         std::fprintf(stderr, "query heap failed\n");
         return false;
     }
-    auto timings = create_buffer(state.device.Get(), 2 * sizeof(uint64_t), D3D12_HEAP_TYPE_READBACK,
-                                 D3D12_RESOURCE_STATE_COPY_DEST);
+    auto timings = create_buffer(state.device.Get(), queryDescription.Count * sizeof(uint64_t),
+                                 D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+    PassProfile profile;
+    std::vector<double> passTicks; // summed per mark index over the measured iterations
+    std::vector<const char*> passNames;
+    if (g_profile) {
+        profile.heap = queryHeap.Get();
+        sedici::fg::stage1_set_pass_mark(&pass_mark, &profile);
+    }
 
     const uint32_t outputRowPitch = align_to(kDisplayWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     auto readback = create_buffer(state.device.Get(),
@@ -533,6 +561,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         const uint32_t source = iteration % 2;
         if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
         state.list->EndQuery(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        profile.next = 2;
+        profile.names.clear();
         ffxConfigureDescFrameGeneration configure{};
         configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         configure.frameGenerationEnabled = true;
@@ -556,7 +586,9 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             return false;
         }
         state.list->EndQuery(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
-        state.list->ResolveQueryData(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
+        // Marks are in recording order; the end timestamp is last in time, so resolve
+        // the start, the end and the marks as one range.
+        state.list->ResolveQueryData(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, profile.next,
                                      timings.Get(), 0);
 
         transition(state.list.Get(), output.Get(), outputState, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -588,6 +620,18 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             if (source == 1 && values[1] > values[0]) {
                 ticks += values[1] - values[0];
                 ++measured;
+                if (g_profile) {
+                    if (passTicks.size() < profile.names.size()) {
+                        passTicks.resize(profile.names.size(), 0.0);
+                        passNames = profile.names;
+                    }
+                    uint64_t previous = values[0];
+                    for (size_t k = 0; k < profile.names.size(); ++k) {
+                        const uint64_t at = values[2 + k];
+                        if (at > previous) passTicks[k] += static_cast<double>(at - previous);
+                        previous = std::max(previous, at);
+                    }
+                }
             }
             timings->Unmap(0, nullptr);
         }
@@ -618,6 +662,16 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     std::printf("%-18s psnr %6.2f dB  ssim %.4f  stage1 %.3f ms\n",
                 config.name, psnrValue, ssimValue, milliseconds);
+    if (g_profile) {
+        sedici::fg::stage1_set_pass_mark(nullptr, nullptr);
+        std::printf("%-18s passes (ms, time to each pass end):", config.name);
+        for (size_t k = 0; k < passTicks.size(); ++k) {
+            const double ms = measured && frequency
+                ? passTicks[k] / measured / static_cast<double>(frequency) * 1000.0 : 0.0;
+            std::printf(" %s %.3f", passNames[k], ms);
+        }
+        std::printf("\n");
+    }
 
     if (keepImages) {
         char name[128];
@@ -3136,6 +3190,7 @@ int main(int argc, char** argv)
         registrationRecovery |= std::string(argv[i]) == "--registration-recovery";
         contextRace |= std::string(argv[i]) == "--context-race";
         keepImages |= std::string(argv[i]) == "--images";
+        g_profile |= std::string(argv[i]) == "--profile";
         present |= std::string(argv[i]) == "--present";
         routing |= std::string(argv[i]) == "--routing";
         retention |= std::string(argv[i]) == "--retention-timeout";

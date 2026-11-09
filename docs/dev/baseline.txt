@@ -59,6 +59,10 @@ diagonal thin bar  psnr  45.99 dB  ssim 0.9984
 PASS diagonal thin bar  phases in one list: 1/3 psnr  47.14 dB (nearest real  26.44), 2/3 psnr  47.58 dB (nearest real  26.56)
 diagonal thin bar  hud preservation 100.0%
 PASS diagonal thin bar  reset seed: the game frame with a HUD source, the HUD-less colour without
+fast bar           psnr  42.87 dB  ssim 0.9985
+PASS fast bar           phases in one list: 1/3 psnr  42.94 dB (nearest real  15.19), 2/3 psnr  42.66 dB (nearest real  15.12)
+fast bar           hud preservation 100.0%
+PASS fast bar           reset seed: the game frame with a HUD source, the HUD-less colour without
 PASS create accepts Cyberpunk's create desc
 PASS configure accepts the FrameGenerationConfig desc
 PASS prepare accepts the legacy prepare desc

@@ -62,6 +62,13 @@ struct GeneratePhase {
     float alpha = kMidpointAlpha;
 };
 
+// Profiling hook (P4.4, K117): called right after each compute pass is recorded so a
+// test host can write a GPU timestamp there. `pass` is a string literal
+// ("prepare", "clear", "reproject", "fill", "warp", "composite"). Null
+// (the default) costs one pointer load per pass; production never sets it.
+using PassMarkFn = void (*)(void* user, ID3D12GraphicsCommandList* list, const char* pass);
+void stage1_set_pass_mark(PassMarkFn fn, void* user) noexcept;
+
 class Stage1 {
 public:
     Stage1() = default;
@@ -166,16 +173,13 @@ private:
     uint32_t m_increment = 0;
     uint32_t m_block = 0;
 
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_decode;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_dilate;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_prepare; // decode + dilate, one pass
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_clear;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_reproject;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_fill;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_warp;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_composite;
 
-    Target m_decodedDepth;
-    Target m_decodedMotion;
     Target m_depth[2];
     Target m_motion[2];
     Target m_color[2];

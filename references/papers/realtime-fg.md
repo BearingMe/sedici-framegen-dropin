@@ -1,9 +1,10 @@
 # Real-Time Frame Generation: Architecture and Paper Selection (RDNA3 / FFX FG Hook)
 
 > **Status note (2026-11-09):** the 0.15-0.30 ms Stage 1 figure below is a design
-> estimate. Measured offline at 1080p, Stage 1 costs 0.64-0.69 ms (K117, open), so the
-> combined budget claims here are not met as written. Nothing has been profiled in the
-> game.
+> estimate. Measured offline at 1080p, Stage 1 costs 0.61 ms after merging the decode and
+> dilate passes (K117, resolved in P4.4; 0.64-0.69 ms before), so Stage 1 alone is 2 to 4 times
+> the figure here; with the Stage 2 estimate (1.10-1.35 ms) the 2.0 ms combined budget still holds
+> with 0.04 ms to spare. Nothing has been profiled in the game.
 
 | Field | Value |
 | --- | --- |

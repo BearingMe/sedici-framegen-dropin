@@ -39,7 +39,8 @@ behaviour on purpose, so the file is re-recorded after each milestone, and only 
 showing that every previously passing line still passes and the differences are the additions that
 the milestone made. P4.2 added the target-fps checks and `sedici_abi_target-auto` (38 CTest entries,
 154 regression checks). P4.3 added `sedici_abi_window-replace-vsync` and the error-code checks (39 CTest entries,
-156 regression checks). `git show phase2-baseline:docs/dev/baseline.txt` is the original.
+156 regression checks). P4.4 added the `fast bar` scene to the fgcheck quality lines; the
+other quality lines are unchanged to the printed precision. `git show phase2-baseline:docs/dev/baseline.txt` is the original.
 
 ## Final result (P3.6)
 

@@ -151,14 +151,15 @@ single in-flight slot. The presenter's snapshot ring and its three generated-ima
   only after that fence completes; `configure()`, `release_targets()` and context destroy
   wait for it with the existing bounded wait (K47/K77 apply unchanged).
 - **Budget:** the combined 1.30-1.67 ms (FP16) is a design estimate. Stage 1 alone was
-  measured at 0.64-0.69 ms at 1080p on the RX 7700 XT against the paper's 0.15-0.30 ms
-  (K117), so the budget must be rebuilt from measured numbers before Stage 2 starts.
+  measured at 0.61 ms at 1080p on the RX 7700 XT (after merging decode and dilate; 0.64-0.69 ms
+  before) against the paper's 0.15-0.30 ms (K117, resolved in P4.4). With Stage 2 at 1.10-1.35 ms the sum is
+  1.71-1.96 ms against 2.0 ms; rebuild the budget from measured numbers once Stage 2 exists.
   Compare timing runs without the debug layer (`--no-debug-layer`); validation runs
   are for correctness only.
 
 ## 9. Gate to start Stage 2
 
-1. K117 resolved: per-pass Stage 1 timings, and a decision to optimise or to accept.
+1. K117 resolved (P4.4): per-pass Stage 1 timings are in `known-issues.md`; the decision is to accept 0.61 ms.
 2. The decisions marked above are made (failure answer, extra Stage 1 outputs, alpha
    input, weight delivery, licence question, scratch reuse).
 3. A training plan exists (data capture from the FFX hook, loss, export to the layout of

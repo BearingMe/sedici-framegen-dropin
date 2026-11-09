@@ -69,7 +69,7 @@ with the two source papers transcribed beside it.
 
 | Stage | Source | Resolution | What it does | Budget |
 |---|---|---|---|---|
-| 1. Analytical | Mob-FGSR | 1080p | quadratic trajectory from two motion-vector frames, depth-atomic splat, thin-object hole fill, threshold fusion, LUT (32×32×16) backward warping → `I_base`, `M_input` | ~0.15–0.30 ms estimated; **0.64–0.69 ms measured** offline at 1080p ([K117](docs/refactor/known-issues.md)) |
+| 1. Analytical | Mob-FGSR | 1080p | quadratic trajectory from two motion-vector frames, depth-atomic splat, thin-object hole fill, threshold fusion, LUT (32×32×16) backward warping → `I_base`, `M_input` | ~0.15–0.30 ms estimated; **0.61 ms measured** offline at 1080p (K117, resolved) ([K117](docs/refactor/known-issues.md)) |
 | 2. Residual | GFFE SCN / STSSNet backbone | 540p | 8 conv layers, 92,992 params (~90.8 KB INT8), predicts `ΔI` and `M̂`; final `clamp(I_base + M̂ · ΔI)` | ~1.10–1.35 ms |
 
 Inputs are only what an FFX FG hook already receives: HUD-less color, depth,
