@@ -473,7 +473,7 @@ is vendored for completeness and is not compiled.
 | Source | `https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp` |
 
 The file is vendored byte-for-byte; nothing in it is edited. Two documented
-compile-time switches are set in `src/config.cpp` before the include, not in the
+compile-time switches are set in `src/settings/config.cpp` before the include, not in the
 header:
 
 - `TOML_EXCEPTIONS=0` so `toml::parse` returns a `parse_result` instead of

@@ -174,7 +174,13 @@ alone.
 - `src/diagnostics/diag.*` — read-only snapshot of the log counters and parked objects, and the
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
-- `tools/` — deploy/restore with `.orig` safety rules, `games.json`.
+- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, and the Phase 3 checks
+  `baseline.ps1` and `check_moves.ps1`.
+- `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools` — the
+  offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`, the settings worker
+  host, `deploy_check.ps1`).
+- `docs/dev/` — agent and contributor guide: layout and include edges, workflow, baseline,
+  and the old-to-new path ledger. Start at `docs/dev/README.md`.
 - `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-16): a table of tests
   and one folder per test with notes, screenshots and log excerpts.
 - `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.

@@ -1,6 +1,6 @@
 # Target file structure (version 2, the Phase 3 layout)
 
-**Status (2026-11-09):** adopted as the target of Phase 3 (see
+**Status (2026-11-09):** completed in Phase 3; the tree on disk matches this layout (see `docs/dev/layout.md`). It was the target of Phase 3 (see
 [MILESTONES.md](../../MILESTONES.md#phase-3--organise-the-code-and-prove-nothing-changed)).
 Version 1 of this document (written in P2.1) proposed a tree that included an AMD
 backend, a bundled binary, a residual-network directory and new build presets. Phase 2
@@ -11,7 +11,7 @@ code as it is.
 **Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv` and lose their `fg_` prefix (the folder now says what
 `fg_` said). They change only in their `#include` lines. Nothing else is renamed, split or
 rewritten, and no behaviour changes. A module boundary that the code already crosses in
-both directions is recorded in `docs/dev/layout.md` (written in P3.5), not repaired here.
+both directions is recorded in `docs/dev/layout.md`, not repaired here.
 
 ## Target tree
 

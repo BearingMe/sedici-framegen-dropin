@@ -11,7 +11,7 @@
   second is test coverage, and only then does structural migration begin.
 - **Phase 3:** organise the code into the module layout and prove against the Phase 2
   baseline that nothing changed; document it in the commits and in `docs/dev/`. No
-  behaviour change. Proposed 2026-11-09, starts after P2.11; see the Phase 3 section.
+  behaviour change. Complete 2026-11-09; see the Phase 3 section.
 - **Phase 4 (placeholder):** cover all open issues and improvements, on the Phase 3 layout.
   Not planned yet; see the Phase 4 section at the end.
 - **Later delivery:** implement and validate residual inference against
@@ -635,9 +635,10 @@ successful deployment alone does not complete Phase 2.
 baseline that nothing changed, and document the result twice: in the commits, for whoever
 reads the history, and in `docs/dev/`, for agents and contributors who work in the tree.
 
-**Status:** proposed, awaiting owner approval (2026-11-09). The owner set the scope on the
-same day: it **starts after P2.11 closes** (closed 2026-11-09), and it **does not change behaviour**. Nothing in
-Phase 3 has started.
+**Status:** complete (2026-11-09). The owner set the scope: it started after P2.11 closed and
+**does not change behaviour**. P3.1 to P3.6 are done; the tree matches `file-structure.md`
+version 2 and the baseline comparison is identical to the `phase2-baseline` tag (see
+`docs/dev/baseline.md`).
 
 **Scope (three things only):**
 
@@ -713,11 +714,11 @@ updated: 2026-11-09.
 | Milestone | Size | Status | Prerequisites |
 | --- | --- | --- | --- |
 | P3.1 Baseline and move checker | Large | Complete (2026-11-09) | P2.11 closed (done) |
-| P3.2 Leaf modules: diagnostics, settings, gpu | Large | Proposed | P3.1 |
-| P3.3 Core modules: generator, runtime, abi | Large | Proposed | P3.2 |
-| P3.4 Presentation and UI | Large | Proposed | P3.3 |
-| P3.5 Tests, `docs/dev` and AGENTS layout | Large | Proposed | P3.1; finishes after P3.4 |
-| P3.6 Final proof | Large | Proposed | P3.4, P3.5 |
+| P3.2 Leaf modules: diagnostics, settings, gpu | Large | Complete (2026-11-09) | P3.1 |
+| P3.3 Core modules: generator, runtime, abi | Large | Complete (2026-11-09) | P3.2 |
+| P3.4 Presentation and UI | Large | Complete (2026-11-09) | P3.3 |
+| P3.5 Tests, `docs/dev` and AGENTS layout | Large | Complete (2026-11-09) | P3.1; finishes after P3.4 |
+| P3.6 Final proof | Large | Complete (2026-11-09) | P3.4, P3.5 |
 
 ### P3.1 — Baseline and move checker
 

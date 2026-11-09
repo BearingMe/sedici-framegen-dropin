@@ -21,7 +21,7 @@ current `sedici.toml`: the current parser does not implement these names.** Exis
 defaults and opt-outs remain unchanged until an explicitly approved migration.
 Current defaults and direct environment reads are inventoried in the
 [audit](audit.md#configuration-and-diagnostic-observations); the shipped file and
-`src/config.cpp` remain authoritative for implemented parsing.
+`src/settings/config.cpp` remain authoritative for implemented parsing.
 
 ## Design decisions
 

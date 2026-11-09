@@ -34,4 +34,9 @@ Both must pass after every slice. Added or deleted source files fail the move ch
 
 ## Final result (P3.6)
 
-Not run yet.
+On 2026-11-09, after the last move, a fresh configure and build in an empty directory gave
+`baseline: identical (265 lines)` against `docs/dev/baseline.txt` (exports, 37 of 37 CTest names,
+fgcheck and regression verdicts), and `tools/check_moves.ps1` reported 65 renamed files and 2
+edited only in include or source-list lines (`CMakeLists.txt`, `src/dllmain.cpp` counted
+among the edited ones). Each slice commit recorded the same result. No in-game run was needed
+(owner decision, 2026-11-09).
