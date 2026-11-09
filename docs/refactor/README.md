@@ -8,8 +8,9 @@
 > what was learned about the binary.
 
 > **Status (2026-11-09): decision record.** The AMD rows in the decision status are
-> superseded. The implementation landed as flat modules, not the tree in
-> [file-structure.md](file-structure.md). [audit.md](audit.md) is historical.
+> superseded. Phase 2 hardened the flat modules in place; Phase 3 (proposed) moves them into
+> the layout in [file-structure.md](file-structure.md) version 2 without changing behaviour.
+> [audit.md](audit.md) is historical.
 
 This directory records the refactor discussion and proposed implementation
 contracts. It describes a **target**, not the current source layout or shipped
@@ -38,7 +39,7 @@ and model/LUT export remain offline, outside the shipped runtime.
 | Document | Owns |
 | --- | --- |
 | [architecture.md](architecture.md) | Module boundaries, dependency direction, session and GPU ownership |
-| [file-structure.md](file-structure.md) | Target paths, placement rules, and migration from current files |
+| [file-structure.md](file-structure.md) | The Phase 3 module layout (version 2) and the file-by-file migration map |
 | [configuration.md](configuration.md) | Proposed TOML, application semantics, defaults, and legacy migration |
 | [reliability.md](reliability.md) | Errors, watchdog behavior, diagnostics, and integrated acceptance |
 | [stage2-contract.md](stage2-contract.md) | Draft interface a residual network must meet: tensor layout, phase, colour, reset, padding, provenance, scratch and retirement |

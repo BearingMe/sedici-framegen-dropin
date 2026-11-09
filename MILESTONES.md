@@ -9,9 +9,9 @@
   around explicit ownership, coherent live
   settings, and useful diagnostics. The first gate is audit/documentation, the
   second is test coverage, and only then does structural migration begin.
-- **Phase 3:** the full refactor. Finish the structure, error contract, configuration,
-  test layout and defect backlog so Stage 2 has a stable base. Proposed 2026-11-09,
-  starts after P2.11; see the Phase 3 section at the end.
+- **Phase 3:** organise the code into the module layout and prove against the Phase 2
+  baseline that nothing changed; document it in the commits and in `docs/dev/`. No
+  behaviour change. Proposed 2026-11-09, starts after P2.11; see the Phase 3 section.
 - **Later delivery:** implement and validate residual inference against
   [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
   the boundary, not quietly absorb model training, inference optimization, and
@@ -627,50 +627,80 @@ configuration, and diagnostic status tell the same story. Verified old paths hav
 been retired where replaced. A clean directory tree, isolated test success, or a
 successful deployment alone does not complete Phase 2.
 
-## Phase 3 — Full refactor: structure, contracts and a closed backlog
+## Phase 3 — Organise the code and prove nothing changed
 
-**Goal:** leave the code base in the state Stage 2 can be built on. Phase 2 made the
-runtime reliable by hardening the existing flat modules in place. Phase 3 finishes the
-job: the module structure matches the ownership rules, the error and diagnostic
-contracts are real, the open defects are closed or knowingly accepted, the tests are
-organised by domain, and the documentation has one owner per fact.
+**Goal:** put the code where the ownership rules say it belongs, prove against the Phase 2
+baseline that nothing changed, and document the result twice: in the commits, for whoever
+reads the history, and in `docs/dev/`, for agents and contributors who work in the tree.
 
-**Status:** proposed, awaiting owner approval (2026-11-09). Nothing in Phase 3 has
-started. It begins when P2.11 closes, because the in-game QA record
-([tests/qa](tests/qa/README.md)) is the behavioural baseline that every structural step
-must keep intact.
+**Status:** proposed, awaiting owner approval (2026-11-09). The owner set the scope on the
+same day: it **starts after P2.11 closes**, and it **does not change behaviour**. Nothing in
+Phase 3 has started.
 
-**Why a full refactor, from the Phase 2 evidence:**
+**Scope (three things only):**
 
-- `src/` is flat and three files carry most of the weight: `fg_swapchain.cpp` (1,173
-  lines), `ui.cpp` (1,128) and `config.cpp` (958). The tests are three monoliths:
-  `fgcheck.cpp` (3,333), `abi.cpp` (1,470) and `regression.cpp` (1,333). The target tree in
-  [file-structure.md](docs/refactor/file-structure.md) was never adopted.
-- 48 defects are open ([known-issues.md](docs/refactor/known-issues.md)). Many are
-  accepted gaps, but the in-game ones (K118-K128) and the Alan Wake 2 set (K100, K129-K132,
-  K14) change what the product does.
-- Two contracts are still targets: typed error codes with call, frame and settings
-  identity (deferred in P2.10), and a watchdog (not built).
-- Hidden environment switches remain (K20), and the design docs were found to describe a
-  schema and a tree that were never shipped (docs audit, 2026-11-09).
-- Stage 1 costs 0.64-0.69 ms against a 0.15-0.30 ms estimate (K117), and there is no
-  per-pass timing to say where it goes.
+1. **Organise.** Move the files into the module layout in
+   [file-structure.md](docs/refactor/file-structure.md) (version 2, derived from the
+   Phase 2 proposal and applied to the code as it is).
+2. **Test against the baseline.** The Phase 2 test suite is the baseline. After every
+   slice it must give the same results as before the move.
+3. **Document both.** The commit history carries the what and why of every move. A new
+   `docs/dev/` guide carries the layout, the workflow and the move ledger for agents.
 
-**Scope:** behaviour-preserving restructuring, plus the product fixes the QA run asked
-for, plus the Stage 2 seams. **Not in scope:** training or running the residual network,
-any AMD backend, the loader or upscaler DLLs, more than the five exports, or anything that
-needs the game to be launched by the agent (the owner runs every in-game check).
+**Out of scope, by the owner's decision:** any behaviour change, any bug fix, new
+features, game or format support (10-bit, HDR, Alan Wake 2), the error-contract work, the
+watchdog, the configuration schema, Stage 2 seams, splitting or rewriting large files, and
+renaming files or symbols. Those stay in the backlog ([known-issues.md](docs/refactor/known-issues.md),
+[feature-requests.md](docs/refactor/feature-requests.md)) and will get their own phase. The
+AGENTS.md hard rules still apply: five exports, no game launch, `third_party/` and the loader
+and upscaler DLLs untouched.
 
-### Rules for every Phase 3 step
+### What "the baseline" is
 
-- **Behaviour first, structure second.** A commit either moves or restructures code with
-  no behaviour change, or changes behaviour with a test and a K entry. Never both.
-- **Pin before moving.** Before a module is split, the checks that cover it must pass and
-  must still pass unchanged afterwards (`ctest` 37 of 37 on an idle GPU, the ABI scenarios
-  on the real DLL, `sedici_fgcheck` quality numbers).
-- **Small, reviewable commits**, each building and passing `ctest`. No big-bang move.
-- The AGENTS.md hard rules apply: five exports, no game launch, third-party and loader or
-  upscaler files untouched, every bug gets a K entry, the progress table stays current.
+Taken at the commit that closes P2.11, tagged `phase2-baseline`, and recorded in
+`docs/dev/baseline.md`:
+
+- `ctest -C Release` result per test name (37 of 37 on an idle GPU; the names are the
+  contract, so a renamed or dropped test counts as a failure).
+- `dumpbin /exports` of the DLL: exactly the five exports, in order.
+- The quality and timing lines printed by `sedici_fgcheck` (PSNR, SSIM, cost) and the
+  `sedici_regression observer` numbers, as recorded values with the tolerance for noise
+  stated beside them.
+- The set of source files, their `#include` lines excluded, hashed per file. This is the
+  "nothing changed" proof: after a move, every moved file must hash the same once its
+  `#include` lines are removed.
+
+The in-game QA record ([tests/qa](tests/qa/README.md)) is the behavioural reference, but
+Phase 3 does not require new in-game runs except the owner's smoke check at the end.
+
+### Rules for every slice
+
+- One module per slice, one slice per commit group, each commit building and passing `ctest`.
+- Move with `git mv` so history follows. Keep base names. Change only `#include` lines and the
+  source lists in `CMakeLists.txt`. If a move needs any other edit, stop and record why.
+- Run the baseline comparison before and after the slice. A difference is not "fixed in
+  passing"; the slice is reverted or the difference is recorded as a finding for the next phase.
+- Existing cycles between modules are recorded in `docs/dev/layout.md`, not removed.
+- Update the AGENTS.md layout section in the same commit as the move it describes.
+
+### Commit convention (documentation in the history)
+
+Every Phase 3 commit is a Conventional Commit of type `refactor` (or `docs`/`test`), with a
+scope naming the module, and a body that a reader can use without opening the diff:
+
+```text
+refactor(presentation): move the swapchain, presenter, pacing and limiter files
+
+Moved (git mv, base names kept):
+  src/fg_swapchain.{h,cpp}  -> src/presentation/
+  ...
+Changed: #include lines and the source lists in CMakeLists.txt only.
+Baseline: ctest 37/37, exports unchanged, fgcheck quality lines identical,
+          non-include file hashes identical (tools/check_moves.ps1).
+No behaviour change.
+
+Co-Authored-By: ...
+```
 
 ### Phase 3 progress
 
@@ -679,154 +709,90 @@ updated: 2026-11-09.
 
 | Milestone | Size | Status | Prerequisites |
 | --- | --- | --- | --- |
-| P3.1 Baseline freeze | Large | Proposed | P2.11 closed |
-| P3.2 In-game defect fixes | Large | Proposed | P3.1 |
-| P3.3 Backlog triage | Large | Proposed | P3.1 |
-| P3.4 Module structure | Very large | Proposed | P3.1, P3.2 |
-| P3.5 Error contract and diagnostics | Very large | Proposed | P3.4 |
-| P3.6 Configuration surface | Large | Proposed | P3.4 |
-| P3.7 Test suite reorganisation | Large | Proposed | P3.1; runs alongside P3.4 |
-| P3.8 Format and game compatibility | Very large | Proposed, owner decision first | P3.4, P3.5 |
-| P3.9 Stage 2 seams and cost | Large | Proposed | P3.4, P3.7 |
-| P3.10 Documentation and release | Large | Proposed | all |
+| P3.1 Baseline and move checker | Large | Proposed | P2.11 closed |
+| P3.2 Leaf modules: diagnostics, settings, gpu | Large | Proposed | P3.1 |
+| P3.3 Core modules: generator, runtime, abi | Large | Proposed | P3.2 |
+| P3.4 Presentation and UI | Large | Proposed | P3.3 |
+| P3.5 Tests, `docs/dev` and AGENTS layout | Large | Proposed | P3.1; finishes after P3.4 |
+| P3.6 Final proof and owner smoke check | Large | Proposed | P3.4, P3.5 |
 
-### P3.1 — Freeze the baseline
+### P3.1 — Baseline and move checker
 
-Pin what must not change. Tag the last Phase 2 commit. Record the performance baseline:
-per-pass GPU timestamps for Stage 1 (K117), prepare and present cost, overlay cost. Turn
-the QA findings that can be automated into offline checks (the observer cost mode of
-QA-12 is the first). Capture the owner-side gaps still open from P2.11 (QA-04/05
-present-interval captures, a K119 repro) or record them as accepted.
+Create the tag `phase2-baseline`. Write `docs/dev/baseline.md` with the recorded values
+above and the exact commands to reproduce them. Add a small script, `tools/check_moves.ps1`,
+that compares the working tree with the baseline tag and fails unless every difference is a
+rename, an `#include` line, a source list entry in `CMakeLists.txt`, or a documentation file.
+Add the `src/` include path and prove the build still produces the same five exports before
+any file moves.
 
-**Exit:** a tagged baseline; `ctest` 37 of 37; a recorded timing table; the QA record
-lists which results are baseline and which are accepted gaps.
+**Exit:** the tag exists; the baseline document reproduces on a clean checkout; the checker
+passes on the baseline commit and fails on a deliberately changed line.
 
-### P3.2 — Fix what the owner found in the game
+### P3.2 — Leaf modules: diagnostics, settings, gpu
 
-Behaviour changes, each with a test and a K entry, before any structural move so the
-fixes are not hidden inside a refactor.
+Move the modules everything else depends on and nothing here depends on the rest of the
+product: `src/diagnostics/` (log, diag, stats, timing), `src/settings/` (config,
+config_patch, live, settings_io, settings_tx) and `src/gpu/` (the three policy headers).
+Rewrite the includes of every file that uses them.
 
-- K126 Alt+F4 passes through the Full menu; K127 destroy at process exit waits and
-  retires; K118/FR-01/FR-02 slider in clamped 0.5 steps with an Apply button;
-  K125 truthful Real fps labelling; FR-04 menu scales 0.8/0.9/1.0; FR-05 warning when
-  real fps times the multiplier exceeds the refresh.
-- K128 loading-screen generation and K98/K121/K122/K123 stalls: investigate, then fix or
-  accept with the log evidence.
+**Exit:** per slice, the baseline comparison is identical; the checker passes.
 
-**Exit:** each item fixed with its commit, or accepted with a reason in its K entry; the
-owner re-runs the matching QA tests (QA-08, QA-13, QA-16) and signs them off.
+### P3.3 — Core modules: generator, runtime, abi
 
-### P3.3 — Close the backlog
+Move `src/generator/` (stage 1, params, packing, shaders, LUT), `src/runtime/` (integration,
+context, bookkeeping faults) and `src/abi/` (describe, route, token namespace). `dllmain.cpp`
+stays in `src/`.
 
-Walk every open K entry (48 at the time of writing) and give each an outcome: fixed,
-accepted with a reason, or obsolete. Merge true duplicates by cross-reference (entries
-are never deleted). Resolve the ones that block structure work first (K11, K12, K14,
-K19, K20, K22). Entries that are not product defects (K16, K23, K24, K36, K54, K101,
-K112) get a standing "accepted" note.
+**Exit:** as P3.2; the ABI scenarios on the real DLL pass unchanged.
 
-**Exit:** no open entry without an owner, a reason or a milestone; the MILESTONES bug
-counts match the file.
+### P3.4 — Presentation and UI
 
-### P3.4 — Module structure
+Move `src/presentation/` (swapchain, presenter, pacing, limiter, limiter schedule, overlay
+compose) and `src/ui/` (overlay, ui, ui input, imgui config). The `src/` flat layout is now
+empty apart from `dllmain.cpp`.
 
-Replace the flat `src/` with directories chosen from the code as it is, not from the
-Phase 2 proposal. Start from the existing ownership rules in
-[architecture.md](docs/refactor/architecture.md) and the current file owners
-(ABI, routing and sessions, presentation, UI, settings, diagnostics, GPU stages).
+**Exit:** as P3.2; the GPU host and window suites (`gpu-mini`, `gpu-full`, the `fgcheck`
+family) pass unchanged.
 
-- Split `fg_swapchain.cpp` along its real seams (wrap and resize, slot and retirement,
-  present admission, recording), `ui.cpp` (input, Mini, Full, settings client) and
-  `config.cpp` (parse, validate, report).
-- One library target per module with an explicit dependency direction; no module reaches
-  into another's private state. Public headers stay minimal.
-- Rewrite [file-structure.md](docs/refactor/file-structure.md) to describe the tree that
-  exists, and update the AGENTS.md layout in the same commit as each move.
+### P3.5 — Tests, `docs/dev` and AGENTS layout
 
-**Exit:** each module builds as its own target; the dependency graph has no cycles; the
-exports, the ABI scenarios and `sedici_fgcheck` results are unchanged.
+Move the tests into `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`
+and `tests/tools` (whole files, no splitting) and keep every CTest name. Write `docs/dev/`
+for agents:
 
-### P3.5 — Error contract and diagnostics
+| File | Content |
+| --- | --- |
+| `README.md` | Start here: what Sedici is, the hard rules, where things live, how to build and run the baseline |
+| `layout.md` | Each module: purpose, owner files, public headers, the real include edges and the known cycles |
+| `workflow.md` | How to build and test, how to make a move slice, the commit convention, what to do when the checker fails |
+| `baseline.md` | The recorded baseline values and how to reproduce them |
+| `moves.md` | The old path to new path ledger, one row per file |
 
-Build the targets that Phase 2 deferred.
+Update the AGENTS.md layout section and the root README links, and mark
+`docs/refactor/file-structure.md` as completed.
 
-- Typed internal error codes mapped to the documented FFX return codes in one place, with
-  call, frame and settings identity in every rejection.
-- A structured event vocabulary for the log (the P2.10 log keeps its bounded queue).
-- Decide the watchdog: build the minimal monitor (stuck prepare, stuck retirement, stuck
-  settings I/O), or record that parking and bounded waits are the final design.
-- Close the P2.10 recorded gaps that remain (abandoned-prepare recovery, background reaper).
+**Exit:** a link check over the tracked documents passes; every file in `moves.md` exists at
+its new path; AGENTS.md describes the tree that is on disk.
 
-**Exit:** the error table in the README is generated from the same table the code uses;
-each recorded P2.10 gap is closed or explicitly accepted.
+### P3.6 — Final proof and owner smoke check
 
-### P3.6 — Configuration surface
+Run the full baseline comparison on the final tree and attach the result to
+`docs/dev/baseline.md`. The owner runs a short in-game smoke check on the final build
+(QA-01 deploy, QA-02 generation in Cyberpunk, QA-15 rollback) and confirms nothing differs.
 
-One schema, one owner. Remove or document the hidden environment switches (K20); version
-the schema; keep the migration for old keys. Make `sedici.toml`, `config.cpp`, the README
-key table and [configuration.md](docs/refactor/configuration.md) agree, preferably with a
-test that fails when a key exists in code but not in the shipped file or the README.
-
-**Exit:** a drift test passes; no environment-only switch remains undocumented.
-
-### P3.7 — Test suite reorganisation
-
-Split the three monoliths by domain behind a shared harness (fakes for the device, queue
-and clock; the stub original is gone). Tag timing-sensitive checks so a busy GPU is
-reported as such (K112) instead of as a failure. Add address and undefined-behaviour
-checks for the host-side objects where the toolchain allows it. Keep the quality numbers
-(PSNR/SSIM) as pinned expectations.
-
-**Exit:** no test file over about 1,000 lines; `ctest` labels (`fast`, `gpu`, `timing`);
-the same checks as before still run and pass.
-
-### P3.8 — Format and game compatibility
-
-Owner decision first, then implementation. The items change what the product accepts:
-10-bit back buffers (K14), the HDR create flag (K129), the `SwapChainNewDX12` route
-(K100), the device-object rule (K130), the interpolation queries (K131) and the Full
-menu cursor interception (K132). The worktree `aw2-patch` ([finding
-015](docs/findings/015-alan-wake-2-first-sedici-session.md)) is a starting point, not
-code to merge as it stands. Each accepted item gets offline tests; the owner runs the
-game.
-
-**Exit:** for each item, a recorded decision (support, or documented refusal with its
-return code) and, where supported, an owner-run QA entry.
-
-### P3.9 — Stage 2 seams and cost
-
-Prepare the boundary without building the network. Implement the pieces the
-[Stage 2 contract](docs/refactor/stage2-contract.md) marks as seams: the focus-mask
-target, scratch ownership and retirement for a second pass, and per-pass timing in the
-log. Decide the Stage 1 cost (K117): optimise it, or revise the budget in the design
-note with the measurement.
-
-**Exit:** the contract's seams exist and are tested with a stub second pass; the
-budget in `references/papers/realtime-fg.md` and AGENTS.md matches a measurement.
-
-### P3.10 — Documentation and release
-
-Make the documents agree: one owner per fact (README for users, `docs/refactor` for
-contracts, MILESTONES for status, `known-issues.md` for defects, `tests/qa` for evidence),
-historical findings bannered, and every K reference checked. Re-run the full QA checklist
-(QA-01 to QA-16) on the final build, including a second game if the owner chooses.
-
-**Exit:** a docs link and reference check passes; QA-01 to QA-16 re-run by the owner with
-no new regression; the licence and provenance files are current; a release note lists the
-behaviour changes since the Phase 1 baseline.
+**Exit:** all comparisons identical; owner smoke check passed; the milestone and progress
+tables are current.
 
 ### Phase 3 exit
 
-The module tree, the error and diagnostic contracts, the configuration schema and the
-test layout are what the documents say they are. No open defect lacks an owner or a
-reason. The Stage 1 cost is measured and the budget reflects it. The owner has re-run
-the in-game checklist on the final build. Only then does the Stage 2 work, postponed on
-2026-11-08, start.
+The tree on disk matches `docs/refactor/file-structure.md`, version 2. The baseline
+comparison is identical to the `phase2-baseline` tag, apart from paths and `#include`
+lines. The history explains every move, and `docs/dev/` lets an agent find its way
+without reading the history. The backlog is untouched and waits for the next phase.
 
-### Decisions needed from the owner
+### Owner decisions
 
-1. Start Phase 3 after P2.11 closes, or earlier on the parts that do not need the game
-   (P3.3, P3.7)?
-2. P3.8: support HDR and 10-bit and the Alan Wake 2 create path, or document the refusal?
-3. P3.5: build the watchdog, or declare parking and bounded waits the final design?
-4. P3.4: is a directory tree the goal, or is splitting the three large files enough?
-5. K117: optimise Stage 1, or accept the cost and revise the budget?
+1. **Decided (2026-11-09):** Phase 3 starts after P2.11 closes; refactoring does not change
+   behaviour.
+2. **Open:** keep base names (as written), or also drop the `fg_` prefix during the move?
+3. **Open:** the in-game smoke check at the end: QA-01, QA-02 and QA-15, or a different set?

@@ -1,172 +1,145 @@
-# Target file structure
+# Target file structure (version 2, the Phase 3 layout)
 
-> **Update: the AMD backend was removed.** The owner decided to drop the AMD
-> fallback entirely as long as Sedici stays a drop-in replacement. Text below that
-> proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
-> backend fallback is kept as design history and no longer applies. The last commit
-> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
-> what was learned about the binary.
+**Status (2026-11-09):** adopted as the target of Phase 3 (see
+[MILESTONES.md](../../MILESTONES.md#phase-3--organise-the-code-and-prove-nothing-changed)).
+Version 1 of this document (written in P2.1) proposed a tree that included an AMD
+backend, a bundled binary, a residual-network directory and new build presets. Phase 2
+refactored the flat `src/` in place instead, and the AMD backend was removed (d95d454,
+tag `pre-amd-removal`). Version 2 keeps version 1's module split and applies it to the
+code as it is.
 
-> **Status (2026-11-09): historical proposal, not adopted.** P2.2-P2.10 refactored the
-> existing flat `src/` in place, so the tree below (`src/abi`, `src/runtime`,
-> `cmake/`, `shaders/`, `CMakePresets.json`, `third_party/amd_fsr3`) does not exist. The
-> migration map still describes the code. The current layout is in
-> [AGENTS.md](../../AGENTS.md#layout).
+**Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv`, keep
+their base names, and change only in their `#include` lines. Nothing is renamed, split or
+rewritten, and no behaviour changes. A module boundary that the code already crosses in
+both directions is recorded in [docs/dev/layout.md](../dev/layout.md), not repaired here.
 
-Status: proposed placement map, not an inventory of existing files. Headers
-accompany implementations where needed; the tree is not a requirement to create
-empty files. Keep small responsibilities together until a split has a concrete use.
-For current owners, integration risks, and the coverage prerequisite, see the
-[P2.1 audit](audit.md); this tree is not a mandate to move files before P2.2.
+## Target tree
 
 ```text
 sedici/
 |-- CMakeLists.txt
-|-- CMakePresets.json
-|-- AGENTS.md
-|-- README.md
-|-- LICENSE                         # Sedici-owned material; third-party terms separate
-|-- MILESTONES.md                    # Existing delivery source of truth
 |-- exports.def                     # Exactly five public FFX exports
-|-- sedici.toml                     # Supported shipped settings, copied only if absent
-|-- cmake/
-|   |-- dependencies.cmake          # Local dependency checks; no runtime/SDK downloads
-|   `-- shaders.cmake               # Shader compilation/embedding rules
-|-- third_party/
-|   |-- ffx/                        # Existing unmodified API declarations
-|   |-- imgui/                      # Existing unmodified UI library/backends
-|   |-- tomlplusplus/               # Existing unmodified TOML parser
-|   `-- amd_fsr3/                   # Proposed official binary dependency, not AMD source
-|       |-- bin/
-|       |-- VERSION
-|       `-- README.md               # Origin, hashes, dependencies, redistribution notices
+|-- sedici.toml                     # Shipped settings, copied only if absent
 |-- src/
-|   |-- dllmain.cpp                 # Minimal loader entry point
-|   |-- abi/
-|   |   |-- exports.cpp             # The five exported FFX functions
-|   |   |-- descriptors.cpp         # Descriptor translation/validation boundary
-|   |   `-- routing.cpp             # Resolve handle ownership and dispatch
-|   |-- runtime/
-|   |   |-- session.cpp             # Lifecycle and backend/fallback decisions
-|   |   |-- contexts.cpp            # Lifetime-safe context registry
-|   |   `-- configuration.cpp       # Apply/acknowledge validated settings revisions
-|   |-- backends/
-|   |   |-- amd/
-|   |   |   |-- backend.cpp         # AMD contexts, callbacks, compatibility bridge
-|   |   |   `-- library.cpp         # Private binary loading and export validation
-|   |   `-- sedici/
-|   |       |-- generator.cpp       # Concrete generation pass sequence
-|   |       |-- history.cpp         # Temporal history and discontinuities
-|   |       |-- analytical/
-|   |       |   |-- projection.cpp
-|   |       |   `-- synthesis.cpp
-|   |       `-- residual/
-|   |           |-- features.cpp    # Stage 1 -> Stage 2 tensor contract
-|   |           |-- inference.cpp   # Offline-trained model execution
-|   |           `-- reconstruction.cpp
-|   |-- gpu/
-|   |   |-- resources.cpp
-|   |   |-- frame_slots.cpp
-|   |   |-- submission.cpp          # Queue ordering and retirement tokens
-|   |   `-- retirement.cpp          # Reuse/release only after relevant completion
-|   |-- presentation/
-|   |   |-- scheduler.cpp           # Pure output/admission decisions where possible
-|   |   |-- limiter.cpp             # One admission per real game frame
-|   |   |-- presenter.cpp           # Bounded asynchronous output handoff
-|   |   |-- swapchain.cpp           # Game-facing DXGI contract
-|   |   `-- composition.cpp         # HUD and final-output composition
-|   |-- ui/
-|   |   |-- overlay.cpp             # View state and metrics display
-|   |   |-- controls.cpp            # Settings requests, not subsystem mutations
-|   |   |-- renderer.cpp            # ImGui/DX12 rendering resources
-|   |   `-- input.cpp               # Window, cursor, clipping, coordinate mapping
-|   |-- settings/
-|   |   |-- config.cpp              # TOML and supported override ingestion
-|   |   |-- validation.cpp          # Candidate/schema validation
-|   |   `-- persistence.cpp         # Safe save and legacy migration
-|   `-- diagnostics/
-|       |-- logging.cpp
-|       |-- metrics.cpp
-|       `-- health.cpp              # Observations; runtime owns recovery decisions
-|-- shaders/
-|   |-- analytical/
-|   |-- residual/
-|   `-- composition/
-|-- assets/
-|   |-- lut/                        # Analytical LUT and its provenance
-|   `-- models/                     # Residual model, manifest, provenance
+|   |-- dllmain.cpp                 # DLL entry and the five exports
+|   |-- abi/                        # Descriptor handling and handle routing
+|   |   |-- describe.{h,cpp}
+|   |   |-- fg_route.{h,cpp}
+|   |   `-- fg_token_namespace.h
+|   |-- runtime/                    # Session, context and ownership
+|   |   |-- fg_integration.{h,cpp}
+|   |   |-- fg_context.{h,cpp}
+|   |   `-- fg_bookkeeping_faults.{h,cpp}
+|   |-- generator/                  # Stage 1 (Mob-FGSR analytical pass)
+|   |   |-- fg_stage1.{h,cpp}
+|   |   |-- fg_params.{h,cpp}
+|   |   |-- fg_packing.h
+|   |   |-- fg_shaders.h
+|   |   `-- fg_lut_data.h
+|   |-- gpu/                        # Pure queue, slot and retirement policies
+|   |   |-- fg_queue_policy.h
+|   |   |-- fg_slot_policy.h
+|   |   `-- fg_retirement_policy.h
+|   |-- presentation/               # Game-facing swapchain, pacing, limiter
+|   |   |-- fg_swapchain.{h,cpp}
+|   |   |-- fg_presenter.{h,cpp}
+|   |   |-- fg_pacing.{h,cpp}
+|   |   |-- limiter.{h,cpp}
+|   |   |-- limiter_schedule.h
+|   |   `-- overlay_compose.{h,cpp}
+|   |-- ui/                         # Overlay, menu and input
+|   |   |-- overlay.{h,cpp}
+|   |   |-- ui.{h,cpp}
+|   |   |-- ui_input.{h,cpp}
+|   |   `-- imgui_config.h
+|   |-- settings/                   # sedici.toml, live values, transactions
+|   |   |-- config.{h,cpp}
+|   |   |-- config_patch.{h,cpp}
+|   |   |-- live.{h,cpp}
+|   |   |-- settings_io.{h,cpp}
+|   |   `-- settings_tx.{h,cpp}
+|   `-- diagnostics/                # Log, statistics, timing, diag snapshot
+|       |-- log.{h,cpp}
+|       |-- diag.{h,cpp}
+|       |-- stats.{h,cpp}
+|       `-- timing.{h,cpp}
 |-- tests/
-|   |-- abi/
-|   |-- routing/
-|   |-- runtime/
-|   |-- sedici/
-|   `-- integration/                # One offline DX12 host plus focused scenarios
-|-- tools/                          # Existing safe deploy/restore and analysis tools
-|-- references/                     # Existing papers and read-only source submodules
+|   |-- abi/                        # abi.cpp, abi_stub.{h,cpp}
+|   |-- integration/                # fgcheck.cpp (production-object GPU host)
+|   |-- regression/                 # regression.cpp
+|   |-- settings/                   # settings_worker_host.cpp, settings_worker_stub.cpp
+|   |-- tools/                      # deploy_check.ps1
+|   `-- qa/                         # The owner's in-game evidence (unchanged)
+|-- tools/                          # deploy, restore, capture, analyze (unchanged)
+|-- third_party/                    # Unmodified (unchanged)
+|-- references/                     # Papers and read-only submodules (unchanged)
 `-- docs/
-    |-- findings/                   # Historical evidence stays here
-    |-- mobfgsr-attribution.md
-    `-- refactor/                   # Target decisions and unresolved questions
+    |-- findings/                   # Historical evidence
+    |-- refactor/                   # Contracts and decisions
+    `-- dev/                        # Agent and contributor guide (new in Phase 3)
 ```
 
-## Placement decisions
+All 58 files now in `src/` are placed above; none is left over. `exports.def` stays in the
+root because the linker and the tests reference it there.
 
-- `runtime/session.cpp` is the integration owner. Do not create parallel
-  `routing/fallback`, `runtime/lifecycle`, and session state machines by default.
-- AMD is a backend, not just a directory of forwarding functions. The loader may
-  share mechanics for bundled and `.orig` binaries while preserving their distinct
-  policies, identities, and handle ownership.
-- GPU and presentation infrastructure live outside the Sedici generator so UI and
-  AMD bridges do not depend on algorithm internals. Backend-specific bridges stay
-  with their backend. Shared location does not guarantee shared presentation.
-- The real-frame limiter has an explicit home under presentation; it is not an
-  incidental effect of an overlay callback or export wrapper.
-- Keep input/cursor/window lifetime integration explicit. It must survive renderer
-  disablement and restore game input independently of GPU rendering success.
-- Preserve the vendored header layout. Moving shaders/LUT assets requires updating
-  embedding, attribution, and packaging together, not modifying upstream files.
+## Not carried over from version 1
+
+- `backends/amd/`, `third_party/amd_fsr3/` and every `.orig` or bundled-runtime item: the AMD
+  backend is gone.
+- `residual/`, `shaders/`, `assets/`: Stage 2 is postponed, the shaders are embedded in
+  `generator/fg_shaders.h` and the LUT in `generator/fg_lut_data.h`. Empty directories are
+  not created.
+- `cmake/` helper files and `CMakePresets.json`: not needed for a move. The build keeps the
+  single `sedici_core` object library so the tests exercise the same compiled objects as the
+  DLL.
+- Renames such as dropping the `fg_` prefix: deferred. Keeping base names keeps
+  `git log --follow` and grep working across the move.
+
+## Dependency direction
+
+Intended, from the ownership rules in [architecture.md](architecture.md):
+
+```text
+dllmain -> abi -> runtime -> generator
+                    |  \-> presentation -> gpu
+                    \----> settings
+ui -> settings, presentation (hooks), diagnostics
+everything -> diagnostics   settings -> diagnostics
+```
+
+The code does not follow this everywhere (for example the swapchain calls back into the
+runtime through sinks and hooks). Phase 3 moves files and records the real include edges in
+`docs/dev/layout.md`; it does not break an edge to make the picture cleaner.
+
+## Include and build rules
+
+- Includes are written as `#include "module/file.h"` relative to `src/`, with `src/` on the
+  include path. No `../` includes.
+- `CMakeLists.txt` lists sources by module. Targets are unchanged.
+- Tests include production headers the same way.
+- The vendored `third_party/` layout is untouched.
 
 ## Current-code migration map
 
-These are responsibility extractions, not instructions to move whole files.
-
-| Current files | Target responsibilities |
+| Current file | Target |
 | --- | --- |
-| `src/dllmain.cpp` | Minimal `dllmain.cpp` plus ABI exports |
-| `src/forward.*` | Removed with the AMD backend |
-| `src/describe.*`, `src/fg_route.*` | ABI descriptor handling, routing, diagnostics, runtime registry |
-| `src/fg_integration.*`, `src/fg_context.*` | Session/backend integration, normalized inputs, history, GPU ownership |
-| `src/fg_stage1.*`, `src/fg_params.*`, `src/fg_shaders.h` | Analytical stage, shared GPU resources, shaders, separate composition |
-| `src/fg_pacing.*`, `src/fg_presenter.*`, `src/fg_swapchain.*` | Presentation policy, presenter, swapchain, submission/retirement |
-| `src/limiter.*` (`present_hook.*` and `toggles.*` were removed) | Real-frame admission; status comes from the router |
-| `src/overlay.*`, `src/overlay_compose.*` | Output cadence recording, overlay draw hooks, final composition |
-| `src/ui.*`, `src/ui_input.*` | UI view/controls/renderer and input ownership |
-| `src/config.*`, `src/config_patch.*`, `src/live.*` | Settings ingestion/persistence and acknowledged runtime configuration |
-| `src/log.*`, `src/timing.*`, `src/stats.*` | Diagnostics events, metrics, health observations |
-
-## Build boundaries
-
-Use a small number of production library targets with explicit target-scoped
-dependencies; do not create a library for every folder. Separate pure policy,
-GPU/backend implementation, UI integration, and the final ABI boundary only where
-that separation enforces a dependency or enables a real test.
-
-Tests link the same production implementation targets. A focused boundary check
-also loads the built DLL and verifies its five exports; tests must not only
-recompile a slightly different source list that omits the integration being tested.
-Presets distinguish release, validation, and host-side sanitizer runs.
+| `describe.*`, `fg_route.*`, `fg_token_namespace.h` | `src/abi/` |
+| `fg_integration.*`, `fg_context.*`, `fg_bookkeeping_faults.*` | `src/runtime/` |
+| `fg_stage1.*`, `fg_params.*`, `fg_packing.h`, `fg_shaders.h`, `fg_lut_data.h` | `src/generator/` |
+| `fg_queue_policy.h`, `fg_slot_policy.h`, `fg_retirement_policy.h` | `src/gpu/` |
+| `fg_swapchain.*`, `fg_presenter.*`, `fg_pacing.*`, `limiter.*`, `limiter_schedule.h`, `overlay_compose.*` | `src/presentation/` |
+| `overlay.*`, `ui.*`, `ui_input.*`, `imgui_config.h` | `src/ui/` |
+| `config.*`, `config_patch.*`, `live.*`, `settings_io.*`, `settings_tx.*` | `src/settings/` |
+| `log.*`, `diag.*`, `stats.*`, `timing.*` | `src/diagnostics/` |
+| `dllmain.cpp` | stays in `src/` |
+| `tests/abi.cpp`, `abi_stub.*` | `tests/abi/` |
+| `tests/fgcheck.cpp` | `tests/integration/` |
+| `tests/regression.cpp` | `tests/regression/` |
+| `tests/settings_worker_*.cpp` | `tests/settings/` |
+| `tests/deploy_check.ps1` | `tests/tools/` |
 
 ## Packaging and documentation boundaries
 
-The AMD runtime's deployed filename, directory, dependency search policy, hashes,
-and license approval are unresolved. This tree reserves a dependency location;
-it does not authorize adding binaries or changing the deploy allowlist. Never
-download SDKs/runtime DLLs during configure, build, or test.
-
-Retain dependency notices, source revisions, LUT/model provenance, and the
-Mob-FGSR noncommercial obligations; a root license does not relicense them.
-
-Keep `MILESTONES.md` authoritative. If later moved to `docs/milestones.md`, move it
-once and update links/instructions rather than maintaining both. Broader
-`docs/architecture.md`, `compatibility.md`, or `fallback.md` can be introduced or
-extracted when approved; do not duplicate these target notes as current facts.
+Never download SDKs or runtime DLLs during configure, build or test. Retain dependency
+notices, source revisions, LUT provenance and the Mob-FGSR noncommercial obligations; the
+root licence does not relicense them. `MILESTONES.md` stays authoritative for status.
