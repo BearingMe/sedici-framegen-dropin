@@ -14,6 +14,7 @@
 #include "settings/live.h"
 #include "settings/target_rate.h"
 #include "presentation/limiter.h"
+#include "diagnostics/stats.h"
 
 namespace sedici::fg {
 
@@ -117,9 +118,11 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     // only depend on the description, which recreation keeps.
     hr = object->initialize_buffers();
     if (FAILED(hr)) { delete object; return hr; }
+    bool originalKept = true; // still presenting through the chain the caller handed over
     if (object->m_presenter) {
         IDXGISwapChain4* const original = object->m_native.Get();
         hr = object->m_presenter->adopt(object->m_native, handedRefs + 1, queue, why);
+        if (SUCCEEDED(hr)) originalKept = false;
         if (FAILED(hr)) {
             object->m_presenter.reset();
             for (auto& set : object->m_phase_outputs)
@@ -132,11 +135,14 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
                 delete object;
                 return hr;
             }
-            if (object->m_native.Get() != original)
+            if (object->m_native.Get() != original) {
+                originalKept = false;
                 log_error("fg: \"vrr\" chain recreated on the game queue instead (" + why + ")");
+            }
         }
     }
     object->configure_schedule(chosen);
+    stats_on_swapchain_event("create");
     if (chosen.present == Present::Vsync && !why.empty()) {
         // Never fail the game's wrap over this: present the safe way.
         log_error("fg: \"vrr\" present unavailable (" + why + "); falling back to \"vsync\"");
@@ -176,6 +182,14 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
         CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!object->m_pacing_timer)
         object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+    // K12: the caller handed `handedRefs` references to this wrapper. While the
+    // original chain is still the one presented through (vsync, game, or a vrr
+    // fallback), m_native holds the wrapper's own reference, so take over the
+    // caller's: without this the native chain outlived the wrapper and a new chain
+    // could not be created on the same window. A recreated chain has no such
+    // references (the original and its handed references are already gone).
+    if (originalKept)
+        for (ULONG i = 0; i < handedRefs; ++i) native->Release();
     *result = object;
     return S_OK;
 }
@@ -1178,6 +1192,7 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
     m_pacing = {};
     hr = initialize_buffers();
     publish_output_context();
+    stats_on_swapchain_event("resize"); // K99: lets a stall report coincide with a resize
     return hr;
 }
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags)

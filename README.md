@@ -146,6 +146,12 @@ Cyberpunk2077.exe
 | prepare while the previous prepare slot is still in flight (K98) | `FFX_API_RETURN_ERROR`, logged |
 | `FrameGenerationSwapChainNewDX12` and `ForHwndDX12` creates | `FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE` (see [Known limits](#known-limits)) |
 
+Every rejection is logged as `rejected: <reason> [code=E_...] [op=<call> ctx=<handle>]`. The codes
+are stable and never reused: `E_STALE_HANDLE`, `E_NULL_DESCRIPTOR`, `E_INVALID_DESCRIPTOR`,
+`E_UNSUPPORTED`, `E_NAMESPACE`, `E_ALLOCATION`, `E_WRAP_FAILED`, `E_NOT_RETIRED`, `E_SLOT_BUSY`,
+`E_RETIREMENT_TIMEOUT`, and `E_REJECTED` for anything else. A router call that keeps the game's
+thread for 50 ms or more logs `fg: slow call op=... took N ms`.
+
 Each is logged at level 1 and above (level 0 logs internal errors only). None can crash
 the host.
 

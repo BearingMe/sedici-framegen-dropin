@@ -5,6 +5,7 @@
 #include "ffx_framegeneration.h"
 #include "runtime/integration.h"
 #include "runtime/bookkeeping_faults.h"
+#include "diagnostics/error_code.h"
 #include "abi/token_namespace.h"
 #include "diagnostics/log.h"
 
@@ -105,17 +106,31 @@ const T* find_desc(const ffxApiHeader* desc, uint64_t type) noexcept
 thread_local const char* t_call_op = nullptr;
 thread_local const void* t_call_context = nullptr;
 
+void log_slow_call(const char* op, const void* context, double ms) noexcept;
+
 struct CallScope {
     const char* previous_op;
     const void* previous_context;
-    CallScope(const char* op, const void* context) noexcept
-        : previous_op(t_call_op), previous_context(t_call_context)
+    const char* op;
+    const void* context;
+    LARGE_INTEGER start{};
+    CallScope(const char* op_, const void* context_) noexcept
+        : previous_op(t_call_op), previous_context(t_call_context), op(op_), context(context_)
     {
-        t_call_op = op;
-        t_call_context = context;
+        t_call_op = op_;
+        t_call_context = context_;
+        QueryPerformanceCounter(&start);
     }
     ~CallScope()
     {
+        // K121/K122: say how long the game was inside Sedici, so a stall in the
+        // game's own prepare interval can be attributed to Sedici or not.
+        LARGE_INTEGER now{}, frequency{};
+        if (QueryPerformanceCounter(&now) && QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0) {
+            const double ms = 1000.0 * static_cast<double>(now.QuadPart - start.QuadPart) /
+                              static_cast<double>(frequency.QuadPart);
+            if (ms >= 50.0) log_slow_call(op, context, ms);
+        }
         t_call_op = previous_op;
         t_call_context = previous_context;
     }
@@ -142,6 +157,16 @@ std::string call_identity()
     std::snprintf(text, sizeof(text), " [op=%s ctx=0x%llx]", t_call_op ? t_call_op : "?",
                   static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(t_call_context)));
     return text;
+}
+
+void log_slow_call(const char* op, const void* context, double ms) noexcept
+{
+    try {
+        char text[96];
+        std::snprintf(text, sizeof(text), "fg: slow call op=%s ctx=0x%llx took %.1f ms", op ? op : "?",
+                      static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(context)), ms);
+        log_event(1, text);
+    } catch (...) {}
 }
 
 void log_route(const char* what, const std::string& detail) noexcept
@@ -220,7 +245,11 @@ ffxReturnCode_t failure(const char* reason) noexcept
 {
     // Converting the reason to a string can allocate; an error report must not
     // terminate the game when memory is already exhausted.
-    try { log_route("rejected: ", std::string(reason) + call_identity()); } catch (...) {}
+    try {
+        log_route("rejected: ", std::string(reason) + " [code=" +
+                                    sedici::error_code_name(sedici::classify_reason(reason)) + "]" +
+                                    call_identity());
+    } catch (...) {}
     return FFX_API_RETURN_ERROR;
 }
 

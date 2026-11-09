@@ -33,6 +33,7 @@ namespace {
 void sedici_game_present(uint64_t now_qpc) noexcept
 {
     sedici::timing_on_real_present(now_qpc);
+    stats_on_present(now_qpc); // K99: present-interval statistics
     limiter_before_present(now_qpc);
 }
 

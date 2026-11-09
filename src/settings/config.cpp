@@ -941,6 +941,10 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
         log_raw(line.str());
     }
 
+    // K101: which build wrote this log. A game-side sedici.log can mix builds.
+    log_raw(std::string("sedici: build ") + __DATE__ + " " + __TIME__ +
+            " (config.cpp compiled; SEDICI_PROXY_V1)");
+
     // One line that answers the only question that matters when reading a log
     // from a play session: is the fix on, and is anything being rewritten?
     std::ostringstream effective;

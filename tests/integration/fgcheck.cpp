@@ -2281,8 +2281,14 @@ bool check_routing(Device& state, bool wrapFirst = false)
                     failedContext || untouched != native.Get()) return false;
             }
             std::puts("PASS injected create-bookkeeping failures leave the native swapchain untouched");
+            // The game hands its reference over (K12): the wrap consumes one reference,
+            // so this host gives one up with the call and takes it back if refused.
+            native->AddRef();
             if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
-                result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) return false;
+                result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) {
+                native->Release();
+                return false;
+            }
             caller.Attach(replacement); // Adopt the reference returned to the caller.
             return true;
         };
@@ -2412,7 +2418,8 @@ bool check_routing(Device& state, bool wrapFirst = false)
             char expectedCtx[48];
             std::snprintf(expectedCtx, sizeof(expectedCtx), "[op=configure ctx=0x%llx]",
                           static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(repeated)));
-            const bool identified = identityLog.find(expectedCtx) != std::string::npos;
+            const bool identified = identityLog.find(expectedCtx) != std::string::npos &&
+                                    identityLog.find("[code=E_STALE_HANDLE]") != std::string::npos;
             if (!identified)
                 std::printf("INFO log level %d, captured %zu bytes: %.200s%c", log_level(), identityLog.size(),
                             identityLog.c_str(), 10);
@@ -2708,6 +2715,7 @@ bool check_routing_faults(Device& state)
             bool wrapAnswered = false;
             sedici::fg::route_set_present_hook(&routing_hook_a);
             sedici::fg::arm_creation_hook(&pause_creation_hook);
+            native->AddRef(); // the wrap consumes the game's reference (K12)
             std::thread creating([&] {
                 wrapAnswered = sedici::fg::route_create(&wrapContext, &wrap.header, &wrapResult);
             });

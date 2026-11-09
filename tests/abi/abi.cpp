@@ -5,7 +5,7 @@
 //   sedici_abi <scenario> <sedici.dll> <stub.dll>
 //
 // Scenarios: see the foreach lists in CMakeLists.txt (exports, contract,
-// legacy-config, target-auto, readonly-sedici, bad-config, session, window-replace,
+// legacy-config, target-auto, readonly-sedici, bad-config, session, window-replace, window-replace-vsync,
 // destroy-inflight, log-failure, invalid-calls, overlay-hotkey, stale-forward,
 // unload, integrated).
 // Never touches game files and never downloads anything.
@@ -746,7 +746,7 @@ size_t count_of(const std::string& text, const char* needle)
 // window-replace: the game destroys its swapchain and window mid-session and
 // opens new ones. Each generation is a full create/run/destroy cycle.
 // ---------------------------------------------------------------------------
-int run_window_replace(Harness& h)
+int window_replace_impl(Harness& h, bool vrr)
 {
     Host host;
     expect(host.create(), "DX12 host with the debug layer");
@@ -779,11 +779,20 @@ int run_window_replace(Harness& h)
     const std::string text = h.log();
     expect(count_of(text, "fg: context created") == 3, "log: three generator contexts were created (" +
                                                           std::to_string(count_of(text, "fg: context created")) + ")");
-    expect(count_of(text, "fg: vrr presenter ready") == 3, "log: three presenters came up (" +
-                                                              std::to_string(count_of(text, "fg: vrr presenter ready")) + ")");
+    if (vrr)
+        expect(count_of(text, "fg: vrr presenter ready") == 3, "log: three presenters came up (" +
+                                                                  std::to_string(count_of(text, "fg: vrr presenter ready")) + ")");
+    else
+        expect(count_of(text, "fg: vrr presenter ready") == 0, "log: no vrr presenter in vsync mode");
     expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
     return 0;
 }
+
+int run_window_replace(Harness& h) { return window_replace_impl(h, true); }
+
+// K12: in "vsync" the game keeps its reference to the native chain; a new chain on
+// the same window and a new window must still work after the wrapper is destroyed.
+int run_window_replace_vsync(Harness& h) { return window_replace_impl(h, false); }
 
 // ---------------------------------------------------------------------------
 // destroy-inflight: contexts destroyed and a swapchain resized while the game's
@@ -1451,6 +1460,8 @@ scale = 2
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"mini\"\n[limiter]\nfps = 30\n",
          false, run_session},
+        {"window-replace-vsync",
+         "[fg]\npresent = \"vsync\"\n[ui]\nmode = \"off\"\n", false, run_window_replace_vsync},
         {"window-replace",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"off\"\n", false, run_window_replace},

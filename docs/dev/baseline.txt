@@ -20,6 +20,7 @@ sedici_abi_stale-forward Passed
 sedici_abi_target-auto Passed
 sedici_abi_unload Passed
 sedici_abi_window-replace Passed
+sedici_abi_window-replace-vsync Passed
 sedici_deploy_tools Passed
 sedici_fgcheck Passed
 sedici_fgcheck_context_race Passed
@@ -43,7 +44,7 @@ sedici_regression Passed
 sedici_settings_env_priority Passed
 sedici_settings_sedici_capability Passed
 sedici_settings_worker_lifetime Passed
-ctest-total 38
+ctest-total 39
 == fgcheck
 display 480x270, render 320x180, alpha 0.5, 40 iterations
 rightward pan      psnr  42.92 dB  ssim 0.9985
@@ -239,6 +240,8 @@ PASS settings I/O: the worker exits once the call returns
 PASS settings I/O: the stalled job's late result is discarded
 PASS settings I/O: a new job starts after recovery
 PASS settings I/O: the new job completes normally
+PASS errors: each router rejection reason maps to its stable code
+PASS errors: code names are the documented strings
 PASS target: auto is floor(Hz - Hz^2/3600) (59, 73, 116, 138, 157, 224, 324)
 PASS target: auto with an unknown or implausible refresh rate is uncapped
 PASS target: 0 and auto-without-refresh are uncapped
@@ -279,7 +282,7 @@ PASS Full capture enters on the owning window thread
 PASS overlay failure immediately stops cursor suppression
 PASS disabled overlay cannot reopen Full
 PASS current window WM_NCDESTROY reaches the game procedure
-154 checks, 0 failed
+156 checks, 0 failed
 == regression observer
 PASS overlay Full costs the caller under 5 ms of CPU per frame
 1 checks, 0 failed

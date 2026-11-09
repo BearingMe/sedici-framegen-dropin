@@ -18,6 +18,7 @@
 #include "ui/ui_input.h"
 #include "ui/ui_logic.h"
 #include "settings/target_rate.h"
+#include "diagnostics/error_code.h"
 #include "ffx_api_framegeneration_dx12.h"
 
 #include <windows.h>
@@ -1286,6 +1287,27 @@ void settings_io_stall_checks()
 
 } // namespace
 
+// P4.3: stable error codes derived from the rejection reasons the router logs.
+void error_code_checks()
+{
+    using namespace sedici;
+    check(classify_reason("destroy before GPU retirement") == ErrorCode::NotRetired &&
+              classify_reason("prepare slot is still in flight") == ErrorCode::SlotBusy &&
+              classify_reason("configure on a destroyed context") == ErrorCode::StaleHandle &&
+              classify_reason("null descriptor on a Sedici-owned context") == ErrorCode::NullDescriptor &&
+              classify_reason("Sedici handle namespace unavailable or exhausted") == ErrorCode::NamespaceExhausted &&
+              classify_reason("frame generation backend allocation failed") == ErrorCode::Allocation &&
+              classify_reason("swapchain wrap failed") == ErrorCode::WrapFailed &&
+              classify_reason("unsupported frame generation dispatch type") == ErrorCode::Unsupported &&
+              classify_reason("unimplemented query on a Sedici-owned context") == ErrorCode::Unsupported &&
+              classify_reason("swapchain wrap without a swapchain or queue") == ErrorCode::InvalidDescriptor &&
+              classify_reason("something nobody anticipated") == ErrorCode::Rejected,
+          "errors: each router rejection reason maps to its stable code");
+    check(std::string(error_code_name(ErrorCode::StaleHandle)) == "E_STALE_HANDLE" &&
+              std::string(error_code_name(ErrorCode::Rejected)) == "E_REJECTED",
+          "errors: code names are the documented strings");
+}
+
 // FR-05: the one target fps. Pure resolution, the live real-frame cap, the
 // legacy conversion, and the Full menu's slider/Apply logic (K118, FR-01, FR-02).
 void target_rate_checks()
@@ -1399,6 +1421,7 @@ fps = 0
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
             log_sink_checks();
             settings_io_stall_checks();
+            error_code_checks();
             target_rate_checks();
             limiter_policy_checks();
             limiter_live_checks();

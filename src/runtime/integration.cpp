@@ -319,11 +319,15 @@ bool Session::destroy() noexcept
     // wrapper mutex, so holding it for the whole window could stall a Present.
     // New work is already refused (m_draining), so the state cannot advance
     // except through that registration or the fence completing.
+    // 1000 ms, not 200: at game exit by Alt+F4 the 200 ms window was too short and
+    // the context destroy returned an error (K127). A hung GPU still ends in the
+    // refusal and the parked owner.
+    constexpr ULONGLONG kRetireWaitMs = 1000;
     const ULONGLONG start = GetTickCount64();
     for (;;) {
         {
             std::lock_guard context(m_context_mutex);
-            if (m_context.retired() || GetTickCount64() - start >= 200) break;
+            if (m_context.retired() || GetTickCount64() - start >= kRetireWaitMs) break;
         }
         Sleep(1);
     }

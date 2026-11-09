@@ -106,8 +106,14 @@ struct SaveFlag {
 
 SettingsSnapshot settings_snapshot() noexcept
 {
-    std::lock_guard lock(g_mutex);
-    return SettingsSnapshot{g_revision, read_live()};
+    // K59: std::mutex::lock can throw; inside noexcept that would end the host.
+    // Fall back to the live values at revision 0, which no later apply accepts.
+    try {
+        std::lock_guard lock(g_mutex);
+        return SettingsSnapshot{g_revision, read_live()};
+    } catch (...) {
+        return SettingsSnapshot{0, read_live()};
+    }
 }
 
 ApplyResult settings_apply(uint64_t baseRevision, const LiveValues& candidate) noexcept

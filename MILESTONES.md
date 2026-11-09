@@ -301,8 +301,8 @@ has run in the game since the AMD backend was removed.
 | P2.10 Errors, diagnostics and watchdog hardening | Complete (owner accepted 2026-11-09), with recorded gaps | (a) K47, K41, K48, K77, K37 resolved, K111, K113 fixed (65a30da, cf48198, 721546a). (b) K114, K115 fixed (c6ef9ab, aaa6327): bounded asynchronous log with rate limit, drop and sink-failure accounting, diag snapshot, call identity. (c) K64, K83 resolved, K116 fixed (446244d): the module pins itself once a handle is issued (`sedici_abi unload`), and a stalled settings worker is reported, cancelled best effort and its late result discarded (`sedici_regression`) | Recorded gaps: a GPU that never retires keeps its swapchain parked (option A); no background reaper thread; abandoned-prepare recovery not built; a game whose prepare queue differs from the wrap queue is untested; typed error codes and frame or settings identity are deferred to the upcoming refactor (the error contract in `docs/refactor/reliability.md`, owner decision); lines queued at a hard crash may be lost; a used DLL stays resident until process exit (behaviour change, README); a hung network share may ignore the settings cancel; in-game overhead of the observer and a real hung volume are checked in P2.11
 | P2.11 Integrated acceptance and Stage 2 handoff | Complete (owner closed 2026-11-09), with accepted gaps: offline part done (2026-11-08); in-game checklist QA-01 to QA-16 run by the owner (QA-03 fails on K100; QA-04 and QA-05 partial; QA-12 closed offline; QA-14 skipped) | `sedici_abi_integrated` (35 checks), `sedici_regression observer` (overlay and log cost per frame, QA-12), the in-game QA record in [tests/qa](tests/qa/README.md), `sedici_fgcheck --resolution` quality and timing, [Stage 2 contract](docs/refactor/stage2-contract.md), K117, K118-K128 (QA findings), K129-K132 (Alan Wake 2, finding 015), [feature requests](docs/refactor/feature-requests.md) | Accepted gaps, carried to Phase 4: QA-03 (Alan Wake 2, K100, K129-K132), the QA-04 and QA-05 present-interval captures, QA-14, and Stage 1 at 0.64-0.69 ms against the 0.15-0.30 ms estimate (K117). The in-game defects K118-K128 are open. The owner considers the behaviours proven, which is the baseline for Phase 3 |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 136 entries): 39 open
-(K1, K2, K4-K16, K20, K23, K24, K36, K54, K59, K98-K101, K112, K117, K119-K124, K127-K132; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 84 fixed or resolved (K3, K17, K19, K22, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 136 entries): 36 open
+(K1, K2, K4-K11, K13-K16, K20, K23, K24, K36, K54, K98, K100, K101, K112, K117, K119-K124, K127-K132; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 87 fixed or resolved (K3, K12, K17, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -846,7 +846,7 @@ updated: 2026-11-09.
 | --- | --- | --- | --- | --- |
 | P4.1 Triage of the open entries and requests | Medium | Offline | Complete (2026-11-09) | none |
 | P4.2 Menu, settings and counter logic | Medium | Offline | Complete (2026-11-09); K10, K119 and K124 move on, see below | P4.1 |
-| P4.3 Lifetimes, shutdown and error contracts | Large | Offline | Proposed | P4.1 |
+| P4.3 Lifetimes, shutdown and error contracts | Large | Offline | Complete (2026-11-09); game confirmations on the P4.7 list | P4.1 |
 | P4.4 Stage 1 cost and generated-frame quality | Large | Offline | Proposed | P4.1 |
 | P4.5 Structure: module cycles and large files | Large | Offline | Proposed | P4.2 to P4.4 |
 | P4.6 Pacing and presentation | Large | Game | Proposed | P4.5 |
@@ -897,6 +897,25 @@ environment switches (K20, K21).
 
 **Exit:** each contract is written, implemented or rejected, with a test; the hard rules in
 `AGENTS.md` still hold.
+
+**Result (2026-11-09):**
+
+- **Found by a new test:** K12 was real. In `vsync`/`game` the wrapper kept the game's native chain
+  reference, so a new chain on the same window failed after the wrapper was destroyed
+  (`sedici_abi_window-replace-vsync`). Fixed in `Swapchain::wrap`.
+- **Fixed:** K59 (mutex inside `noexcept`), K99 (present and swapchain-event statistics fed).
+- **Mitigated, game confirmation needed:** K98 (prepare slot wait 50 to 250 ms), K127 (retirement wait
+  200 to 1000 ms).
+- **Instrumented:** K121 and K122 (calls of 50 ms or more are logged), K101 (build line in the log).
+- **Accepted:** K11, K20, with reasons in the entries.
+- **Error contract:** every rejection is logged with a stable code, `rejected: <reason> [code=E_...]
+  [op= ctx=]` (`diagnostics/error_code.h`, listed in the README). Proposed decisions, for the owner to
+  confirm or reverse: frame identity is not added (rejections happen before the descriptor is parsed;
+  `slow call` lines carry the context), settings identity stays the revision in `ApplyResult`, structured
+  log events and the configuration schema (`docs/refactor/configuration.md`) are not enabled: the text log
+  with stable codes is the contract. The watchdog (K83) and parked-owner reaping were already resolved
+  in P2.10.
+- **Tests:** 39 of 39 CTest entries (new: `sedici_abi_window-replace-vsync`), 156 regression checks.
 
 ### P4.4 — Stage 1 cost and generated-frame quality (offline)
 

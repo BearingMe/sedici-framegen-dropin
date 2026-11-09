@@ -246,8 +246,11 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     m_prepare_valid = false;
     if (!m_device) return fail("prepare without a context");
     // A previously generated frame owns the single slot until it retires. Wait
-    // briefly rather than reject: the game's next prepare follows immediately.
-    if (!retired() && !m_recorded && !wait_for_retirement(50)) return fail("prepare slot is still in flight");
+    // rather than reject: the game's next prepare follows immediately, and a
+    // rejection fails the game's dispatch (K98: after a resolution change the
+    // GPU took 93-194 ms, longer than the 50 ms wait this used to be).
+    constexpr uint32_t kPrepareSlotWaitMs = 250;
+    if (!retired() && !m_recorded && !wait_for_retirement(kPrepareSlotWaitMs)) return fail("prepare slot is still in flight");
     if (!retired()) return fail("prepare slot is still recorded or in flight");
     // An invalidated prepare still owns its descriptors until its submission
     // retires. Only now may it be abandoned, without releasing its textures.

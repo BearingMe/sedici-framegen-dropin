@@ -170,13 +170,13 @@ if(SEDICI_BUILD_TESTS)
     set_target_properties(sedici_abi PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     foreach(scenario IN ITEMS exports contract legacy-config target-auto readonly-sedici bad-config session
-            window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward unload integrated)
+            window-replace window-replace-vsync destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward unload integrated)
         add_test(NAME sedici_abi_${scenario}
             COMMAND sedici_abi ${scenario} $<TARGET_FILE:sedici> $<TARGET_FILE:sedici_abi_stub>)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES TIMEOUT 60 LABELS "abi")
     endforeach()
     # The session scenario opens a window and presents; keep it alone on the GPU.
-    foreach(scenario IN ITEMS session window-replace destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward readonly-sedici unload integrated)
+    foreach(scenario IN ITEMS session window-replace window-replace-vsync destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward readonly-sedici unload integrated)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")
     endforeach()
 endif()
