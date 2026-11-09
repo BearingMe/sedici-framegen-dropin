@@ -4,6 +4,8 @@ Why a deployed Sedici build cannot produce a single frame in Alan Wake 2, what
 the game's log and descriptors show, and what it would take to support the game.
 Recorded from a user-run session; nothing here was run by an automated check.
 
+**Update (P4.8, b38d1b8):** the `New` and `ForHwnd` routes and 10-bit support are now in `phase-4`; QA-03 and QA-17 are the game tests.
+
 **Update:** the `New` route was built and run on a temporary branch (`bearingme/aw2-patch`, not merged); see
 [finding 015](015-alan-wake-2-first-sedici-session.md) for the result and the
 blocker that remains (the HDR create flag, K129).

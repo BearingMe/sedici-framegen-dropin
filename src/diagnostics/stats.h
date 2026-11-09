@@ -15,6 +15,9 @@ void stats_on_present(uint64_t qpc) noexcept;
 // detector, which reports whether a stall coincided with one of these. `kind`
 // must be a string literal; only the pointer is stored.
 void stats_on_swapchain_event(const char* kind) noexcept;
+// Number of swapchain create/resize events so far (counted at any log level), so a reporter can
+// tell that the swapchain changed since it last looked.
+uint64_t stats_swapchain_event_count() noexcept;
 
 // An optional extra line written after each periodic report (the "diag:" line,
 // registered by the DLL entry; diagnostics must not depend on the modules that

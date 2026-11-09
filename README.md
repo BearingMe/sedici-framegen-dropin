@@ -614,21 +614,21 @@ the game's call. The timer is created lazily on the first capped present, never 
 
 ## Known limits
 
-- **Supported games.** Cyberpunk 2077 is the tested game. **Alan Wake 2 does not work:** it asks
-  for `FrameGenerationSwapChainNewDX12` with a 10-bit back buffer and an HDR create flag, which
-  Sedici answers with `UNKNOWN_DESCTYPE` (QA-03 fails; K100, K129-K132,
-  [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md) and
-  [015](docs/findings/015-alan-wake-2-first-sedici-session.md)).
-- **Formats.** The back buffer and the HUD-less image must be `R8G8B8A8_UNORM`; depth
-  `D32_FLOAT`, `R32_TYPELESS` or `R32G8X24_TYPELESS`; motion vectors `R16G16B16A16_FLOAT`,
-  `R16G16_FLOAT` or `R32G32_FLOAT`. No HDR or 10-bit (K14). Only the swapchain wrap and the
-  frame generation create types are routed.
+- **Supported games.** Cyberpunk 2077 is the tested game. **Alan Wake 2 is implemented but has not run
+  since:** it asks for `FrameGenerationSwapChainNewDX12` with a 10-bit back buffer and an HDR create
+  flag; Sedici now builds that chain, accepts both, and answers the swapchain's interpolation queries
+  (K14, K100, K129-K132, [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md) and
+  [015](docs/findings/015-alan-wake-2-first-sedici-session.md)). QA-03 and QA-17 are the owner's tests.
+- **Formats.** The back buffer and the HUD-less image must be `R8G8B8A8_UNORM` or `R10G10B10A2_UNORM`
+  (the HDR create flag is accepted; Stage 1 works in the encoding it is given); depth `D32_FLOAT`,
+  `R32_TYPELESS` or `R32G8X24_TYPELESS`; motion vectors `R16G16B16A16_FLOAT`, `R16G16_FLOAT` or
+  `R32G32_FLOAT`. Other formats get a defined error. The swapchain wrap, `New` and `ForHwnd` forms and
+  the frame generation create type are routed.
 - **Open issues seen in the game** ([known-issues.md](docs/refactor/known-issues.md)): the
   overlay can be dead at the next launch after frame generation was turned off (K119) or
-  disable itself after an exception (K124); Alt+F4 does not close the game while the Full menu
-  is open (K126); the limit slider cannot reliably raise the cap (K118); disocclusion at high
+  disable itself after an exception (K124), which now logs the exception text; disocclusion at high
   speed (K120); borders on loading screens (K128); short unexplained stalls (K121) and a slow
-  settle of the real rate (K123); the overlay "Real" counter counts shown frames (K125);
+  settle of the real rate (K123), which the new early reports measure;
   Cyberpunk sends no generation inputs in its menus, so the rate falls to the real fps there.
 - **Requests and test record.** [feature-requests.md](docs/refactor/feature-requests.md) holds
   the requests; [tests/qa](tests/qa/README.md) holds the in-game acceptance record.

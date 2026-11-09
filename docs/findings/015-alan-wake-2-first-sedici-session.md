@@ -6,6 +6,8 @@ which one remains, and what the game's call sequence looks like. Recorded from
 user-run sessions on 2026-11-08. Nothing here was run by an automated check
 except where stated.
 
+**Update (P4.8, b38d1b8):** all six open items below were taken up on `phase-4`: the `New` route and 10-bit plumbing, the HDR flag (accepted), the interpolation shim, the same-adapter rule (ported, logged) and a broader cursor scan. None has run in the game; QA-03 and QA-17.
+
 **Status:** documented only, not fixed. The work lives on the temporary branch
 `bearingme/aw2-patch` (worktree `aw2-patch`) and is not merged into `refactor/phase-2`.
 On that branch the game runs through Sedici's swapchain without crashing, but frame

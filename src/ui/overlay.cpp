@@ -1,6 +1,7 @@
 #include "ui/overlay.h"
 
 #include "diagnostics/log.h"
+#include "diagnostics/stats.h"
 #include "diagnostics/timing.h"
 #include "ui/ui.h"
 
@@ -21,6 +22,10 @@
 namespace {
 
 constexpr uint64_t kReportEvery = 300;
+// After a swapchain create or resize the first reports cover 60 outputs instead of 300, so the
+// slow settle of the real rate (K123) shows up as several lines instead of one.
+constexpr uint64_t kEarlyReportEvery = 60;
+constexpr unsigned kEarlyReports = 8;
 
 
 uint64_t qpc_now() noexcept
@@ -59,6 +64,8 @@ struct Window {
     uint64_t first = 0;
     uint64_t last = 0;
     bool logged_active = false;
+    uint64_t seen_events = 0;
+    unsigned early_reports = kEarlyReports; // the start of the run counts as a change too
 };
 
 std::mutex g_mutex;
@@ -122,6 +129,16 @@ void record_present(const ffxCallbackDescFrameGenerationPresent* params)
         }
         g_window.last = now;
 
+        const uint64_t events = stats_swapchain_event_count();
+        if (events != g_window.seen_events) {
+            // The swapchain changed: start a fresh window so the report does not mix two sizes.
+            g_window.seen_events = events;
+            g_window.early_reports = kEarlyReports;
+            g_window.calls = g_window.real = g_window.generated = 0;
+            g_window.first = now;
+            g_window.have_first = true;
+        }
+
         ++g_window.calls;
         if (params->isGeneratedFrame) {
             ++g_window.generated;
@@ -129,7 +146,9 @@ void record_present(const ffxCallbackDescFrameGenerationPresent* params)
             ++g_window.real;
         }
 
-        if (g_window.calls >= kReportEvery) {
+        const uint64_t reportEvery = g_window.early_reports ? kEarlyReportEvery : kReportEvery;
+        if (g_window.calls >= reportEvery) {
+            if (g_window.early_reports) --g_window.early_reports;
             stats = stats_line_locked();
             g_window.calls = 0;
             g_window.real = 0;

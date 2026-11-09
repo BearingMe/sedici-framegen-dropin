@@ -301,8 +301,8 @@ has run in the game since the AMD backend was removed.
 | P2.10 Errors, diagnostics and watchdog hardening | Complete (owner accepted 2026-11-09), with recorded gaps | (a) K47, K41, K48, K77, K37 resolved, K111, K113 fixed (65a30da, cf48198, 721546a). (b) K114, K115 fixed (c6ef9ab, aaa6327): bounded asynchronous log with rate limit, drop and sink-failure accounting, diag snapshot, call identity. (c) K64, K83 resolved, K116 fixed (446244d): the module pins itself once a handle is issued (`sedici_abi unload`), and a stalled settings worker is reported, cancelled best effort and its late result discarded (`sedici_regression`) | Recorded gaps: a GPU that never retires keeps its swapchain parked (option A); no background reaper thread; abandoned-prepare recovery not built; a game whose prepare queue differs from the wrap queue is untested; typed error codes and frame or settings identity are deferred to the upcoming refactor (the error contract in `docs/refactor/reliability.md`, owner decision); lines queued at a hard crash may be lost; a used DLL stays resident until process exit (behaviour change, README); a hung network share may ignore the settings cancel; in-game overhead of the observer and a real hung volume are checked in P2.11
 | P2.11 Integrated acceptance and Stage 2 handoff | Complete (owner closed 2026-11-09), with accepted gaps: offline part done (2026-11-08); in-game checklist QA-01 to QA-16 run by the owner (QA-03 fails on K100; QA-04 and QA-05 partial; QA-12 closed offline; QA-14 skipped) | `sedici_abi_integrated` (35 checks), `sedici_regression observer` (overlay and log cost per frame, QA-12), the in-game QA record in [tests/qa](tests/qa/README.md), `sedici_fgcheck --resolution` quality and timing, [Stage 2 contract](docs/refactor/stage2-contract.md), K117, K118-K128 (QA findings), K129-K132 (Alan Wake 2, finding 015), [feature requests](docs/refactor/feature-requests.md) | Accepted gaps, carried to Phase 4: QA-03 (Alan Wake 2, K100, K129-K132), the QA-04 and QA-05 present-interval captures, QA-14, and Stage 1 at 0.64-0.69 ms against the 0.15-0.30 ms estimate (K117). The in-game defects K118-K128 are open. The owner considers the behaviours proven, which is the baseline for Phase 3 |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 136 entries): 35 open
-(K1, K2, K4-K11, K13-K16, K20, K23, K24, K36, K54, K98, K100, K101, K112, K119-K124, K127-K132; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 88 fixed or resolved (K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 137 entries): 30 open
+(K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 94 fixed or resolved (K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -814,8 +814,11 @@ Phase 2 baseline (`tools/baseline.ps1`) still passing except for the lines the f
 change (record those in the commit).
 
 **Status:** in progress (2026-11-09). The owner set the decisions below and the goal "implement all
-milestones that can run offline": P4.1 to P4.5 are done and committed on the branch `phase-4`; P4.6 to
-P4.9 need the game and wait for the owner's sessions.
+milestones that can run offline": P4.1 to P4.5 are done and committed on the branch `phase-4`. The second goal,
+"complete P4.6 to P4.9 offline and get the QA entries ready", is done for everything that does not need the
+game: what remains is the owner's sessions (QA-03, QA-17 to QA-20 and the cadence parts of QA-04, QA-05,
+QA-10), judged with `tools/analyze_log.ps1` and `tools/analyze_presents.ps1` by the rules in
+[phase4-game-checklist.md](docs/refactor/phase4-game-checklist.md).
 
 **Owner decisions (2026-11-09):**
 
@@ -850,10 +853,10 @@ updated: 2026-11-09.
 | P4.3 Lifetimes, shutdown and error contracts | Large | Offline | Complete (2026-11-09); game confirmations on the P4.7 list | P4.1 |
 | P4.4 Stage 1 cost and generated-frame quality | Large | Offline | Complete (2026-11-09); K120 capture on the P4.7 list | P4.1 |
 | P4.5 Structure: module cycles and large files | Large | Offline | Complete (2026-11-09); file splitting partial, see below | P4.2 to P4.4 |
-| P4.6 Pacing and presentation | Large | Game | Proposed | P4.5 |
-| P4.7 In-game defects from the owner's QA run | Large | Game | Proposed | P4.5 |
-| P4.8 Alan Wake 2 | Large | Offline build, game acceptance | Proposed | P4.5; owner sessions |
-| P4.9 Final acceptance | Medium | Game | Proposed | P4.6 to P4.8 |
+| P4.6 Pacing and presentation | Large | Game | Offline part complete (2026-11-09): K6 accepted, analyzers, QA-18; verdicts wait for the owner's runs | P4.5 |
+| P4.7 In-game defects from the owner's QA run | Large | Game | Offline part complete (2026-11-09): settle instrumentation, analyzer, QA-19 and QA-20; verdicts wait for the owner's runs | P4.5 |
+| P4.8 Alan Wake 2 | Large | Offline build, game acceptance | Offline part complete (2026-11-09); acceptance is QA-03 and QA-17 | P4.5; owner sessions |
+| P4.9 Final acceptance | Medium | Game | Checklist ready (`docs/refactor/phase4-game-checklist.md`); sign-off waits for the runs | P4.6 to P4.8 |
 
 ### P4.1 — Triage (offline)
 
@@ -970,6 +973,16 @@ written reason. Offline changes are tested first, then the owner runs the checkl
 
 **Exit:** every entry in the range has a verdict.
 
+**Offline part (2026-11-09):**
+
+- **Analyzers (new, tested by `sedici_analyzers`):** `tools/analyze_log.ps1` turns a `sedici.log` into
+  rejections by stable code, stalls, slow calls, create and destroy results, overlay events and the settle
+  time of the real rate; `tools/analyze_presents.ps1` judges a PresentMon or CapFrameX CSV (percentiles,
+  1% low, stalls, share of intervals within a tolerance of the target).
+- **Verdicts decided offline:** K6 accepted (tuned constants with tests). K1, K2, K4, K5, K7, K8 and K15
+  have a measurement and a criterion in QA-18; K9 stays an `XFAIL`.
+- **Not decided:** every other entry in the range, because each is a measurement on the owner's display.
+
 ### P4.7 — In-game defects from the owner's QA run (game)
 
 K121 to K123 (stalls, slow settle of the real rate, window-mode gaps), K126 (Alt+F4 with the Full
@@ -978,6 +991,15 @@ if any, and the game halves of P4.2/P4.3 (Full-menu click path, shutdown at Alt+
 narrowest log or counter that makes the owner's next run conclusive before changing behaviour.
 
 **Exit:** each entry fixed and confirmed in a run, or its cause recorded.
+
+**Offline part (2026-11-09):** instrumentation and QA entries, no behaviour change except the log.
+
+- After a swapchain create or resize the overlay reports every 60 outputs for eight reports (K123), so
+  the settle shows as several lines; the periodic line is otherwise unchanged.
+- The cursor interception log line says what it found (K132, below).
+- QA-19 (window changes, settle, exit, menu clicks) and QA-20 (K120, K128, K119, K121 evidence) are
+  ready. A capture feature in the DLL was considered for K120 and K128 and not built: a screen recorder
+  gives the same evidence without a readback path in a drop-in DLL.
 
 ### P4.8 — Alan Wake 2 (standalone)
 
@@ -991,6 +1013,22 @@ is in scope with the owner. Routing, formats and queries get ABI and `sedici_fgc
 first; acceptance is the owner's session (QA-03).
 
 **Exit:** QA-03 passes, or each remaining failure is a recorded, owner-accepted refusal.
+
+**Offline part (2026-11-09):** the call list was re-read from findings 014 and 015 and the earlier branch
+(`bearingme/aw2-patch`) was ported onto the refactored modules, with tests first.
+
+- **Scope decided:** everything the findings list is in: the `New` and `ForHwnd` routes (K100), the 10-bit
+  back buffer (K14), the HDR flag (K129, accepted; Stage 1 is encoding-agnostic), the same-adapter device rule
+  (K130), the interpolation queries and the game's own dispatch (K131), and the cursor interception (K132).
+  Reversible by the owner: K129 (accepting the flag), K130 (the same-adapter rule).
+- **Done:** routes with error codes and no handle on failure; `GetVersions` for both forms; 10-bit through the
+  wrapper, context and Stage 1; interpolation shim; broader cursor scan with a probe-module test.
+- **Tests:** `sedici_abi` (null `New` and `ForHwnd`, versions), `sedici_fgcheck --routing` (both forms, a
+  10-bit HDR-flagged session, queries, dispatch, destroy order), `sedici_fgcheck` (10-bit against 8-bit on two
+  scenes), `sedici_regression` (cursor scan). 41 of 41 CTest entries.
+- **Waiting for the game:** QA-03 (create accepted) and QA-17 (generation, HDR on and off, menu, exit). The
+  calls the game makes after a successful create are still unseen, so the first session may show more.
+- **Commit:** b38d1b8.
 
 ### P4.9 — Final acceptance (game)
 

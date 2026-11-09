@@ -175,7 +175,8 @@ alone.
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
 - `tools/` — deploy/restore with `.orig` safety rules, `games.json`, the Phase 3 checks
-  `baseline.ps1` and `check_moves.ps1`, and `check_layers.ps1` (module layering, CTest `sedici_layers`).
+  `baseline.ps1` and `check_moves.ps1`, `check_layers.ps1` (module layering, CTest `sedici_layers`), and the QA
+  analyzers `analyze_log.ps1` and `analyze_presents.ps1` (CTest `sedici_analyzers`).
 - `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools` — the
   offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`, the settings worker
   host, `deploy_check.ps1`).

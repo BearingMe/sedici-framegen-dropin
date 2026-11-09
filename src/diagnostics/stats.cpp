@@ -421,8 +421,15 @@ void stats_on_present(uint64_t qpc) noexcept
     }
 }
 
+namespace {
+std::atomic<uint64_t> g_swapchain_events{0};
+}
+
+uint64_t stats_swapchain_event_count() noexcept { return g_swapchain_events.load(std::memory_order_relaxed); }
+
 void stats_on_swapchain_event(const char* kind) noexcept
 {
+    g_swapchain_events.fetch_add(1, std::memory_order_relaxed);
     if (log_level() < 1 || !kind) return;
 
     try {

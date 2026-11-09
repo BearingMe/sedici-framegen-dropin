@@ -134,6 +134,11 @@ if(SEDICI_BUILD_TESTS)
         -File ${CMAKE_SOURCE_DIR}/tools/check_layers.ps1 -Root ${CMAKE_SOURCE_DIR})
     set_tests_properties(sedici_layers PROPERTIES TIMEOUT 60 LABELS "structure")
 
+    # P4.6/P4.7: the log and present-interval analyzers the owner's QA runs are judged with.
+    add_test(NAME sedici_analyzers COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+        -File ${CMAKE_SOURCE_DIR}/tests/tools/analyze_check.ps1 -Repo ${CMAKE_SOURCE_DIR})
+    set_tests_properties(sedici_analyzers PROPERTIES TIMEOUT 120 LABELS "structure")
+
     # Test-only module and isolated host: unlike the proxy, this helper exports
     # one control entry so the host can verify the worker's DLL reference.
     add_library(sedici_settings_worker_stub SHARED
