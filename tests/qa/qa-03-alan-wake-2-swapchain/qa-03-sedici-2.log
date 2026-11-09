@@ -1,0 +1,114 @@
+# Excerpt of the owner's second Alan Wake 2 run (build 2026-11-09 09:35), kept for finding 016 and K138/K139.
+# Full log: 250 lines, kept locally as qa-03-sedici-2.full.log (ignored by git).
+# Kept: settings header, create calls, the first queries and dispatches, every rejection, a sample of the periodic lines, the last three lines.
+# Lines are cut at 380 characters. After 45.6 s there is no periodic line at all, to the end of the run at 75.3 s.
+# ---
+[0.000 ms] sedici: read C:\Program Files\Epic Games\AlanWake2\sedici.toml (once, on the first ffx call)
+[0.894 ms] sedici:   fg.present       = "vrr" [file]
+[1.236 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.594 ms] sedici:   fg.multiplier    = "2x" [file]
+[2.008 ms] sedici:   fg.target_fps    = 0 [file]
+[2.375 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.828 ms] sedici:   ui.mode          = "off" [file]
+[3.196 ms] sedici:   ui.scale         = "auto" [file]
+[3.507 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[3.849 ms] sedici:   log.level        = 1 [file]
+[4.251 ms] sedici: build Nov  9 2026 09:35:20 (config.cpp compiled; SEDICI_PROXY_V1)
+[4.567 ms] sedici: effective: target fps uncapped
+[4.894 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[10.763 ms] fg: swapchain wrap: chain device 0000021A6E0366B0 differs from queue device 0000021A6E035EF0; same adapter, using the queue's device
+[42.057 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=2 max_latency=0 fullscreen=no
+[42.072 ms] fg: schedule multiplier=2x ratio=2/1
+[42.266 ms] fg: created swapchain (new)
+[42.300 ms] ffxCreateContext #1 ctx=0x21a7f7f0000 result=0 (OK) chain=0x30005 (FrameGenerationSwapChainNewDX12) -> 0x3000b (FrameGenerationSwapChainVersionDX12)   0x30005 (FrameGenerationSwapChainNewDX12) variant=new swapchainPtr=0x5929bff1a8 swapchain=0x21a6c9f3060 desc{buffers=2 size=2560x1080 format=R10G10B10A2_UNORM(0x18) refresh=0/0 usage=0x20 swapEffect=4 flags=0x802 wind
+[42.381 ms] fg: rejected: unimplemented query on a Sedici-owned context [code=E_UNSUPPORTED] [op=query ctx=0x21a7f7f0000]
+[42.408 ms] ffxQuery #1 ctx=0x21a7f7f0000 result=1 (ERROR) chain=0x30009 (SwapChainGpuMemoryUsageDX12)   0x30009 (SwapChainGpuMemoryUsageDX12) out=0x5929bff270
+[6002.279 ms] fg: vrr game thread cycles=300 real_fps=57.602731 planned_output_fps=57.602731 refresh_hz=75.000000 skipped=0 backpressure_waits=1/300 backpressure_ms{avg=125.431800 max=125.431800}
+[22383.814 ms] fg: vrr game thread cycles=2100 real_fps=150.954090 planned_output_fps=150.954090 refresh_hz=75.000000 skipped=0 backpressure_waits=224/300 backpressure_ms{avg=6.695123 max=12.241800}
+[37379.957 ms] fg: vrr game thread cycles=4200 real_fps=143.392646 planned_output_fps=143.392646 refresh_hz=75.000000 skipped=0 backpressure_waits=146/300 backpressure_ms{avg=9.547123 max=11.607400}
+[48020.512 ms] fg: context created, display 2560x1080, max render 1706x720
+[48020.549 ms] fg: created frame generation context
+[48020.554 ms] fg: slow call op=create ctx=0x0 took 426.8 ms
+[48020.573 ms] ffxCreateContext #2 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x20009 (FrameGenerationCreateHudless)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|HDR display=2560x1080 maxRender=1706x720 backbufferFormat=R10G10B10A2_UNORM(0x11)   0x2 (BackendDX12) device=0x21a6e035ef0   0x20009 (FrameGenerationCreateHu
+[48020.578 ms] fg: rejected: unimplemented query on a Sedici-owned context [code=E_UNSUPPORTED] [op=query ctx=0x21a7f7f0010]
+[48586.472 ms] fg: native inputs depth{format=39 flags=2 size=1706x720} motion{format=34 flags=5 size=1706x720}
+[48592.884 ms] ffxDispatch #1 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5660 flags=none cmd=0x21a5f650150 render=1706x720 jitter=(0.0625,-0.4630) mvScale=(1706.0000,720.0000) frameTimeDelta=12.1166 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeters=1.
+[48699.139 ms] ffxConfigure #1 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20002 (FrameGenerationConfigure) -> 0x20008 (FrameGenerationDistortionResource)   0x20002 (FrameGenerationConfigure) swapChain=0x21a6c9f3060 presentCallback=none presentCtx=null generationCallback=none generationCtx=null frameGenerationEnabled=true allowAsyncWorkloads=false HUDLessColor=yes HUDLess={res=0x21
+[48699.495 ms] ffxQuery #3 ctx=0x21a7f7f0000 result=0 (OK) chain=0x30003 (SwapChainInterpolationCommandListDX12)   0x30003 (SwapChainInterpolationCommandListDX12) outCommandList=0x5929bfd730 commandList=0x21afbc09fc0
+[48701.308 ms] ffxQuery #4 ctx=0x21a7f7f0000 result=0 (OK) chain=0x30004 (SwapChainInterpolationTextureDX12)   0x30004 (SwapChainInterpolationTextureDX12) outTexture=0x5929bfd768 texture={res=0x21afbd414b0 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0x2 usage=0x2}
+[48701.333 ms] ffxDispatch #2 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20003 (FrameGenerationDispatch)   0x20003 (FrameGenerationDispatch) cmd=0x21afbc09fc0 presentColor={res=0x21a5fabb200 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0xc usage=0x0} numGeneratedFrames=1 reset=true transferFunction=0 minLuminance=0.0000 maxLuminance=80.0000 generationRect=0,0 2560x1080 fram
+[48756.531 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48756.587 ms] ffxDispatch #3 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5661 flags=none cmd=0x21a5f650150 render=1706x720 jitter=(-0.1875,-0.1296) mvScale=(1706.0000,720.0000) frameTimeDelta=1417.9622 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMet
+[48760.643 ms] ffxDispatch #4 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20003 (FrameGenerationDispatch)   0x20003 (FrameGenerationDispatch) cmd=0x21afbc09fc0 presentColor={res=0x21a5fabb200 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0xc usage=0x0} numGeneratedFrames=1 reset=false transferFunction=0 minLuminance=0.0000 maxLuminance=80.0000 generationRect=0,0 2560x1080 fra
+[48780.511 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48793.002 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48803.010 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48820.870 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48832.985 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48833.696 ms] ffxQuery #15 ctx=0x21a7f7f0000 result=0 (OK) chain=0x30003 (SwapChainInterpolationCommandListDX12)   0x30003 (SwapChainInterpolationCommandListDX12) outCommandList=0x5929bfd730 commandList=0x21afbc09fc0
+[48833.713 ms] ffxQuery #16 ctx=0x21a7f7f0000 result=0 (OK) chain=0x30004 (SwapChainInterpolationTextureDX12)   0x30004 (SwapChainInterpolationTextureDX12) outTexture=0x5929bfd768 texture={res=0x21afbd414b0 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0x2 usage=0x2}
+[48833.744 ms] ffxDispatch #14 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20003 (FrameGenerationDispatch)   0x20003 (FrameGenerationDispatch) cmd=0x21afbc09fc0 presentColor={res=0x21a5fabb200 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0xc usage=0x0} numGeneratedFrames=1 reset=false transferFunction=0 minLuminance=0.0000 maxLuminance=80.0000 generationRect=0,0 2560x1080 fr
+[48861.454 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48861.524 ms] ffxDispatch #15 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5667 flags=none cmd=0x21a5f650150 render=1706x720 jitter=(-0.4688,0.0926) mvScale=(1706.0000,720.0000) frameTimeDelta=16.0440 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeter
+[48861.995 ms] ffxDispatch #16 ctx=0x21a7f7f0010 result=0 (OK) chain=0x20003 (FrameGenerationDispatch)   0x20003 (FrameGenerationDispatch) cmd=0x21afbc09fc0 presentColor={res=0x21a5fabb200 format=R10G10B10A2_UNORM(0x11) size=2560x1080 state=0xc usage=0x0} numGeneratedFrames=1 reset=false transferFunction=0 minLuminance=0.0000 maxLuminance=80.0000 generationRect=0,0 2560x1080 fr
+[48873.885 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010]
+[48873.971 ms] ffxDispatch #17 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5668 flags=none cmd=0x21a5f750fe0 render=1706x720 jitter=(0.0312,0.4259) mvScale=(1706.0000,720.0000) frameTimeDelta=19.5045 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeters
+[48881.325 ms] ffxDispatch #19 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5669 flags=none cmd=0x21a5f76cc30 render=1706x720 jitter=(-0.2188,-0.4259) mvScale=(1706.0000,720.0000) frameTimeDelta=12.7463 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMete
+[48973.841 ms] ffxDispatch #21 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5670 flags=none cmd=0x21a6eb7c4d0 render=1706x720 jitter=(0.0000,-0.1667) mvScale=(1706.0000,720.0000) frameTimeDelta=15.9926 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeter
+[49263.270 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+19 similar suppressed]
+[49294.583 ms] ffxDispatch #61 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5690 flags=none cmd=0x21a5f7802b0 render=1706x720 jitter=(0.2500,-0.3889) mvScale=(1706.0000,720.0000) frameTimeDelta=16.0282 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeter
+[49770.314 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+31 similar suppressed]
+[49802.535 ms] ffxDispatch #125 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=5722 flags=none cmd=0x21a5f7802b0 render=1706x720 jitter=(0.0312,0.4259) mvScale=(1706.0000,720.0000) frameTimeDelta=16.2965 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMeter
+[50270.726 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[50773.328 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[51269.312 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[51770.229 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[52267.723 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[52769.875 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[53262.351 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[53770.131 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+31 similar suppressed]
+[54262.855 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[54767.799 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+31 similar suppressed]
+[55260.105 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[55767.006 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+31 similar suppressed]
+[56262.170 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[56757.825 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[57265.757 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+31 similar suppressed]
+[57764.371 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[58262.962 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+30 similar suppressed]
+[58775.478 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+26 similar suppressed]
+[59258.999 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+24 similar suppressed]
+[59757.756 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+26 similar suppressed]
+[60266.381 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+27 similar suppressed]
+[60763.592 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+24 similar suppressed]
+[61271.393 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+22 similar suppressed]
+[61768.750 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[62258.357 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[62769.204 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[63262.103 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[63773.282 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[64258.609 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[64766.835 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[65270.560 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[65769.010 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[66267.325 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[66766.179 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[67264.333 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[67758.289 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[68261.794 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[68759.737 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[69277.215 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+21 similar suppressed]
+[69770.922 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[70267.696 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[70767.617 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[71259.769 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+19 similar suppressed]
+[71769.849 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[72262.641 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+19 similar suppressed]
+[72762.305 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+19 similar suppressed]
+[73274.437 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[73757.212 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+19 similar suppressed]
+[74261.482 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[74766.125 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[74812.784 ms] ffxDispatch #2643 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=6981 flags=none cmd=0x21a5f7802b0 render=1706x720 jitter=(-0.4688,0.0926) mvScale=(1706.0000,720.0000) frameTimeDelta=23.1408 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMet
+[75260.947 ms] fg: rejected: prepare slot is still recorded or in flight [code=E_SLOT_BUSY] [op=dispatch ctx=0x21a7f7f0010] [+20 similar suppressed]
+[75306.907 ms] ffxDispatch #2685 ctx=0x21a7f7f0010 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare) -> 0x2000a (FrameGenerationPrepareCameraInfo)   0x20004 (FrameGenerationPrepare) frameID=7002 flags=none cmd=0x21a5f750fe0 render=1706x720 jitter=(0.0000,-0.1667) mvScale=(1706.0000,720.0000) frameTimeDelta=23.6702 reset=false near=0.0750 far=4493.9722 fov=0.7504 viewToMet

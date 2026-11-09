@@ -15,6 +15,7 @@ std::atomic<unsigned> routingHookA{0};
 std::atomic<unsigned> routingHookB{0};
 void routing_hook_a(uint64_t) { ++routingHookA; }
 void routing_hook_b(uint64_t) { ++routingHookB; }
+void routing_hook_slow(uint64_t) { Sleep(600); } // a Present that holds the swapchain lock for a while
 
 bool check_routing(Device& state, bool wrapFirst)
 {
@@ -480,6 +481,7 @@ bool check_routing_faults(Device& state)
             legacy.Windowed = TRUE;
             legacy.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
             legacy.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+            sedici::fg::route_set_present_hook(&routing_hook_slow);
             IDXGISwapChain4* out = nullptr;
             ffxCreateContextDescFrameGenerationSwapChainNewDX12 made{};
             made.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12;
@@ -495,6 +497,42 @@ bool check_routing_faults(Device& state)
             DXGI_SWAP_CHAIN_DESC1 got{};
             if (FAILED(game->GetDesc1(&got)) || got.Format != DXGI_FORMAT_R10G10B10A2_UNORM) return false;
             std::puts("PASS New swapchain form builds a 10-bit chain and Sedici owns it");
+
+            // K138: Present holds the swapchain lock through its waits (here a 600 ms limiter sleep).
+            // The game's submitting thread asks for the interpolation list and texture meanwhile and
+            // must not wait for it: Alan Wake 2's did, and stopped.
+            {
+                std::atomic<bool> inPresent{false};
+                std::thread presenter([&] {
+                    inPresent = true;
+                    (void)game->Present(0, 0);
+                });
+                while (!inPresent.load()) std::this_thread::yield();
+                Sleep(100); // let Present reach its sleep
+                ID3D12GraphicsCommandList* l = nullptr;
+                ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 q1{};
+                q1.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12;
+                q1.pOutCommandList = reinterpret_cast<void**>(&l);
+                FfxApiResource tex{};
+                ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 q2{};
+                q2.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12;
+                q2.pOutTexture = &tex;
+                ffxReturnCode_t r1 = FFX_API_RETURN_ERROR, r2 = FFX_API_RETURN_ERROR;
+                const auto started = std::chrono::steady_clock::now();
+                const bool a1 = sedici::fg::route_query(&swapContext, &q1.header, &r1);
+                const bool a2 = sedici::fg::route_query(&swapContext, &q2.header, &r2);
+                const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - started).count();
+                presenter.join();
+                sedici::fg::route_set_present_hook(nullptr);
+                if (!a1 || !a2 || r1 != FFX_API_RETURN_OK || r2 != FFX_API_RETURN_OK || waitedMs > 300) {
+                    std::printf("FAIL interpolation queries blocked behind a running Present (%lld ms)\n",
+                                static_cast<long long>(waitedMs));
+                    return false;
+                }
+                std::printf("PASS interpolation queries do not wait for a running Present (%lld ms while it slept 600 ms)\n",
+                            static_cast<long long>(waitedMs));
+            }
 
             // The interpolation queries the game sends on the swapchain context.
             ID3D12GraphicsCommandList* list = nullptr;

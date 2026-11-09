@@ -236,9 +236,17 @@ private:
     // recorded after they were executed and their allocators are not yet free.
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_generate_allocator;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_generate_list;
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_scratch_allocator;   // guarded by m_mutex
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_scratch_list;     // guarded by m_mutex
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_scratch_texture;             // guarded by m_mutex
+    // The interpolation scratch objects have their own lock, never m_mutex: a game thread asking for
+    // them while another thread sits in Present (which holds m_mutex through its waits) would
+    // otherwise block, and Alan Wake 2's submitting thread did (K138).
+    std::mutex m_scratch_mutex;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_scratch_allocator;   // guarded by m_scratch_mutex
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_scratch_list;     // guarded by m_scratch_mutex
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_scratch_texture;             // guarded by m_scratch_mutex
+    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_scratch_retired; // replaced by a resize; kept: the game may hold the pointer
+    DXGI_FORMAT m_scratch_format = DXGI_FORMAT_UNKNOWN;                    // the chain's format and size, set with the buffers
+    UINT m_scratch_width = 0;
+    UINT m_scratch_height = 0;
     Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_buffers;
 

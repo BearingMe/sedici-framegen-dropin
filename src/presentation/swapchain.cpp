@@ -320,7 +320,7 @@ void Swapchain::retain_gpu_state() noexcept
 HRESULT Swapchain::interpolation_list(ID3D12GraphicsCommandList** list) noexcept try
 {
     if (!list) return E_POINTER;
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(m_scratch_mutex);
     if (!m_scratch_list) {
         HRESULT hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
                                                       IID_PPV_ARGS(&m_scratch_allocator));
@@ -343,26 +343,31 @@ catch (...) { return E_OUTOFMEMORY; }
 HRESULT Swapchain::interpolation_texture(ID3D12Resource** texture) noexcept try
 {
     if (!texture) return E_POINTER;
-    std::lock_guard lock(m_mutex);
-    if (!m_scratch_texture) {
-        DXGI_SWAP_CHAIN_DESC1 desc{};
-        HRESULT hr = m_native->GetDesc1(&desc);
-        if (FAILED(hr)) return hr;
-        D3D12_HEAP_PROPERTIES heap{};
-        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-        D3D12_RESOURCE_DESC texDesc{};
-        texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        texDesc.Width = desc.Width;
-        texDesc.Height = desc.Height;
-        texDesc.DepthOrArraySize = 1;
-        texDesc.MipLevels = 1;
-        texDesc.Format = desc.Format;
-        texDesc.SampleDesc.Count = 1;
-        texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texDesc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_scratch_texture));
-        if (FAILED(hr)) return hr;
+    std::lock_guard lock(m_scratch_mutex);
+    if (m_scratch_format == DXGI_FORMAT_UNKNOWN) return DXGI_ERROR_NOT_FOUND; // buffers not created yet
+    if (m_scratch_texture) {
+        const D3D12_RESOURCE_DESC have = m_scratch_texture->GetDesc();
+        if (have.Width == m_scratch_width && have.Height == m_scratch_height && have.Format == m_scratch_format) {
+            *texture = m_scratch_texture.Get();
+            return S_OK;
+        }
+        // A resize changed the chain. The game may still hold the old pointer for a frame.
+        m_scratch_retired.push_back(std::move(m_scratch_texture));
     }
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC texDesc{};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Width = m_scratch_width;
+    texDesc.Height = m_scratch_height;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = m_scratch_format;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const HRESULT hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_scratch_texture));
+    if (FAILED(hr)) return hr;
     *texture = m_scratch_texture.Get();
     return S_OK;
 }
@@ -420,6 +425,12 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     if (desc.SampleDesc.Count != 1 || desc.BufferCount == 0 || desc.Stereo ||
         !supported_color_format(desc.Format)) return DXGI_ERROR_UNSUPPORTED;
 
+    {
+        std::lock_guard scratch(m_scratch_mutex);
+        m_scratch_format = desc.Format;
+        m_scratch_width = desc.Width;
+        m_scratch_height = desc.Height;
+    }
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> buffers(desc.BufferCount);
     D3D12_HEAP_PROPERTIES heap{};
     heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -899,7 +910,23 @@ HRESULT Swapchain::record_generated() noexcept
 HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
 {
     reap_retained(); // one atomic load unless a timed-out swapchain is parked (K47)
+    // K138: say when Present waits for the swapchain lock or runs long, so a stalled game thread
+    // can be told apart from a deadlock. A call that never returns logs nothing, so the
+    // periodic lines going quiet while prepares continue is the other half of the evidence.
+    struct PresentTimer {
+        double start = now_seconds();
+        double lockedAt = 0.0;
+        ~PresentTimer() noexcept {
+            try {
+                const double total = (now_seconds() - start) * 1000.0;
+                if (total >= 250.0) log_event(1, "fg: slow present took " + std::to_string(total) + " ms" +
+                    (lockedAt - start >= 0.1 ? " (waited " + std::to_string((lockedAt - start) * 1000.0) +
+                     " ms for the swapchain lock)" : std::string()));
+            } catch (...) {}
+        }
+    } timer;
     std::lock_guard lock(m_mutex);
+    timer.lockedAt = now_seconds();
     if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
     if (FAILED(m_submission_failure)) return m_submission_failure;
     if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
