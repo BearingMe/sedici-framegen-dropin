@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ffx_api.h"
-#include "fg_context.h"
+#include "runtime/context.h"
 #include "fg_swapchain.h"
 
 #include <d3d12.h>

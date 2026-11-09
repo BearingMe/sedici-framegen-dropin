@@ -29,14 +29,14 @@
 
 #include <DirectXPackedVector.h>
 
-#include "fg_context.h"
+#include "runtime/context.h"
 #include "settings/config.h"
 #include "diagnostics/diag.h"
-#include "fg_integration.h"
+#include "runtime/integration.h"
 #include "fg_pacing.h"
 #include "generator/params.h"
 #include "fg_route.h"
-#include "fg_bookkeeping_faults.h"
+#include "runtime/bookkeeping_faults.h"
 #include "generator/stage1.h"
 #include "fg_swapchain.h"
 #include "settings/live.h"

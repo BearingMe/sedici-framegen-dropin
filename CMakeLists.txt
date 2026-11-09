@@ -63,13 +63,13 @@ add_library(sedici_core OBJECT
     src/diagnostics/log.cpp
     src/diagnostics/diag.cpp
     src/generator/params.cpp
-    src/fg_bookkeeping_faults.cpp
+    src/runtime/bookkeeping_faults.cpp
     src/generator/stage1.cpp
-    src/fg_context.cpp
+    src/runtime/context.cpp
     src/fg_swapchain.cpp
     src/fg_presenter.cpp
     src/fg_pacing.cpp
-    src/fg_integration.cpp
+    src/runtime/integration.cpp
     src/fg_route.cpp
     ${SEDICI_IMGUI_SOURCES}
 )

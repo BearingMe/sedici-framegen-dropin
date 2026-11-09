@@ -3,8 +3,8 @@
 #include "settings/config.h"
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
-#include "fg_integration.h"
-#include "fg_bookkeeping_faults.h"
+#include "runtime/integration.h"
+#include "runtime/bookkeeping_faults.h"
 #include "fg_token_namespace.h"
 #include "diagnostics/log.h"
 

@@ -1,7 +1,7 @@
-#include "fg_integration.h"
+#include "runtime/integration.h"
 
 #include "ffx_framegeneration.h"
-#include "fg_bookkeeping_faults.h"
+#include "runtime/bookkeeping_faults.h"
 #include "diagnostics/log.h"
 
 #include <list>

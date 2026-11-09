@@ -144,7 +144,7 @@ alone.
 
 - `MILESTONES.md` — experiment phases, acceptance gates and implementation references.
 - `src/dllmain.cpp` — the five exports; each call is answered by the router.
-- `src/fg_route.*`, `src/fg_integration.*`, `src/fg_context.*` — handle tokens and
+- `src/fg_route.*`, `src/runtime/integration.*`, `src/runtime/context.*` — handle tokens and
   ownership, the session that binds a context to a wrapped swapchain, and the
   frame generation context.
 - `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,

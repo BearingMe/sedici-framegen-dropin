@@ -1,8 +1,8 @@
-#include "fg_context.h"
+#include "runtime/context.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
-#include "fg_bookkeeping_faults.h"
+#include "runtime/bookkeeping_faults.h"
 #include "diagnostics/log.h"
 #include "overlay_compose.h"
 
