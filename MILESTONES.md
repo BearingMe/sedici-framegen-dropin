@@ -13,7 +13,8 @@
   baseline that nothing changed; document it in the commits and in `docs/dev/`. No
   behaviour change. Complete 2026-11-09; see the Phase 3 section.
 - **Phase 4:** cover all open issues and improvements, on the Phase 3 layout. Proposed
-  2026-11-09, awaiting owner approval; see the Phase 4 section at the end.
+  2026-11-09, awaiting owner approval; offline work first, game-dependent work last; see the
+  Phase 4 section at the end.
 - **Later delivery:** implement and validate residual inference against
   [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
   the boundary, not quietly absorb model training, inference optimization, and
@@ -805,120 +806,149 @@ without reading the history. The backlog is untouched and waits for the next pha
 ## Phase 4 — Cover all issues and improvements
 
 **Goal:** every open entry in [known-issues.md](docs/refactor/known-issues.md) ends as fixed,
-accepted with a reason, or obsolete, and the owner's requests in
+accepted with a reason, or obsolete, and the requests in
 [feature-requests.md](docs/refactor/feature-requests.md) are decided. Fixes land in the Phase 3
-module layout. Unlike Phase 3, behaviour is allowed to change, so the rule for each fix is:
-a test or measurement that fails before and passes after, an entry update with the commit
-hash, and the Phase 2 baseline (`tools/baseline.ps1`) still passing except for the lines the
-fix is meant to change (record those in the commit).
+module layout. Unlike Phase 3, behaviour is allowed to change, so each fix needs: a test or
+measurement that fails before and passes after, an entry update with the commit hash, and the
+Phase 2 baseline (`tools/baseline.ps1`) still passing except for the lines the fix is meant to
+change (record those in the commit).
 
 **Status:** proposed, awaiting owner approval (2026-11-09). Nothing in Phase 4 has started.
 Work happens on the branch `phase-4`.
 
-**Order, by owner value and risk.** Triage first, because 48 open entries include stale and
-duplicate ones. Then what the owner saw in the game, then game support, then cost and pacing,
-then the deferred contracts, and the structural cleanup last, when the fixes it would otherwise
-conflict with are done.
+**Owner decisions (2026-11-09):**
+
+1. **Alan Wake 2 is its own milestone** (P4.8). HDR is not its only problem, so it is not
+   folded into format support.
+2. **FR-03 (intro skipping) is out of Phase 4.** It is unrelated to the system. A standalone
+   helper already exists, `tools/intro_skip.ps1` (see FR-03), and it is not tracked here.
+3. **Offline first.** Everything that can be proven by a test or a measurement on this machine
+   comes first (P4.1 to P4.5). Everything that needs the game, a VRR display or the owner's
+   eyes comes after (P4.6 to P4.8), so the game sessions are batched at the end instead of
+   interleaved with the fixes.
+
+**Where each part is tested:**
+
+| Needs | Examples | Milestones |
+| --- | --- | --- |
+| Offline only (CTest, `sedici_fgcheck`, `sedici_regression`, ABI scenarios, log analysis) | UI value logic, settings, lifetimes, error contracts, Stage 1 cost and quality on the synthetic scenes, module structure | P4.1 to P4.5 |
+| The game, a real display or RTSS (cannot be driven unattended: K23, K24, K36) | pacing on a VRR or fixed-refresh panel, stalls, window-mode changes, loading screens, Alt+F4, Alan Wake 2 | P4.6 to P4.8 |
+
+An entry that has an offline half and a game half is fixed and tested offline first and then
+listed in the game checklist of its later milestone. The code is never launched by an agent.
 
 ### Phase 4 progress
 
 **Keep this table current**, in the same commit as any change to a milestone. Last
 updated: 2026-11-09.
 
-| Milestone | Size | Status | Prerequisites |
-| --- | --- | --- | --- |
-| P4.1 Triage of the open entries and requests | Medium | Proposed | none |
-| P4.2 In-game defects from the owner's QA run | Large | Proposed | P4.1 |
-| P4.3 Game and format support | Large | Proposed | P4.1; owner decision on K129 |
-| P4.4 Stage 1 cost and generated-frame quality | Large | Proposed | P4.1 |
-| P4.5 Pacing and presentation architecture | Large | Proposed | P4.2 |
-| P4.6 Deferred contracts and safety | Large | Proposed | P4.2 |
-| P4.7 Structure: module cycles and large files | Large | Proposed | P4.2 to P4.6 |
-| P4.8 Final acceptance | Medium | Proposed | P4.7 |
+| Milestone | Size | Where | Status | Prerequisites |
+| --- | --- | --- | --- | --- |
+| P4.1 Triage of the open entries and requests | Medium | Offline | Proposed | none |
+| P4.2 Menu, settings and counter logic | Medium | Offline | Proposed | P4.1 |
+| P4.3 Lifetimes, shutdown and error contracts | Large | Offline | Proposed | P4.1 |
+| P4.4 Stage 1 cost and generated-frame quality | Large | Offline | Proposed | P4.1 |
+| P4.5 Structure: module cycles and large files | Large | Offline | Proposed | P4.2 to P4.4 |
+| P4.6 Pacing and presentation | Large | Game | Proposed | P4.5 |
+| P4.7 In-game defects from the owner's QA run | Large | Game | Proposed | P4.5 |
+| P4.8 Alan Wake 2 | Large | Offline build, game acceptance | Proposed | P4.5; owner sessions |
+| P4.9 Final acceptance | Medium | Game | Proposed | P4.6 to P4.8 |
 
-### P4.1 — Triage
+### P4.1 — Triage (offline)
 
 Go through all 48 open entries and the five requests. Each gets one of: fix in P4.x, accept
-(reason and owner OK), obsolete (evidence), or needs owner decision. Entries that are not
-product defects stay open by design (K16, K23, K24, K36, K54, K101, K112). Fix stale statuses
-and duplicates (K54/K112, K20/K21/K22) without deleting entries. Write the decision beside each
-entry and update the counts.
+(reason and owner OK), obsolete (evidence), or needs owner decision, and a tag **offline** or
+**game**. Entries that are not product defects stay open by design (K16, K23, K24, K36, K54,
+K101, K112). Fix stale statuses and duplicates (K54/K112, K20/K21/K22) without deleting
+entries. Write the decision beside each entry and update the counts.
 
-**Exit:** no open entry without a target milestone or an accepted reason; the owner has seen
-the list of "needs owner decision" items (K129, FR-03, FR-04, FR-05).
+**Exit:** no open entry without a target milestone or an accepted reason.
 
-### P4.2 — In-game defects from the owner's QA run
+### P4.2 — Menu, settings and counter logic (offline)
 
-K118 and FR-01/FR-02 (limit slider: half-step integer slider plus Apply), K119 (overlay dead on
-the next launch after FG was turned off), K124 (overlay disables itself after an exception),
-K125 (Real counter counts shown frames), K126 (Alt+F4 blocked by the Full menu), K127 (destroy
-refused before GPU retirement at game exit), K98 (repeated rejections: depth format, prepare
-slot in flight), K121 to K123 and K128 (stalls, slow settle, window-mode gaps, loading-screen
-borders), FR-04 (scale list). Reproduce offline where possible, otherwise add the narrowest
-log or counter that makes the owner's next run conclusive.
+K118 with FR-01 and FR-02 (limit slider as a half-step integer slider plus an Apply button),
+FR-04 (scale list; check the high-DPI case first), K125 (the Real counter counts shown frames),
+K124 (reproduce the exception while drawing, then fix or contain it), K119 (overlay state
+across launches: test the persisted state and the start-up path), K19 (re-resolve `target_fps`
+after a mode change), K22 (multiplier fallback), K10 and K17 (diagnostic wording and the first
+overlay log line), FR-05 (warn or auto-cap above refresh: the owner decides). The slider step
+logic, the settings transaction and the counters are pure logic and get regression tests.
 
-**Exit:** each entry fixed with a test, or its cause recorded and the owner's re-run requested.
+**Exit:** each entry fixed with a test that failed before; the Full-menu click path itself goes
+on the P4.7 game checklist (K36).
 
-### P4.3 — Game and format support
+### P4.3 — Lifetimes, shutdown and error contracts (offline)
 
-`FrameGenerationSwapChainNewDX12` routing and the HDR create flag (K100, K129), the 10-bit back
-buffer (K14), the swapchain/queue device-object mismatch (K130), the interpolation command list
-and texture queries (K131), and the Full menu cursor interception in Alan Wake 2 (K132).
-K129 needs the owner's decision first: accept and ignore the HDR flag, or refuse it. Branch
-`bearingme/aw2-patch` holds an earlier attempt and findings 014/015 are the evidence.
+K127 and K98 (destroy refused before GPU retirement, repeated prepare-slot and depth-format
+rejections: reproduce with `sedici_fgcheck`), K37, K48, K77 and K103 (generator ownership,
+drain timeout and callback lifetime), K64 (token namespace across a DLL reload), K83 (blocked
+settings I/O and the watchdog decision), and the P2.10 deferrals: typed error codes with call,
+frame and settings identity, structured log events, the configuration schema and the hidden
+environment switches (K20, K21).
 
-**Exit:** the chosen set of formats works through the ABI scenarios and `sedici_fgcheck`, and the
-owner's Alan Wake 2 session (QA-03) passes or each remaining failure is a recorded refusal.
+**Exit:** each contract is written, implemented or rejected, with a test; the hard rules in
+`AGENTS.md` still hold.
 
-### P4.4 — Stage 1 cost and generated-frame quality
+### P4.4 — Stage 1 cost and generated-frame quality (offline)
 
-K117 (0.66 ms at 1080p against the 0.15-0.30 ms estimate; profile first, then reduce) and K120
-(disocclusion at high speed). Measure with `sedici_fgcheck --resolution`; the quality lines
-(PSNR/SSIM) must not drop except where the owner accepts it.
+K117 (0.66 ms at 1080p against the 0.15-0.30 ms estimate: profile first, then reduce) and the
+offline half of K120 (disocclusion at speed: add a fast-motion scene to `sedici_fgcheck` and
+measure). Use `sedici_fgcheck --resolution`; PSNR and SSIM must not drop except where the owner
+accepts it.
 
-**Exit:** measured cost and quality recorded at 1080p and 1440p, with a decision on the estimate.
+**Exit:** cost and quality recorded at 1080p and 1440p, and a decision on the estimate.
 
-### P4.5 — Pacing and presentation architecture
-
-K1 to K10, K19 and K22: the output-above-refresh policy (K3, FR-05), generation load feeding
-back into the real rate (K2), throttling with FG off (K4), the unexplained VRR flip spacing
-(K5), derivation of the tuned constants (K6), the waitable object (K8), K19 (re-resolve
-`target_fps` on a mode change) and the multiplier fallback (K22). Most of these need
-measurements on the owner's machine; each ends fixed or accepted with a written reason.
-
-**Exit:** every entry in the range has a verdict, and the presentation tests still pass.
-
-### P4.6 — Deferred contracts and safety
-
-The P2.10 deferrals: typed error codes with call, frame and settings identity, structured log
-events, the watchdog decision (K83, K48), reload safety of the token namespace (K64), the
-configuration schema and the hidden environment switches (K20), plus K37, K77 and K103
-(generator ownership and callback lifetime).
-
-**Exit:** each contract is written, implemented or rejected; the hard rules in `AGENTS.md` still
-hold.
-
-### P4.7 — Structure: module cycles and large files
+### P4.5 — Structure: module cycles and large files (offline)
 
 Break or document the seven cycles in `docs/dev/layout.md` (start with `diagnostics`, which
-should be a leaf) and split the largest files (`fgcheck.cpp` 186 KB, `abi.cpp`, `regression.cpp`,
-`swapchain.cpp`, `ui.cpp`). Use the Phase 3 method: one module per commit, baseline and
-`check_moves.ps1` where a commit is a pure move.
+should be a leaf) and split the largest files (`fgcheck.cpp` 186 KB, `abi.cpp`,
+`regression.cpp`, `swapchain.cpp`, `ui.cpp`). It comes after the offline fixes so it does not
+fight them, and before the game milestones so the game sessions run on the final structure.
+Use the Phase 3 method: one module per commit, `tools/baseline.ps1` and `check_moves.ps1` where
+a commit is a pure move.
 
 **Exit:** no cycle left unrecorded, no new one added, baseline identical.
 
-### P4.8 — Final acceptance
+### P4.6 — Pacing and presentation (game)
+
+K1 to K9 and K12 to K15: output above refresh (K3), generation load feeding back into the real
+rate (K2), throttling with FG off (K4), VRR flip spacing (K5), the tuned constants (K6), the
+waitable object (K8), the vrr/RTSS limits (K11, K13), the QA-04 and QA-05 present-interval
+captures. These need measurements on the owner's machine; each ends fixed or accepted with a
+written reason. Offline changes are tested first, then the owner runs the checklist.
+
+**Exit:** every entry in the range has a verdict.
+
+### P4.7 — In-game defects from the owner's QA run (game)
+
+K121 to K123 (stalls, slow settle of the real rate, window-mode gaps), K126 (Alt+F4 with the Full
+menu open), K128 (loading-screen borders), the game half of K120, K132's Cyberpunk equivalent
+if any, and the game halves of P4.2/P4.3 (Full-menu click path, shutdown at Alt+F4). Add the
+narrowest log or counter that makes the owner's next run conclusive before changing behaviour.
+
+**Exit:** each entry fixed and confirmed in a run, or its cause recorded.
+
+### P4.8 — Alan Wake 2 (standalone)
+
+Everything Alan Wake 2 needs, as one milestone: routing of `FrameGenerationSwapChainNewDX12`
+(K100), the HDR create flag with a 10-bit back buffer (K14, K129), the swapchain and queue
+device-object mismatch (K130), the interpolation command list and texture queries (K131), the
+Full-menu cursor interception (K132), and any further problem the first sessions show
+(finding 014 and 015 are the evidence; branch `bearingme/aw2-patch` holds an earlier attempt).
+The first step is to re-read the findings and list every call the game makes, then decide what
+is in scope with the owner. Routing, formats and queries get ABI and `sedici_fgcheck` tests
+first; acceptance is the owner's session (QA-03).
+
+**Exit:** QA-03 passes, or each remaining failure is a recorded, owner-accepted refusal.
+
+### P4.9 — Final acceptance (game)
 
 Full baseline comparison, the owner's in-game checklist (the QA table in `tests/qa`) on the
-final build, counts and tables current, docs/dev updated.
+final build, counts and tables current, `docs/dev` updated.
 
 **Exit:** owner sign-off.
 
-### Owner decisions needed
+### Owner decisions still needed
 
-1. **K129:** Alan Wake 2 sends an HDR flag with a 10-bit back buffer. Accept and handle it
-   (P4.3 grows), or keep refusing it (P4.3 shrinks to routing and queries).
-2. **FR-03** (intro-skip script), **FR-04** (scale list 0.8/0.9/1.0), **FR-05** (auto-cap above
-   refresh): do, drop or defer.
-3. **Order:** is the order above right, or should the in-game defects (P4.2) come before the
-   triage?
+1. **FR-04** (scale list 0.8/0.9/1.0) and **FR-05** (auto-cap above refresh): do, drop or defer.
+2. **P4.8 scope:** decided when the first step of that milestone lists the calls.
