@@ -1,0 +1,265 @@
+﻿== exports
+ffxConfigure
+ffxCreateContext
+ffxDestroyContext
+ffxDispatch
+ffxQuery
+== ctest
+sedici_abi_bad-config Passed
+sedici_abi_contract Passed
+sedici_abi_destroy-inflight Passed
+sedici_abi_exports Passed
+sedici_abi_integrated Passed
+sedici_abi_invalid-calls Passed
+sedici_abi_legacy-config Passed
+sedici_abi_log-failure Passed
+sedici_abi_overlay-hotkey Passed
+sedici_abi_readonly-sedici Passed
+sedici_abi_session Passed
+sedici_abi_stale-forward Passed
+sedici_abi_unload Passed
+sedici_abi_window-replace Passed
+sedici_deploy_tools Passed
+sedici_fgcheck Passed
+sedici_fgcheck_context_race Passed
+sedici_fgcheck_device_loss Passed
+sedici_fgcheck_params_fault_vrr Passed
+sedici_fgcheck_present Passed
+sedici_fgcheck_recording_fault Passed
+sedici_fgcheck_recording_fault_vrr Passed
+sedici_fgcheck_registration_recovery Passed
+sedici_fgcheck_reset_fault Passed
+sedici_fgcheck_reset_fault_vrr Passed
+sedici_fgcheck_retention_timeout Passed
+sedici_fgcheck_routing Passed
+sedici_fgcheck_session_recovery Passed
+sedici_fgcheck_submission_fault Passed
+sedici_fgcheck_submission_fault_vrr Passed
+sedici_fgcheck_submission_recovery_vrr Passed
+sedici_gpu_full Passed
+sedici_gpu_mini Passed
+sedici_regression Passed
+sedici_settings_env_priority Passed
+sedici_settings_sedici_capability Passed
+sedici_settings_worker_lifetime Passed
+ctest-total 37
+== fgcheck
+display 480x270, render 320x180, alpha 0.5, 40 iterations
+rightward pan      psnr  42.92 dB  ssim 0.9985
+PASS rightward pan      phases in one list: 1/3 psnr  42.95 dB (nearest real  19.16), 2/3 psnr  42.92 dB (nearest real  19.12)
+rightward pan      hud preservation 100.0%
+PASS rightward pan      reset seed: the game frame with a HUD source, the HUD-less colour without
+leftward pan       psnr  40.60 dB  ssim 0.9975
+PASS leftward pan       phases in one list: 1/3 psnr  40.60 dB (nearest real  22.18), 2/3 psnr  38.63 dB (nearest real  22.19)
+leftward pan       hud preservation 100.0%
+PASS leftward pan       reset seed: the game frame with a HUD source, the HUD-less colour without
+diagonal thin bar  psnr  45.99 dB  ssim 0.9984
+PASS diagonal thin bar  phases in one list: 1/3 psnr  47.14 dB (nearest real  26.44), 2/3 psnr  47.58 dB (nearest real  26.56)
+diagonal thin bar  hud preservation 100.0%
+PASS diagonal thin bar  reset seed: the game frame with a HUD source, the HUD-less colour without
+PASS create accepts Cyberpunk's create desc
+PASS configure accepts the FrameGenerationConfig desc
+PASS prepare accepts the legacy prepare desc
+PASS recorded prepare prevents premature teardown
+PASS rejected ordered generation keeps the prepare unretired
+PASS generate produces a frame
+PASS the frame command list executes and registers retirement
+PASS a second generate without a new prepare is refused
+PASS prepare samples native D32_FLOAT using an R32_FLOAT view
+PASS native depth snapshot generates a frame
+PASS native depth work retires with input states restored
+PASS prepare samples native R32_TYPELESS using an R32_FLOAT view
+PASS native depth snapshot generates a frame
+PASS native depth work retires with input states restored
+PASS prepare samples Cyberpunk's R32G8X24_TYPELESS depth plane
+PASS native depth snapshot generates a frame
+PASS native depth work retires with input states restored
+PASS prepare samples native D32_FLOAT_S8X24_UINT depth plane
+PASS native depth snapshot generates a frame
+PASS native depth work retires with input states restored
+PASS incompatible native depth format is still refused
+PASS a non-float motion resource is refused and clears pending preparation
+PASS configure accepts frame generation off
+PASS generate is refused while frame generation is off
+PASS next prepare records on a separate compute queue
+PASS FG off invalidates the recorded snapshot without freeing it
+PASS submitted prepare remains occupied behind its GPU fence
+PASS a bounded retirement timeout leaves gated GPU work unretired
+PASS in-flight snapshot refuses reuse and teardown
+PASS prepare becomes reusable after GPU retirement
+PASS FG re-enable recovers an abandoned retired snapshot
+PASS split prepare registers its completion fence
+PASS split generation without an explicit queue dependency is refused
+PASS generation queue waits for the registered compute prepare
+PASS split-queue generation consumes the recovered snapshot
+PASS generation retirement covers the cross-queue dependency
+PASS retired context destroys safely
+PASS presenter refuses a job after stop without advancing its queue
+PASS QPC counts divide by frequency to produce seconds
+PASS QPC conversion preserves a 36 fps interval after long uptime
+PASS missing QPC frequency does not divide by zero
+PASS the first cycle presents only the real seed without waiting
+PASS an on-time cycle presents the midpoint before the real frame
+PASS an on-time cycle does not wait
+PASS the real frame follows the midpoint by half an interval
+PASS an early cycle never waits before the current midpoint
+PASS a late cycle presents without waiting
+PASS a midpoint past its slot is dropped without delaying the real frame
+PASS without a midpoint the real frame is never held
+PASS an invalid interval falls back to a bounded pacing value
+PASS 20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall
+PASS ratio validation handles large denominators without overflow
+PASS ratio validation rejects a zero denominator
+PASS presenter stale-output policy uses the later deadline including equality
+PASS stale-output policy drains a hitch backlog chronologically
+PASS 2x schedule: 800 outputs per 400 real frames, 400 real, <=2 generated, even 10.417 ms grid
+PASS 1.75x schedule: 2800 outputs per 1600 real frames, 400 real, <=2 generated, even 11.905 ms grid
+PASS 1.5x schedule: 1200 outputs per 800 real frames, 400 real, <=2 generated, even 13.889 ms grid
+PASS 1.25x schedule: 2000 outputs per 1600 real frames, 400 real, <=2 generated, even 16.667 ms grid
+PASS 1.5x schedule: a 3x hitch shows only the real frame, then generation resumes
+PASS adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a tenth of a slot of the grid
+PASS adaptive schedule: a 0.25 s gap shows only the real frame
+PASS adaptive schedule: below 20 real fps shows only real frames
+PASS 2x schedule: jitter averaging 20 real fps still generates for almost every frame
+PASS 2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation
+PASS adaptive schedule: 40 real fps towards 144 caps at two generated frames
+== regression 
+PASS config: an attribute-query error is not treated as a missing file
+PASS save accepts array-of-table boundary
+PASS save leaves an existing .tmp file untouched
+PASS log value stays in its own table
+PASS array table and comments stay unchanged
+PASS case-sensitive target table can be appended
+PASS differently cased table is untouched
+PASS unsafe multiline patch is rejected
+PASS rejected save preserves every original byte
+PASS unsupported quoted key fails safely
+PASS quoted-key rejection does not overwrite file
+PASS fractional FPS saves with comments
+PASS fractional FPS survives patch
+PASS numbers rounding upward to integers can be saved
+PASS FPS semantic validation uses the rounded integer
+PASS scale semantic validation uses the rounded integer
+PASS settings: a valid candidate is applied and acknowledged with a new revision
+PASS settings: the live value follows the acknowledged snapshot
+PASS settings: an identical candidate changes nothing and keeps the revision
+PASS settings: a stale request is a conflict and applies nothing
+PASS settings: an out-of-range value is rejected, not clamped
+PASS settings: a candidate with one invalid field applies none of its fields
+PASS settings: an invalidated edit generation cannot publish a baseline
+PASS settings: initialize a current edit baseline
+PASS settings: a stale Save ticket cannot write the file
+PASS settings: a control change applies live
+PASS settings: cancel restores the baseline as one complete change
+PASS settings: save persists the acknowledged value and keeps comments
+PASS settings: cancel after save returns to the saved value
+PASS settings: an externally edited file is not overwritten and the live value is kept
+PASS settings: capture baseline for same-metadata edit
+PASS settings: same-size external edit with restored timestamp is not overwritten
+PASS settings: capture baseline before file replacement
+PASS settings: replacement with identical content and timestamp invalidates the baseline
+PASS settings: capture baseline before replacement race
+PASS settings: an external edit before replacement is detected and preserved
+PASS settings: capture baseline before swap race
+PASS settings: an external edit between the final check and the swap is restored
+PASS settings: capture baseline before post-write race
+PASS settings: a post-write external edit is not accepted as the saved baseline
+PASS settings: reopen after post-write conflict
+PASS settings: capture baseline before post-write failure
+PASS settings: post-write failure reports the write and blocks reuse of an uncertain baseline
+PASS settings: reacquire baseline after post-write failure
+PASS settings: cancel refuses to overwrite an outside change
+PASS settings: save refuses a conflicting outside change
+PASS settings: begin edit before concurrent save
+PASS settings: live change proceeds and cancel is rejected during file I/O
+PASS settings: save reports the exact captured revision without discarding a newer live change
+PASS settings I/O: invalidated asynchronous begin cannot publish its baseline
+PASS settings I/O: a current edit begins on a different bounded worker thread
+PASS settings I/O: a ticketed snapshot saves on a different worker thread
+PASS settings I/O: begin before concurrent worker save
+PASS settings I/O: one worker saves its ticket while newer live settings remain unsaved
+PASS settings I/O: output callback returns while file inspection is paused
+PASS settings: a failed save is reported and leaves the live values alone
+PASS settings: an unavailable edit baseline rejects cancel and save
+PASS settings: complete live snapshots never contain mixed candidates
+PASS settings: concurrent changes never lose or double-count a revision
+PASS settings: concurrent changes leave a valid state
+PASS reserved but unissued token is not classified as issued
+PASS token namespace issues distinct stable identities
+PASS token exhaustion rejects creation without recycling issued identities
+PASS token namespace excludes unaligned, unissued and foreign values
+PASS invalid token namespace is unusable
+PASS token reservation failure issues no token and remains retryable
+PASS token namespace can reserve after an earlier failure
+PASS retirement: failed slot wait does not advance or publish a slot
+PASS retirement: a non-ready success status does not advance a slot
+PASS retirement: successful slot wait advances the ring once
+PASS retirement: removed-device sentinel is not a completed fence
+PASS retirement: removed-fence sentinel never produces success
+PASS retirement: failed signal is returned without waiting or reporting completion
+PASS retirement: an accepted signal propagates the subsequent wait result
+PASS present queue: bounded ring accepts capacity and refuses overflow
+PASS present queue: first item retains FIFO order
+PASS present queue: released slot can be reused without allocation
+PASS present queue: wraparound preserves FIFO order
+PASS negative client coordinates map to the near edge
+PASS ImGui assertion throws instead of aborting game
+PASS log: the queue drains
+PASS log: every line reached the file
+PASS log: lines keep their order
+PASS log: an accepted line costs the caller under 50 us on average
+PASS log: the storm drains
+PASS log: a repeated message is rate limited
+PASS log: suppressed repeats are counted
+PASS log: the follow-up drains
+PASS log: the next admitted repeat reports how many were suppressed
+PASS log: a stalled disk never holds the caller (worst call under 20 ms)
+PASS log: the queue is bounded
+PASS log: lines refused by a full queue are counted
+PASS log: the slow sink drains once it recovers
+PASS log: the report line drains
+PASS log: dropped lines are reported in the log
+PASS log: a dead file never holds the caller
+PASS log: a failed write is counted and the sink is marked unavailable
+PASS log: the outage ends
+PASS log: the sink recovers and the lost lines are counted
+PASS log: the outage and its loss are reported once the file is writable
+PASS settings I/O: a job starts
+PASS settings I/O: the job is running
+PASS settings I/O: a hung job is reported as stalled with its epoch
+PASS settings I/O: the stall is reported after the limit, not before
+PASS settings I/O: the worker is still running and is marked stalled
+PASS settings I/O: no second worker starts beside a stalled one
+PASS settings I/O: the stall is reported once
+PASS settings I/O: the stall is counted
+PASS settings I/O: the diagnostics snapshot shows the stalled worker
+PASS settings I/O: the worker exits once the call returns
+PASS settings I/O: the stalled job's late result is discarded
+PASS settings I/O: a new job starts after recovery
+PASS settings I/O: the new job completes normally
+PASS limiter: the first frame seeds the schedule and never waits
+PASS limiter: an early game is held to exactly one interval per frame
+PASS limiter: a late frame does not wait and keeps the schedule
+PASS limiter: a stall of several intervals reseeds the schedule (no catch-up burst)
+PASS limiter: a game slower than the cap is never delayed
+PASS limiter: a zero interval never waits
+PASS limiter: a live rate change reseeds instead of waiting out the old interval
+PASS live limiter actually delays Present after silent uncapped startup
+PASS old window retains its original procedure
+PASS new window forwards its own messages
+PASS recapture below another subclass does not form a recursive chain
+PASS old window WM_NCDESTROY reaches the game procedure
+PASS old destruction leaves new window intact
+PASS hotkey still works after replacement
+PASS a consumed hotkey key-down also consumes its matching key-up
+PASS an unrelated unpaired key-up still reaches the game window
+PASS game owns mouse capture before Full entry
+PASS capture-change handler can reenter ClipCursor without deadlock
+PASS Full capture enters on the owning window thread
+PASS overlay failure immediately stops cursor suppression
+PASS disabled overlay cannot reopen Full
+PASS current window WM_NCDESTROY reaches the game procedure
+135 checks, 0 failed
+== regression observer
+PASS overlay Full costs the caller under 5 ms of CPU per frame
+1 checks, 0 failed

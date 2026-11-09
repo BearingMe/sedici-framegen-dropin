@@ -712,7 +712,7 @@ updated: 2026-11-09.
 
 | Milestone | Size | Status | Prerequisites |
 | --- | --- | --- | --- |
-| P3.1 Baseline and move checker | Large | Proposed | P2.11 closed (done) |
+| P3.1 Baseline and move checker | Large | Complete (2026-11-09) | P2.11 closed (done) |
 | P3.2 Leaf modules: diagnostics, settings, gpu | Large | Proposed | P3.1 |
 | P3.3 Core modules: generator, runtime, abi | Large | Proposed | P3.2 |
 | P3.4 Presentation and UI | Large | Proposed | P3.3 |
