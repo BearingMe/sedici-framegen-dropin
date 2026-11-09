@@ -837,6 +837,119 @@ void gpu_checks(bool full)
     }
     DestroyWindow(hwnd);
 }
+// Cost of the overlay per presented frame in Off, Mini and Full: CPU time inside
+// ui_on_present and the whole record-submit-wait round trip, at the 2560x1080 size of
+// the owner's QA runs, without the debug layer. Timing only (INFO lines, one loose
+// check); not part of the default ctest list because timing tests are sensitive to
+// a busy GPU (K112). Used for QA-12.
+void observer_cost()
+{
+    using Microsoft::WRL::ComPtr;
+    using Clock = std::chrono::steady_clock;
+    ComPtr<ID3D12Device> device;
+    if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
+        throw std::runtime_error("create GPU test device");
+    D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ComPtr<ID3D12CommandQueue> queue;
+    ComPtr<ID3D12CommandAllocator> allocator;
+    ComPtr<ID3D12GraphicsCommandList> list;
+    ComPtr<ID3D12Fence> fence;
+    if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue))) ||
+        FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) ||
+        FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
+                                        nullptr, IID_PPV_ARGS(&list))) ||
+        FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+        throw std::runtime_error("create GPU test command objects");
+    list->Close();
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = 2560;
+    desc.Height = 1080;
+    desc.DepthOrArraySize = desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    ComPtr<ID3D12Resource> output;
+    if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&output))))
+        throw std::runtime_error("create GPU test output");
+    WNDCLASSW cls{};
+    cls.hInstance = GetModuleHandleW(nullptr);
+    cls.lpfnWndProc = window_proc;
+    cls.lpszClassName = L"SediciObserverCost";
+    RegisterClassW(&cls);
+    HWND hwnd = CreateWindowW(cls.lpszClassName, L"Observer cost", WS_OVERLAPPEDWINDOW,
+                               0, 0, 1280, 540, nullptr, nullptr, cls.hInstance, nullptr);
+    if (!hwnd) throw std::runtime_error("create GPU test window");
+    sedici::ui_capture_window(hwnd);
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event) throw std::runtime_error("create GPU test fence event");
+
+    UINT64 frame = 0;
+    const auto micros = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::micro>(b - a).count();
+    };
+    struct Cost { double cpu_avg, cpu_p99, trip_avg, trip_p99; };
+    const auto run = [&](sedici::UiMode mode, int frames) {
+        sedici::live_set_ui_mode(mode);
+        std::vector<double> cpu, trip;
+        for (int i = 0; i < frames; ++i) {
+            const auto begin = Clock::now();
+            ++frame;
+            if (FAILED(allocator->Reset()) || FAILED(list->Reset(allocator.Get(), nullptr)))
+                throw std::runtime_error("reset GPU test command list");
+            ffxCallbackDescFrameGenerationPresent params{};
+            params.device = device.Get();
+            params.commandList = list.Get();
+            params.outputSwapChainBuffer.resource = output.Get();
+            params.outputSwapChainBuffer.state = FFX_API_RESOURCE_STATE_RENDER_TARGET;
+            const auto call = Clock::now();
+            sedici::ui_on_present(&params);
+            cpu.push_back(micros(call, Clock::now()));
+            if (FAILED(list->Close())) throw std::runtime_error("close GPU test command list");
+            ID3D12CommandList* lists[] = {list.Get()};
+            queue->ExecuteCommandLists(1, lists);
+            if (FAILED(queue->Signal(fence.Get(), frame)) ||
+                FAILED(fence->SetEventOnCompletion(frame, event)) ||
+                WaitForSingleObject(event, 5000) != WAIT_OBJECT_0)
+                throw std::runtime_error("GPU test submission did not finish");
+            trip.push_back(micros(begin, Clock::now()));
+        }
+        const auto stat = [](std::vector<double>& v, double& avg, double& p99) {
+            std::sort(v.begin(), v.end());
+            double sum = 0;
+            for (double x : v) sum += x;
+            avg = sum / v.size();
+            p99 = v[v.size() * 99 / 100];
+        };
+        Cost c{};
+        stat(cpu, c.cpu_avg, c.cpu_p99);
+        stat(trip, c.trip_avg, c.trip_p99);
+        return c;
+    };
+
+    (void)run(sedici::UiMode::Full, 40); // warm up: ImGui and the renderer initialise
+    (void)run(sedici::UiMode::Off, 40);
+    const struct { const char* name; sedici::UiMode mode; } modes[] = {
+        {"Off", sedici::UiMode::Off}, {"Mini", sedici::UiMode::Mini}, {"Full", sedici::UiMode::Full}};
+    double full_cpu_avg = 0;
+    for (int round = 1; round <= 3; ++round) {
+        for (const auto& m : modes) {
+            const Cost c = run(m.mode, 300);
+            std::printf("INFO overlay %-4s round %d: ui_on_present %.1f us avg, %.1f us p99; "
+                        "record+submit+wait %.1f us avg, %.1f us p99\n",
+                        m.name, round, c.cpu_avg, c.cpu_p99, c.trip_avg, c.trip_p99);
+            if (m.mode == sedici::UiMode::Full) full_cpu_avg = std::max(full_cpu_avg, c.cpu_avg);
+        }
+    }
+    check(full_cpu_avg < 5000.0, "overlay Full costs the caller under 5 ms of CPU per frame");
+    CloseHandle(event);
+    sedici::live_set_ui_mode(sedici::UiMode::Off);
+    DestroyWindow(hwnd);
+}
 void window_checks()
 {
     WNDCLASSW cls{};
@@ -1192,7 +1305,8 @@ fps = 0
         if (mode == "settings-sedici" || mode == "settings-env") {
             settings_capability_checks(mode == "settings-sedici", mode == "settings-env");
         } else if (argc > 1) {
-            gpu_checks(mode == "gpu-full");
+            if (mode == "observer") observer_cost();
+            else gpu_checks(mode == "gpu-full");
         } else {
             config_checks(fixture);
             settings_checks(fixture);
