@@ -1,7 +1,7 @@
 #include "fg_presenter.h"
 #include "fg_bookkeeping_faults.h"
-#include "fg_retirement_policy.h"
-#include "fg_queue_policy.h"
+#include "gpu/retirement_policy.h"
+#include "gpu/queue_policy.h"
 
 #include <algorithm>
 #include <new>

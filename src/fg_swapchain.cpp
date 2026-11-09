@@ -1,7 +1,7 @@
 #include "fg_swapchain.h"
 #include "fg_bookkeeping_faults.h"
-#include "fg_retirement_policy.h"
-#include "fg_slot_policy.h"
+#include "gpu/retirement_policy.h"
+#include "gpu/slot_policy.h"
 
 #include <algorithm>
 #include <chrono>
