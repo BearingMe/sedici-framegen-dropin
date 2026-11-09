@@ -492,6 +492,7 @@ inline void release_recovery_test_gate() noexcept
 // Entry points of the check groups.
 bool run_case(Device& state, const SceneConfig& config, bool keepImages);
 int check_contract(Device& state);
+bool check_ten_bit(Device& state);
 bool check_pacing();
 bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier,
                       const char* label, DWORD frameMs = 27, bool signalFault = false,

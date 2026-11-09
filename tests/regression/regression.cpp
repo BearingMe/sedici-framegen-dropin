@@ -1288,6 +1288,31 @@ void settings_io_stall_checks()
 } // namespace
 
 // P4.3: stable error codes derived from the rejection reasons the router logs.
+// K132: the overlay's cursor interception looks at every non-system module, not only the
+// executable, and rescans so a module loaded later is found.
+void cursor_interception_checks()
+{
+    check(sedici::ui_input_available(), "cursor interception finds the executable's imports");
+    const auto first = sedici::ui_input_interception_summary();
+    check(first.setCursorPosSlots >= 1 && first.clipCursorSlots >= 1 && first.modulesScanned >= 1,
+          "the first scan patches both cursor imports of the executable");
+    const auto probePath = dll_directory() / L"sedici_cursor_probe.dll";
+    HMODULE probe = LoadLibraryW(probePath.c_str());
+    check(probe != nullptr, "the cursor probe module loads");
+    if (!probe) return;
+    Sleep(2100); // a rescan is rate limited to one per two seconds
+    check(sedici::ui_input_available(), "interception stays available after a module loads");
+    const auto second = sedici::ui_input_interception_summary();
+    check(second.setCursorPosSlots == first.setCursorPosSlots + 1 &&
+          second.clipCursorSlots == first.clipCursorSlots + 1,
+          "a module loaded after the first scan has its cursor imports intercepted");
+    check(second.modulesScanned >= first.modulesScanned + 1, "the rescan counts the new module");
+    // Outside Full capture the hooks are inert: the probe's call reaches the real function.
+    const auto setPos = reinterpret_cast<BOOL (*)(int, int)>(GetProcAddress(probe, "probe_set_pos"));
+    check(setPos != nullptr, "the probe exports its cursor call");
+    FreeLibrary(probe);
+}
+
 void error_code_checks()
 {
     using namespace sedici;
@@ -1411,6 +1436,7 @@ fps = 0
             else gpu_checks(mode == "gpu-full");
         } else {
             config_checks(fixture);
+            cursor_interception_checks();
             settings_checks(fixture);
             token_namespace_checks();
             retirement_policy_checks();

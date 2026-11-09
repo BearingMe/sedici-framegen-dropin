@@ -25,7 +25,7 @@
 namespace sedici::fg {
 
 struct InputFrame {
-    ID3D12Resource* color = nullptr;   // display resolution, R8G8B8A8_UNORM
+    ID3D12Resource* color = nullptr;   // display resolution, FrameParams::colorFormat
     ID3D12Resource* depth = nullptr;   // render resolution
     ID3D12Resource* motion = nullptr;  // render resolution, two or more float channels
 

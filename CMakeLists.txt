@@ -115,6 +115,9 @@ if(SEDICI_BUILD_TESTS)
     target_link_libraries(sedici_regression PRIVATE sedici_core)
     set_target_properties(sedici_regression PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_library(sedici_cursor_probe SHARED tests/regression/cursor_probe.cpp)
+    set_target_properties(sedici_cursor_probe PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+    add_dependencies(sedici_regression sedici_cursor_probe)
     add_test(NAME sedici_regression COMMAND sedici_regression)
     add_test(NAME sedici_gpu_mini COMMAND sedici_regression gpu-mini)
     add_test(NAME sedici_gpu_full COMMAND sedici_regression gpu-full)
@@ -194,6 +197,7 @@ if(SEDICI_BUILD_FGCHECK)
     add_executable(sedici_fgcheck
         tests/integration/fgcheck.cpp
         tests/integration/fgcheck_quality.cpp
+        tests/integration/fgcheck_tenbit.cpp
         tests/integration/fgcheck_pacing.cpp
         tests/integration/fgcheck_present.cpp
         tests/integration/fgcheck_routing.cpp

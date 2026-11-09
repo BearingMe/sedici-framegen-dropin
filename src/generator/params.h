@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <dxgiformat.h>
+
 // Stage 1 (Mob-FGSR analytical frame generation) constants and parameters.
 //
 // The first 80 bytes mirror the upstream constant block
@@ -25,6 +27,10 @@ struct FrameParams {
     uint32_t renderHeight = 0;
     uint32_t displayWidth = 0;
     uint32_t displayHeight = 0;
+
+    // Back-buffer / HUD-less colour format: R8G8B8A8_UNORM or R10G10B10A2_UNORM (P4.8).
+    // The shaders read and write float4, so only the resource formats differ.
+    DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     // Reverse-Z depth: near = 1, far = 0 (FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED).
     bool depthInverted = true;

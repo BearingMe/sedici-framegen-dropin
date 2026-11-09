@@ -328,8 +328,15 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12);
     const auto* frameGeneration = find_desc<ffxCreateContextDescFrameGeneration>(
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
-    if (!wrap && !frameGeneration) return false; // not a call this path can own
-    if (wrap && frameGeneration) {
+    // Alan Wake 2 asks for a chain (New form) instead of handing one over (K100); the
+    // HWND form is the same request with a window handle. Both are built on the game's
+    // queue and then owned like a wrapped chain.
+    const auto* created = find_desc<ffxCreateContextDescFrameGenerationSwapChainNewDX12>(
+        desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12);
+    const auto* forHwnd = find_desc<ffxCreateContextDescFrameGenerationSwapChainForHwndDX12>(
+        desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12);
+    if (!wrap && !frameGeneration && !created && !forHwnd) return false; // not a call this path can own
+    if ((wrap ? 1 : 0) + (frameGeneration ? 1 : 0) + (created ? 1 : 0) + (forHwnd ? 1 : 0) > 1) {
         // One create makes one context. Answering OK as a wrapper alone would drop
         // the generation context the caller asked for without telling it (K102).
         *result = failure("create chain names both a swapchain wrap and frame generation");
@@ -339,6 +346,16 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         *result = failure("swapchain wrap without a swapchain or queue");
         return true;
     }
+    if (created && (!created->swapchain || !created->desc || !created->dxgiFactory || !created->gameQueue)) {
+        *result = failure("swapchain new without a factory, desc, output or queue");
+        return true;
+    }
+    if (forHwnd && (!forHwnd->swapchain || !forHwnd->desc || !forHwnd->hwnd || !forHwnd->dxgiFactory ||
+                    !forHwnd->gameQueue)) {
+        *result = failure("swapchain for hwnd without a factory, desc, window, output or queue");
+        return true;
+    }
+    const bool swapchainForm = wrap || created || forHwnd;
 
     // Mint the identity before any backend call that can consume game resources.
     void* token = nullptr;
@@ -358,8 +375,8 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
     try {
         if (consume_bookkeeping_fault(BookkeepingFault::OwnerAllocation)) throw std::bad_alloc();
         owned = std::make_shared<Owned>();
-        owned->kind = wrap ? Kind::Wrap : Kind::Session;
-        if (wrap) owned->wrap = std::make_unique<WrapHandle>();
+        owned->kind = swapchainForm ? Kind::Wrap : Kind::Session;
+        if (swapchainForm) owned->wrap = std::make_unique<WrapHandle>();
         else {
             owned->session = std::make_unique<Session>();
             owned->session->set_callback_lifetime(owned);
@@ -388,19 +405,47 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         if (it != g_owned.end() && !it->second) g_owned.erase(it);
     };
 
-    if (wrap) {
-        IDXGISwapChain4* native = wrap->swapchain[0];
+    if (swapchainForm) {
+        IDXGISwapChain4* native = wrap ? wrap->swapchain[0] : nullptr;
+        ID3D12CommandQueue* const queue = wrap ? wrap->gameQueue : created ? created->gameQueue : forHwnd->gameQueue;
+        IDXGISwapChain4** const output = wrap ? wrap->swapchain : created ? created->swapchain : forHwnd->swapchain;
+        // The New and HWND forms ask for a chain: build it as requested on the game's
+        // queue. The reference from creation is handed to the wrapper like the game's
+        // own would be, so a failure below releases a chain the game never saw.
+        Microsoft::WRL::ComPtr<IDXGISwapChain4> madeNative;
+        if (!wrap) {
+            Microsoft::WRL::ComPtr<IDXGISwapChain1> chain;
+            HRESULT made = E_FAIL;
+            if (created) {
+                DXGI_SWAP_CHAIN_DESC request = *created->desc;
+                Microsoft::WRL::ComPtr<IDXGISwapChain> legacy;
+                made = created->dxgiFactory->CreateSwapChain(queue, &request, &legacy);
+                if (SUCCEEDED(made)) made = legacy.As(&chain);
+            } else {
+                Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
+                made = forHwnd->dxgiFactory->QueryInterface(IID_PPV_ARGS(&factory2));
+                if (SUCCEEDED(made)) made = factory2->CreateSwapChainForHwnd(
+                    queue, forHwnd->hwnd, forHwnd->desc, forHwnd->fullscreenDesc, nullptr, &chain);
+            }
+            if (FAILED(made) || FAILED(chain.As(&madeNative))) {
+                rollback();
+                *result = failure("swapchain new: the factory refused the chain");
+                return true;
+            }
+            native = madeNative.Get();
+        }
         // Injected backend allocation failure: rejected before the native chain is touched.
         if (consume_bookkeeping_fault(BookkeepingFault::BackendCreation)) {
             rollback();
             *result = failure("swapchain wrap backend allocation failed");
             return true;
         }
-        if (!owned->wrap->create(native, wrap->gameQueue, 1)) {
+        if (!owned->wrap->create(native, queue, 1)) {
             rollback();
-            *result = failure("swapchain wrap failed");
-            return true;
+            *result = failure(wrap ? "swapchain wrap failed" : "swapchain new: wrapping the created chain failed");
+            return true; // madeNative releases a chain the game never saw
         }
+        madeNative.Detach(); // the wrapper owns the reference handed over
         {
             // Once published, concurrent hook propagation waits for initial
             // application and then re-reads the newest global hooks.
@@ -417,11 +462,11 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             owned->wrap->wrapper()->set_present_hook(presentHook);
             owned->wrap->wrapper()->set_output_hooks(outputHooks);
         }
-        *wrap->swapchain = owned->wrap->swapchain();
-        (*wrap->swapchain)->AddRef();
+        *output = owned->wrap->swapchain();
+        (*output)->AddRef();
         *context = token;
         *result = FFX_API_RETURN_OK;
-        log_route("created swapchain wrapper", "");
+        log_route(wrap ? "created swapchain wrapper" : "created swapchain (new)", "");
         return true;
     }
 
@@ -493,6 +538,13 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
         *result = failure("dispatch on the swapchain wrapper");
         return true;
     }
+    if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION) {
+        // The game's own generation dispatch into the interpolation list it got from the
+        // swapchain query (K131). Sedici generates the frame itself; acknowledge it.
+        log_event(2, "fg: game frame generation dispatch acknowledged (Sedici generates its own)");
+        *result = FFX_API_RETURN_OK;
+        return true;
+    }
     if (desc->type != FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE &&
         desc->type != FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2) {
         *result = failure("unsupported frame generation dispatch type");
@@ -517,6 +569,10 @@ struct ProviderVersion {
 constexpr ProviderVersion kProviderVersions[] = {
     {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, 0xf600000000c01006ull, "3.1.6"},
     {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+    // The New and HWND forms share the swapchain provider (Alan Wake 2 sends 0xc01007 with the New
+    // form, finding 014); the id above is the one recorded for the wrap form.
+    {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+    {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
 };
 
 bool route_get_versions(const ffxQueryDescGetVersions& query, ffxReturnCode_t* result) noexcept
@@ -555,9 +611,34 @@ bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t*
         ? failure_result(result, "query on a destroyed context") : false;
     if (!desc) return failure_result(result, "null descriptor on a Sedici-owned context");
 
-    // The recorded Cyberpunk contract does not establish which other queries the
-    // game issues, and a wrong answer is worse than an honest refusal. It is
-    // logged so a game session can name the exact queries to implement.
+    // Alan Wake 2 asks the swapchain for an interpolation command list and texture (K131).
+    // Sedici generates the frame itself, so these are the wrapper's scratch objects and
+    // whatever the game records into them is discarded.
+    if (owned->kind == Kind::Wrap && owned->wrap && owned->wrap->wrapper()) {
+        Swapchain* const wrapper = owned->wrap->wrapper();
+        if (desc->type == FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12) {
+            const auto* query = reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12*>(desc);
+            ID3D12GraphicsCommandList* list = nullptr;
+            if (!query->pOutCommandList || FAILED(wrapper->interpolation_list(&list)))
+                return failure_result(result, "interpolation command list unavailable");
+            *query->pOutCommandList = list;
+            log_event(2, "fg: interpolation command list query answered with a scratch list");
+            *result = FFX_API_RETURN_OK;
+            return true;
+        }
+        if (desc->type == FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12) {
+            const auto* query = reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12*>(desc);
+            ID3D12Resource* texture = nullptr;
+            if (!query->pOutTexture || FAILED(wrapper->interpolation_texture(&texture)))
+                return failure_result(result, "interpolation texture unavailable");
+            *query->pOutTexture = ffxApiGetResourceDX12(texture, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+            log_event(2, "fg: interpolation texture query answered with a scratch texture");
+            *result = FFX_API_RETURN_OK;
+            return true;
+        }
+    }
+
+    // Other queries stay refused and logged so a game session can name them.
     *result = failure("unimplemented query on a Sedici-owned context");
     return true;
 }

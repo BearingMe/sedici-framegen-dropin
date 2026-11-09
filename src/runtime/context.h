@@ -91,6 +91,7 @@ private:
 
     ID3D12Device* m_device = nullptr;
     uint32_t m_create_flags = 0;
+    DXGI_FORMAT m_color_format = DXGI_FORMAT_R8G8B8A8_UNORM;
     uint32_t m_display_width = 0;
     uint32_t m_display_height = 0;
     uint32_t m_max_render_width = 0;

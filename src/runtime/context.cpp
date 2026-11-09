@@ -176,9 +176,17 @@ bool Context::create(const ffxApiHeader* createDesc) noexcept try
     if (!frameGeneration) return fail("create without FrameGenerationCreate");
     if (m_device) return fail("context already created");
     constexpr uint32_t supported = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED |
-        FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
+        FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT |
+        FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
     if (frameGeneration->flags & ~supported) return fail("unsupported frame generation create flags");
-    if (frameGeneration->backBufferFormat != FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM)
+    // The HDR flag only says the inputs are high dynamic range encoded (P4.8, K129). Stage 1 warps,
+    // fills and blends in the encoded space it is given, so the flag changes nothing in the passes.
+    DXGI_FORMAT colorFormat = DXGI_FORMAT_UNKNOWN;
+    if (frameGeneration->backBufferFormat == FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM)
+        colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    else if (frameGeneration->backBufferFormat == FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM)
+        colorFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
+    else
         return fail("unsupported back buffer format");
 
     const auto* backend = find_desc<ffxCreateBackendDX12Desc>(
@@ -191,6 +199,7 @@ bool Context::create(const ffxApiHeader* createDesc) noexcept try
 
     m_device = backend->device;
     m_create_flags = frameGeneration->flags;
+    m_color_format = colorFormat;
     m_display_width = frameGeneration->displaySize.width;
     m_display_height = frameGeneration->displaySize.height;
     m_max_render_width = frameGeneration->maxRenderSize.width;
@@ -328,6 +337,7 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     auto* commandList = static_cast<ID3D12GraphicsCommandList*>(v2 ? v2->commandList : legacy->commandList);
     if (!commandList) return fail("prepare without a command list");
     FrameParams params{};
+    params.colorFormat = m_color_format;
     params.renderWidth = m_render_width;
     params.renderHeight = m_render_height;
     params.displayWidth = m_display_width;
@@ -384,8 +394,8 @@ bool Context::generate(ID3D12GraphicsCommandList* list, const GeneratePhase* pha
     if (m_prepared_frame_id != m_frame_id) return fail("configure/prepare frame ID mismatch");
     if (!m_hudless) return fail("generate without a HUD-less colour resource");
 
-    if (m_hudless->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
-        return fail("HUD-less colour is not R8G8B8A8_UNORM");
+    if (m_hudless->GetDesc().Format != m_color_format) {
+        return fail("HUD-less colour does not match the back buffer format");
     }
 
     InputFrame frame{};

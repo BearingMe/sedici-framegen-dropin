@@ -444,11 +444,148 @@ bool check_routing_faults(Device& state)
         // K70: an unsupported back buffer format is a local, logged error.
         {
             auto unsupported = create;
-            unsupported.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
+            unsupported.backBufferFormat = FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT;
             ffxContext context = nullptr;
             const bool answered = sedici::fg::route_create(&context, &unsupported.header, &result);
             if (!answered || result == FFX_API_RETURN_OK || context) return false;
             std::puts("PASS K70: unsupported back buffer format is a local error");
+        }
+
+        // P4.8 (K100, K14, K129, K131): Alan Wake 2's shape. A chain asked for through the New
+        // form and through the HWND form, 10-bit, with a 10-bit HDR-flagged session beside
+        // them; the swapchain's interpolation list and texture are answered; the game's own
+        // generation dispatch is acknowledged; everything is destroyed by Sedici.
+        {
+            const auto makeWindow = [&](const wchar_t* title) {
+                return CreateWindowW(className, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                     500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+            };
+            HWND newWindow = makeWindow(L"Sedici new");
+            HWND hwndWindow = makeWindow(L"Sedici hwnd");
+            const auto closeWindows = [&](void*) {
+                if (newWindow) DestroyWindow(newWindow);
+                if (hwndWindow) DestroyWindow(hwndWindow);
+            };
+            std::unique_ptr<void, decltype(closeWindows)> guard(reinterpret_cast<void*>(1), closeWindows);
+            if (!newWindow || !hwndWindow) return false;
+
+            DXGI_SWAP_CHAIN_DESC legacy{};
+            legacy.BufferDesc.Width = kDisplayWidth;
+            legacy.BufferDesc.Height = kDisplayHeight;
+            legacy.BufferDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+            legacy.SampleDesc.Count = 1;
+            legacy.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            legacy.BufferCount = 2;
+            legacy.OutputWindow = newWindow;
+            legacy.Windowed = TRUE;
+            legacy.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+            legacy.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+            IDXGISwapChain4* out = nullptr;
+            ffxCreateContextDescFrameGenerationSwapChainNewDX12 made{};
+            made.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12;
+            made.swapchain = &out;
+            made.desc = &legacy;
+            made.dxgiFactory = factory.Get();
+            made.gameQueue = state.queue.Get();
+            ffxContext swapContext = nullptr;
+            if (!sedici::fg::route_create(&swapContext, &made.header, &result) ||
+                result != FFX_API_RETURN_OK || !swapContext || !out) return false;
+            ComPtr<IDXGISwapChain4> game;
+            game.Attach(out);
+            DXGI_SWAP_CHAIN_DESC1 got{};
+            if (FAILED(game->GetDesc1(&got)) || got.Format != DXGI_FORMAT_R10G10B10A2_UNORM) return false;
+            std::puts("PASS New swapchain form builds a 10-bit chain and Sedici owns it");
+
+            // The interpolation queries the game sends on the swapchain context.
+            ID3D12GraphicsCommandList* list = nullptr;
+            ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 listQuery{};
+            listQuery.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12;
+            listQuery.pOutCommandList = reinterpret_cast<void**>(&list);
+            ffxReturnCode_t answer = FFX_API_RETURN_ERROR;
+            ID3D12GraphicsCommandList* again = nullptr;
+            bool queries = sedici::fg::route_query(&swapContext, &listQuery.header, &answer) &&
+                           answer == FFX_API_RETURN_OK && list;
+            if (queries) {
+                // Asking again must hand back a recordable list, not a closed one.
+                listQuery.pOutCommandList = reinterpret_cast<void**>(&again);
+                queries = sedici::fg::route_query(&swapContext, &listQuery.header, &answer) &&
+                          answer == FFX_API_RETURN_OK && again == list && SUCCEEDED(again->Close());
+            }
+            FfxApiResource texture{};
+            ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 textureQuery{};
+            textureQuery.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12;
+            textureQuery.pOutTexture = &texture;
+            queries = queries && sedici::fg::route_query(&swapContext, &textureQuery.header, &answer) &&
+                      answer == FFX_API_RETURN_OK && texture.resource;
+            if (queries) {
+                auto* resource = static_cast<ID3D12Resource*>(texture.resource);
+                const auto textureDesc = resource->GetDesc();
+                queries = textureDesc.Format == DXGI_FORMAT_R10G10B10A2_UNORM &&
+                          textureDesc.Width == kDisplayWidth && textureDesc.Height == kDisplayHeight;
+            }
+            // Anything else stays a refusal with a code in the log.
+            ffxQueryDescHeader unknown{};
+            unknown.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12;
+            const bool refused = sedici::fg::route_query(&swapContext, &unknown, &answer) && answer != FFX_API_RETURN_OK;
+            if (!queries || !refused) return false;
+            std::puts("PASS interpolation list and texture queries answered; other swapchain queries refused");
+
+            // HDR-flagged 10-bit session, and the game's own dispatch is acknowledged.
+            auto tenBit = create;
+            tenBit.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
+            tenBit.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
+            ffxContext session = nullptr;
+            const bool sessionOk = sedici::fg::route_create(&session, &tenBit.header, &result) &&
+                                   result == FFX_API_RETURN_OK && session;
+            bool dispatchOk = false;
+            if (sessionOk) {
+                ffxDispatchDescHeader gameDispatch{};
+                gameDispatch.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
+                dispatchOk = sedici::fg::route_dispatch(&session, &gameDispatch, &result) && result == FFX_API_RETURN_OK;
+            }
+            ffxReturnCode_t destroyed{};
+            bool destroyOk = true;
+            if (session) destroyOk = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            if (!sessionOk || !dispatchOk || !destroyOk) return false;
+            std::puts("PASS HDR-flagged R10G10B10A2 session accepted; the game's own generation dispatch is acknowledged");
+
+            // The HWND form.
+            DXGI_SWAP_CHAIN_DESC1 hwndDesc{};
+            hwndDesc.Width = kDisplayWidth;
+            hwndDesc.Height = kDisplayHeight;
+            hwndDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+            hwndDesc.SampleDesc.Count = 1;
+            hwndDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            hwndDesc.BufferCount = 2;
+            hwndDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+            IDXGISwapChain4* hwndOut = nullptr;
+            ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 forHwnd{};
+            forHwnd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
+            forHwnd.swapchain = &hwndOut;
+            forHwnd.hwnd = hwndWindow;
+            forHwnd.desc = &hwndDesc;
+            forHwnd.dxgiFactory = factory.Get();
+            forHwnd.gameQueue = state.queue.Get();
+            ffxContext hwndContext = nullptr;
+            const bool hwndOk = sedici::fg::route_create(&hwndContext, &forHwnd.header, &result) &&
+                                result == FFX_API_RETURN_OK && hwndContext && hwndOut;
+            ComPtr<IDXGISwapChain4> hwndGame;
+            hwndGame.Attach(hwndOut);
+            const bool hwndFormat = hwndOk && SUCCEEDED(hwndGame->GetDesc1(&got)) &&
+                                    got.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
+            // A null factory is a local error and consumes nothing.
+            auto refusedHwnd = forHwnd;
+            refusedHwnd.dxgiFactory = nullptr;
+            IDXGISwapChain4* none = nullptr;
+            refusedHwnd.swapchain = &none;
+            ffxContext refusedContext = nullptr;
+            const bool refusedOk = sedici::fg::route_create(&refusedContext, &refusedHwnd.header, &result) &&
+                                   result != FFX_API_RETURN_OK && !refusedContext && !none;
+            bool hwndDestroyed = true;
+            if (hwndContext) hwndDestroyed = sedici::fg::route_destroy(&hwndContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            const bool newDestroyed = sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            if (!hwndFormat || !refusedOk || !hwndDestroyed || !newDestroyed || FAILED(game->GetDesc1(&got))) return false;
+            std::puts("PASS HWND swapchain form builds a 10-bit chain; a null factory is a local error; both destroy cleanly");
         }
 
         // K29: a refused handle reservation issues no token; a retry succeeds.

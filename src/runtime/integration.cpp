@@ -4,6 +4,7 @@
 #include "diagnostics/bookkeeping_faults.h"
 #include "diagnostics/log.h"
 
+#include <cstdio>
 #include <list>
 #include <mutex>
 #include <new>
@@ -89,7 +90,13 @@ bool WrapHandle::create(IDXGISwapChain4* native, ID3D12CommandQueue* queue, ULON
     if (!slot.reserve()) return false; // No native ownership has changed.
     Microsoft::WRL::ComPtr<Swapchain> wrapper;
     Swapchain* created = nullptr;
-    if (FAILED(Swapchain::wrap(native, queue, &created, nullptr, handedRefs)) || !created) return false;
+    const HRESULT wrapped = Swapchain::wrap(native, queue, &created, nullptr, handedRefs);
+    if (FAILED(wrapped) || !created) {
+        char text[64];
+        std::snprintf(text, sizeof(text), "fg: swapchain wrap failed hr=0x%08lX", static_cast<unsigned long>(wrapped));
+        log_error(text);
+        return false;
+    }
     wrapper.Attach(created);
     m_wrapper = std::move(wrapper); // Registry is published only while owned.
     slot.publish(created);

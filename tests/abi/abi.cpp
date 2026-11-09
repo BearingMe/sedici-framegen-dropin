@@ -374,6 +374,8 @@ int run_contract(Harness& h)
     const Provider providers[] = {
         {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, 0xf600000000c01006ull, "3.1.6"},
         {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+        {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
+        {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
     };
     for (const Provider& provider : providers) {
         uint64_t count = 0;
@@ -413,6 +415,22 @@ int run_contract(Harness& h)
            "creating an unrecognised effect is an unknown-desctype error");
     expect(h.ffx.create(nullptr, &odd, nullptr) == FFX_API_RETURN_ERROR_PARAMETER,
            "create without an output handle is a parameter error");
+
+    // Alan Wake 2's New form (P4.8, K100) is Sedici's to answer: without a factory, a desc, an
+    // output or a queue it is a defined error, never UNKNOWN_DESCTYPE and never a handle.
+    {
+        ffxCreateContextDescFrameGenerationSwapChainNewDX12 made{};
+        made.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12;
+        ffxContext handle = nullptr;
+        const ffxReturnCode_t code = h.ffx.create(&handle, &made.header, nullptr);
+        expect(code == FFX_API_RETURN_ERROR && !handle,
+               "a New swapchain create without factory, desc or queue is a local error and issues no handle");
+        ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 hwndMade{};
+        hwndMade.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
+        const ffxReturnCode_t hwndCode = h.ffx.create(&handle, &hwndMade.header, nullptr);
+        expect(hwndCode == FFX_API_RETURN_ERROR && !handle,
+               "a ForHwnd swapchain create without factory, desc, window or queue is a local error");
+    }
     expect(h.ffx.destroy(nullptr, nullptr) == FFX_API_RETURN_ERROR_PARAMETER &&
                h.ffx.destroy(&none, nullptr) == FFX_API_RETURN_ERROR_PARAMETER,
            "destroying a null handle is a parameter error");

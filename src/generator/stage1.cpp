@@ -252,7 +252,7 @@ bool Stage1::create_targets() noexcept
                            m_params.renderHeight, uav)) return false;
         if (!create_target(m_motion[index], DXGI_FORMAT_R16G16_FLOAT, m_params.renderWidth,
                            m_params.renderHeight, uav)) return false;
-        if (!create_target(m_color[index], DXGI_FORMAT_R8G8B8A8_UNORM, m_params.displayWidth,
+        if (!create_target(m_color[index], m_params.colorFormat, m_params.displayWidth,
                            m_params.displayHeight, readOnly)) return false;
     }
 
@@ -263,7 +263,7 @@ bool Stage1::create_targets() noexcept
 
     // The warp writes the midpoint here and the composite pass finishes it, so
     // HUD composition never has to run inside the fusion pass.
-    if (!create_target(m_midpoint, DXGI_FORMAT_R8G8B8A8_UNORM, m_params.displayWidth,
+    if (!create_target(m_midpoint, m_params.colorFormat, m_params.displayWidth,
                        m_params.displayHeight, uav)) return false;
 
     return true;
@@ -461,11 +461,11 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
                desc.DepthOrArraySize == 1 && desc.MipLevels == 1 && desc.SampleDesc.Count == 1;
     };
     if (!matches(frame.color, m_params.displayWidth, m_params.displayHeight)) return false;
-    if (frame.color->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM) return false;
+    if (frame.color->GetDesc().Format != m_params.colorFormat) return false;
     for (uint32_t i = 0; i < count; ++i) {
         ID3D12Resource* output = phases[i].output;
         if (!output || !matches(output, m_params.displayWidth, m_params.displayHeight)) return false;
-        if (output->GetDesc().Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        if (output->GetDesc().Format != m_params.colorFormat ||
             !(output->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) return false;
         if (output == frame.color || output == frame.depth || output == frame.motion) return false;
         if (hud && hud->real == output) return false;
@@ -478,7 +478,7 @@ bool Stage1::generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
         const auto desc = hud->real->GetDesc();
         if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
             desc.Width != m_params.displayWidth || desc.Height != m_params.displayHeight ||
-            desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM || desc.MipLevels != 1 ||
+            desc.Format != m_params.colorFormat || desc.MipLevels != 1 ||
             desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1) return false;
     }
     if (!m_prepared && !capture_prepare(list, frame)) return false;
@@ -581,13 +581,13 @@ void Stage1::synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint3
     m_device->CreateShaderResourceView(m_lut.Get(), &lutView,
         {lutHandle.ptr + static_cast<SIZE_T>((block + 3) * kBlockSlots + 7) * m_increment});
     write_srv(0, m_filled.get(), DXGI_FORMAT_R32_UINT);
-    write_srv(1, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
-    write_srv(2, m_color[previous].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(1, m_color[current].get(), m_params.colorFormat);
+    write_srv(2, m_color[previous].get(), m_params.colorFormat);
     write_srv(3, m_depth[current].get(), DXGI_FORMAT_R32_FLOAT);
     write_srv(4, m_depth[previous].get(), DXGI_FORMAT_R32_FLOAT);
     write_srv(5, m_motion[current].get(), DXGI_FORMAT_R16G16_FLOAT);
     write_srv(6, m_motion[previous].get(), DXGI_FORMAT_R16G16_FLOAT);
-    write_uav(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_uav(0, m_midpoint.get(), m_params.colorFormat);
     dispatch(list, m_warp.Get(), groups(m_params.displayWidth), groups(m_params.displayHeight));
 
     uav_barrier(list, m_midpoint.get());
@@ -609,10 +609,10 @@ void Stage1::composite_hud(ID3D12GraphicsCommandList* list, uint32_t current,
     }
     transition_external(list, output, outputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     begin_block(block);
-    write_srv(0, m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
-    write_srv(1, hasHud ? hud->real : m_midpoint.get(), DXGI_FORMAT_R8G8B8A8_UNORM);
-    write_srv(2, m_color[current].get(), DXGI_FORMAT_R8G8B8A8_UNORM);
-    write_uav(0, output, DXGI_FORMAT_R8G8B8A8_UNORM);
+    write_srv(0, m_midpoint.get(), m_params.colorFormat);
+    write_srv(1, hasHud ? hud->real : m_midpoint.get(), m_params.colorFormat);
+    write_srv(2, m_color[current].get(), m_params.colorFormat);
+    write_uav(0, output, m_params.colorFormat);
     dispatch(list, m_composite.Get(), groups(m_params.displayWidth), groups(m_params.displayHeight));
     transition_external(list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, outputState);
     if (hasHud) {

@@ -9,9 +9,20 @@ void ui_input_leave(bool restore_clip) noexcept;
 void ui_input_leave_window(HWND hwnd, bool restore_clip) noexcept;
 void ui_input_disable() noexcept;
 bool ui_input_active() noexcept;
-// True when the executable's cursor imports could be intercepted. Does not
-// change capture state.
+// True when at least one SetCursorPos or ClipCursor import of the executable or of a
+// non-system module could be intercepted. Rescans (at most every two seconds) so a module
+// loaded or a delay-load slot resolved since the last call is found. Does not change
+// capture state.
 bool ui_input_available() noexcept;
+
+// What the last scan found, for the log and the tests.
+struct InterceptionSummary {
+    unsigned modulesScanned = 0;
+    unsigned setCursorPosSlots = 0;
+    unsigned clipCursorSlots = 0;
+    unsigned skippedSlots = 0; // an import slot that held something other than the real call
+};
+InterceptionSummary ui_input_interception_summary() noexcept;
 
 // Maps a client-area point to output pixels. The overlay is drawn at the
 // output resolution while Windows reports input in client coordinates, so the

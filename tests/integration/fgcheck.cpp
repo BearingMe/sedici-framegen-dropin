@@ -152,6 +152,7 @@ int main(int argc, char** argv)
         ok = run_case(state, scene, keepImages) && ok;
     }
 
+    ok = check_ten_bit(state) && ok;
     const int contractFailures = check_contract(state);
     if (contractFailures != 0) ok = false;
     {

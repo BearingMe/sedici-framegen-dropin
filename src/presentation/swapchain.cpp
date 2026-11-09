@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cmath>
 #include <new>
 #include <thread>
@@ -43,6 +44,11 @@ uint64_t now_ticks() noexcept
     return static_cast<uint64_t>(counter.QuadPart);
 }
 
+bool supported_color_format(DXGI_FORMAT format) noexcept
+{
+    return format == DXGI_FORMAT_R8G8B8A8_UNORM || format == DXGI_FORMAT_R10G10B10A2_UNORM;
+}
+
 } // namespace
 
 HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
@@ -60,7 +66,23 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     if (SUCCEEDED(hr)) {
         Microsoft::WRL::ComPtr<ID3D12Device> nativeDevice;
         hr = native->GetDevice(IID_PPV_ARGS(&nativeDevice));
-        if (SUCCEEDED(hr) && nativeDevice.Get() != object->m_device.Get()) hr = E_INVALIDARG;
+        if (SUCCEEDED(hr) && nativeDevice.Get() != object->m_device.Get()) {
+            // Alan Wake 2 reports a different device object for the chain than for its
+            // queue (K130). The same adapter is enough: every resource is created on, and
+            // every list is submitted through, the queue's device. A different adapter is
+            // refused. The decision is logged either way.
+            const LUID chainAdapter = nativeDevice->GetAdapterLuid();
+            const LUID queueAdapter = object->m_device->GetAdapterLuid();
+            const bool sameAdapter = chainAdapter.LowPart == queueAdapter.LowPart &&
+                                     chainAdapter.HighPart == queueAdapter.HighPart;
+            char text[200];
+            std::snprintf(text, sizeof(text),
+                "fg: swapchain wrap: chain device %p differs from queue device %p; %s",
+                static_cast<void*>(nativeDevice.Get()), static_cast<void*>(object->m_device.Get()),
+                sameAdapter ? "same adapter, using the queue's device" : "different adapters, refused");
+            log_error(text);
+            if (!sameAdapter) hr = E_INVALIDARG;
+        }
     }
     if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator[0]));
@@ -295,6 +317,57 @@ void Swapchain::retain_gpu_state() noexcept
 
 }
 
+HRESULT Swapchain::interpolation_list(ID3D12GraphicsCommandList** list) noexcept try
+{
+    if (!list) return E_POINTER;
+    std::lock_guard lock(m_mutex);
+    if (!m_scratch_list) {
+        HRESULT hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                      IID_PPV_ARGS(&m_scratch_allocator));
+        if (SUCCEEDED(hr)) hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            m_scratch_allocator.Get(), nullptr, IID_PPV_ARGS(&m_scratch_list));
+        if (FAILED(hr)) { m_scratch_list.Reset(); m_scratch_allocator.Reset(); return hr; }
+        *list = m_scratch_list.Get(); // created open
+        return S_OK;
+    }
+    // The previous recording was never executed; start it over.
+    (void)m_scratch_list->Close();
+    HRESULT hr = m_scratch_allocator->Reset();
+    if (SUCCEEDED(hr)) hr = m_scratch_list->Reset(m_scratch_allocator.Get(), nullptr);
+    if (FAILED(hr)) return hr;
+    *list = m_scratch_list.Get();
+    return S_OK;
+}
+catch (...) { return E_OUTOFMEMORY; }
+
+HRESULT Swapchain::interpolation_texture(ID3D12Resource** texture) noexcept try
+{
+    if (!texture) return E_POINTER;
+    std::lock_guard lock(m_mutex);
+    if (!m_scratch_texture) {
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        HRESULT hr = m_native->GetDesc1(&desc);
+        if (FAILED(hr)) return hr;
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC texDesc{};
+        texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texDesc.Width = desc.Width;
+        texDesc.Height = desc.Height;
+        texDesc.DepthOrArraySize = 1;
+        texDesc.MipLevels = 1;
+        texDesc.Format = desc.Format;
+        texDesc.SampleDesc.Count = 1;
+        texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texDesc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_scratch_texture));
+        if (FAILED(hr)) return hr;
+    }
+    *texture = m_scratch_texture.Get();
+    return S_OK;
+}
+catch (...) { return E_OUTOFMEMORY; }
+
 bool Swapchain::set_generator(const GenerateSink& sink) noexcept
 {
     std::lock_guard lock(m_mutex);
@@ -345,7 +418,7 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     HRESULT hr = m_native->GetDesc1(&desc);
     if (FAILED(hr)) return hr;
     if (desc.SampleDesc.Count != 1 || desc.BufferCount == 0 || desc.Stereo ||
-        desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) return DXGI_ERROR_UNSUPPORTED;
+        !supported_color_format(desc.Format)) return DXGI_ERROR_UNSUPPORTED;
 
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> buffers(desc.BufferCount);
     D3D12_HEAP_PROPERTIES heap{};
@@ -1160,7 +1233,7 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
                           const UINT* masks, IUnknown* const* queues, bool version1) noexcept
 {
     std::lock_guard lock(m_mutex);
-    if (format != DXGI_FORMAT_UNKNOWN && format != DXGI_FORMAT_R8G8B8A8_UNORM) return DXGI_ERROR_UNSUPPORTED;
+    if (format != DXGI_FORMAT_UNKNOWN && !supported_color_format(format)) return DXGI_ERROR_UNSUPPORTED;
     if (version1) {
         const UINT buffers = count ? count : static_cast<UINT>(m_buffers.size());
         if (!masks || !queues) return E_INVALIDARG;

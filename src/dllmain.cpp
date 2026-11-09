@@ -45,6 +45,16 @@ void capture_wrapped_window(const ffxCreateContextDescHeader* desc) noexcept
 {
     try {
         for (const ffxApiHeader* item = desc; item; item = item->pNext) {
+            if (item->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12) {
+                const auto& made = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainNewDX12&>(*item);
+                if (made.desc && made.desc->OutputWindow) sedici::ui_capture_window(made.desc->OutputWindow);
+                return;
+            }
+            if (item->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12) {
+                const auto& made = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainForHwndDX12&>(*item);
+                if (made.hwnd) sedici::ui_capture_window(made.hwnd);
+                return;
+            }
             if (item->type != FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12) continue;
             const auto& wrap = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainWrapDX12&>(*item);
             HWND window = nullptr;

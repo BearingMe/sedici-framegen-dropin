@@ -100,6 +100,14 @@ public:
 
     // True when "vrr" is active (presenter thread and queue in use).
     bool async_present() const noexcept { return m_presenter != nullptr; }
+
+    // Alan Wake 2 queries an "interpolation" command list and texture from the
+    // swapchain and records its own frame generation dispatch into them (P4.8, K131).
+    // Sedici generates frames itself, so these are scratch objects the game may write
+    // to; nothing recorded into them is executed or presented. The pointers stay valid
+    // for the life of the wrapper.
+    HRESULT interpolation_list(ID3D12GraphicsCommandList** list) noexcept;
+    HRESULT interpolation_texture(ID3D12Resource** texture) noexcept;
     // "vrr": flips issued within 2 ms of the previous one (0 without a presenter).
     uint64_t back_to_back_flips() const noexcept { return m_presenter ? m_presenter->back_to_back_flips() : 0; }
 
@@ -228,6 +236,9 @@ private:
     // recorded after they were executed and their allocators are not yet free.
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_generate_allocator;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_generate_list;
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_scratch_allocator;   // guarded by m_mutex
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_scratch_list;     // guarded by m_mutex
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_scratch_texture;             // guarded by m_mutex
     Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_buffers;
 

@@ -5,6 +5,11 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <string>
+#include <vector>
+
+#include <delayimp.h>
+#include <psapi.h>
 
 namespace sedici {
 namespace {
@@ -19,7 +24,6 @@ std::mutex g_install_mutex;
 std::atomic<bool> g_disabled{false};
 RECT g_clip_rect{};
 bool g_clip_set = false;
-bool g_installed = false;
 int g_show_adjustments = 0;
 std::atomic<unsigned> g_suppressed_pos{0};
 std::atomic<unsigned> g_suppressed_clip{0};
@@ -63,48 +67,155 @@ bool replace_slot(ULONG_PTR* slot, ULONG_PTR expected, ULONG_PTR replacement) no
     return previous == reinterpret_cast<void*>(expected);
 }
 
+// Import slots already replaced, so a rescan never patches one twice.
+struct PatchedSlot {
+    ULONG_PTR* slot;
+    bool position;
+};
+std::vector<PatchedSlot> g_patched;
+InterceptionSummary g_summary{};
+ULONGLONG g_last_scan = 0;
+
+bool is_system_module(HMODULE module) noexcept
+{
+    wchar_t path[MAX_PATH]{};
+    wchar_t system[MAX_PATH]{};
+    wchar_t windows[MAX_PATH]{};
+    if (!GetModuleFileNameW(module, path, MAX_PATH)) return true; // unknown: leave it alone
+    const UINT systemLength = GetSystemDirectoryW(system, MAX_PATH);
+    const UINT windowsLength = GetWindowsDirectoryW(windows, MAX_PATH);
+    const auto under = [&](const wchar_t* root, UINT length) {
+        return length != 0 && length < MAX_PATH && _wcsnicmp(path, root, length) == 0;
+    };
+    return under(system, systemLength) || under(windows, windowsLength);
+}
+
+void patch_if_cursor_import(const char* api, ULONG_PTR* slot, bool* sawPosition, bool* sawClip) noexcept
+{
+    bool position = false;
+    if (std::strcmp(api, "SetCursorPos") == 0) position = true;
+    else if (std::strcmp(api, "ClipCursor") != 0) return;
+    for (const PatchedSlot& done : g_patched) if (done.slot == slot) return;
+    const ULONG_PTR expected = position ? reinterpret_cast<ULONG_PTR>(g_set_pos)
+                                        : reinterpret_cast<ULONG_PTR>(g_clip);
+    const ULONG_PTR replacement = position ? reinterpret_cast<ULONG_PTR>(&set_pos_hook)
+                                           : reinterpret_cast<ULONG_PTR>(&clip_hook);
+    (position ? *sawPosition : *sawClip) = true;
+    if (*slot != expected) {
+        // Another hook, or a delay-load stub that has not resolved yet. Chaining through a
+        // foreign hook is not safe, so leave it; a delay-load slot is picked up by a later scan.
+        ++g_summary.skippedSlots;
+        return;
+    }
+    if (!replace_slot(slot, expected, replacement)) { ++g_summary.skippedSlots; return; }
+    g_patched.push_back({slot, position});
+    if (position) ++g_summary.setCursorPosSlots; else ++g_summary.clipCursorSlots;
+}
+
+void scan_module(HMODULE module, bool* sawPosition, bool* sawClip) noexcept
+{
+    auto* base = reinterpret_cast<unsigned char*>(module);
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    if (!base || dos->e_magic != IMAGE_DOS_SIGNATURE) return;
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return;
+    const auto imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (imports.VirtualAddress) {
+        auto* desc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + imports.VirtualAddress);
+        for (; desc->Name; ++desc) {
+            if (!desc->OriginalFirstThunk) continue;
+            auto* names = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->OriginalFirstThunk);
+            auto* slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->FirstThunk);
+            for (; names->u1.AddressOfData; ++names, ++slots) {
+                if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+                const auto* name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function,
+                                       sawPosition, sawClip);
+            }
+        }
+    }
+    // Delay-loaded imports (some engines load user32 late). The slot holds a stub until the
+    // first call resolves it, so these are only patched once resolved.
+    const auto delayed = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
+    if (delayed.VirtualAddress) {
+        auto* desc = reinterpret_cast<IMAGE_DELAYLOAD_DESCRIPTOR*>(base + delayed.VirtualAddress);
+        for (; desc->DllNameRVA; ++desc) {
+            if (!desc->Attributes.RvaBased || !desc->ImportNameTableRVA || !desc->ImportAddressTableRVA) continue;
+            auto* names = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->ImportNameTableRVA);
+            auto* slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->ImportAddressTableRVA);
+            for (; names->u1.AddressOfData; ++names, ++slots) {
+                if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+                const auto* name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function,
+                                       sawPosition, sawClip);
+            }
+        }
+    }
+}
+
+// Scans the executable and every loaded module that is not part of Windows or Sedici itself
+// (K132: Alan Wake 2's executable does not import both calls itself). Safe to repeat: patched
+// slots are remembered, and a rescan finds modules loaded and delay-load slots resolved since.
 bool install_hooks() noexcept
 {
     std::lock_guard<std::mutex> lock(g_install_mutex);
-    if (g_installed) return true;
-    auto* base = reinterpret_cast<unsigned char*>(GetModuleHandleW(nullptr));
-    if (!base) return false;
-    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
-    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
-    const auto imports = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!imports.VirtualAddress) return false;
-    ULONG_PTR* pos_slot = nullptr;
-    ULONG_PTR* clip_slot = nullptr;
-    auto* desc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + imports.VirtualAddress);
-    for (; desc->Name; ++desc) {
-        if (!desc->OriginalFirstThunk) continue;
-        auto* names = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->OriginalFirstThunk);
-        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->FirstThunk);
-        for (; names->u1.AddressOfData; ++names, ++slots) {
-            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
-            const auto* name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-            if (std::strcmp(reinterpret_cast<const char*>(name->Name), "SetCursorPos") == 0)
-                pos_slot = &slots->u1.Function;
-            else if (std::strcmp(reinterpret_cast<const char*>(name->Name), "ClipCursor") == 0)
-                clip_slot = &slots->u1.Function;
+    const ULONGLONG now = GetTickCount64();
+    if (!g_patched.empty() && now - g_last_scan < 2000) return true;
+    if (g_patched.empty() && g_last_scan != 0 && now - g_last_scan < 250) return false;
+    g_last_scan = now;
+
+    HMODULE self = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&install_hooks), &self);
+    const HMODULE executable = GetModuleHandleW(nullptr);
+    std::vector<HMODULE> modules(256);
+    DWORD needed = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+                               static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &needed)) {
+        modules.assign(1, executable);
+    } else {
+        if (needed > modules.size() * sizeof(HMODULE)) {
+            modules.resize(needed / sizeof(HMODULE) + 16);
+            if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+                                       static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &needed))
+                needed = sizeof(HMODULE), modules[0] = executable;
         }
+        modules.resize(needed / sizeof(HMODULE));
     }
-    if (!pos_slot || !clip_slot) return false;
-    if (!replace_slot(pos_slot, reinterpret_cast<ULONG_PTR>(g_set_pos),
-                      reinterpret_cast<ULONG_PTR>(&set_pos_hook))) return false;
-    if (!replace_slot(clip_slot, reinterpret_cast<ULONG_PTR>(g_clip),
-                      reinterpret_cast<ULONG_PTR>(&clip_hook))) {
-        replace_slot(pos_slot, reinterpret_cast<ULONG_PTR>(&set_pos_hook),
-                     reinterpret_cast<ULONG_PTR>(g_set_pos));
-        return false;
+
+    const InterceptionSummary before = g_summary;
+    bool sawPosition = false, sawClip = false;
+    unsigned scanned = 0;
+    for (HMODULE module : modules) {
+        // Sedici's own imports stay alone, except when Sedici is the executable (the offline test host).
+        if (!module || (module == self && module != executable)) continue;
+        if (module != executable && is_system_module(module)) continue;
+        ++scanned;
+        scan_module(module, &sawPosition, &sawClip);
     }
-    g_installed = true;
-    log_event(1, "sedici: overlay cursor interception installed on executable imports");
-    return true;
+    g_summary.modulesScanned = scanned;
+    const bool changed = g_summary.setCursorPosSlots != before.setCursorPosSlots ||
+                         g_summary.clipCursorSlots != before.clipCursorSlots;
+    if (changed || (g_patched.empty() && before.modulesScanned == 0)) {
+        log_event(1, std::string("sedici: overlay cursor interception ") +
+                         (g_patched.empty() ? "unavailable" : "installed") + ": modules=" +
+                         std::to_string(scanned) + " slots{SetCursorPos=" +
+                         std::to_string(g_summary.setCursorPosSlots) + " ClipCursor=" +
+                         std::to_string(g_summary.clipCursorSlots) + "} skipped=" +
+                         std::to_string(g_summary.skippedSlots) + " seen{SetCursorPos=" +
+                         (sawPosition ? "yes" : "no") + " ClipCursor=" + (sawClip ? "yes" : "no") + "}");
+    }
+    // One of the two is enough to be useful: the game then loses only the call it does not make
+    // through an import we can see. The summary above records which.
+    return !g_patched.empty();
 }
 } // namespace
+
+InterceptionSummary ui_input_interception_summary() noexcept
+{
+    std::lock_guard<std::mutex> lock(g_install_mutex);
+    return g_summary;
+}
 
 bool ui_input_enter(HWND hwnd) noexcept
 {
