@@ -11,7 +11,7 @@ code as it is.
 **Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv` and lose their `fg_` prefix (the folder now says what
 `fg_` said). They change only in their `#include` lines. Nothing else is renamed, split or
 rewritten, and no behaviour changes. A module boundary that the code already crosses in
-both directions is recorded in [docs/dev/layout.md](../dev/layout.md), not repaired here.
+both directions is recorded in `docs/dev/layout.md` (written in P3.5), not repaired here.
 
 ## Target tree
 
