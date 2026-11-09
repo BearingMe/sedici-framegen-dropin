@@ -1,0 +1,142 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 599 lines, kept locally as qa-05-sedici.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.912 ms] sedici:   fg.present       = "vrr" [file]
+[1.199 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.441 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.688 ms] sedici:   fg.target_fps    = 0 [file]
+[1.949 ms] sedici:   limiter.fps      = 0 [file]
+[2.271 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.519 ms] sedici:   ui.mode          = "off" [file]
+[2.758 ms] sedici:   ui.scale         = "auto" [file]
+[3.002 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[3.232 ms] sedici:   log.level        = 1 [file]
+[3.454 ms] sedici: effective: real-frame limiter off
+[1196.201 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1650.248 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1650.262 ms] fg: created frame generation context
+[1650.309 ms] ffxCreateContext #1 ctx=0x21091e70000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1ef1e0a1b20   0x2000e (FrameGenerationCreateVersion) ve ...
+[1705.490 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1705.512 ms] fg: schedule multiplier=2x ratio=2/1
+[1705.517 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vrr align_vblank=no
+[1705.525 ms] fg: created swapchain wrapper
+[1705.549 ms] ffxCreateContext #2 ctx=0x21091e70010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0xc28b7fe9b0 swapchain=0x1ef0f5aa7c0 gameQueue=0x21019db7340   0x2 (BackendDX12) device=0x1ef1e0a1b20
+[1705.808 ms] sedici: overlay input hook installed
+[2023.566 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[6043.252 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[6049.143 ms] ffxDispatch #1 ctx=0x21091e70000 result=0 (OK) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=110 flags=none cmd=0x21227df6e90 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=33.2484 reset=false near=16000.0000 far=0.0200 fov=1.0472 viewToMeters=1.0000 depth={res=0x21252b71190 format=R32_FLOAT(0x1c) size=1506x635 state=0xc usage=0x4 ...
+[9277.933 ms] sedici: overlay present frames=300 real=204 generated=96 output_fps=41.22 real_fps=28.12 span_ms=7254.4
+[12352.561 ms] fg: vrr game thread cycles=300 real_fps=28.977236 planned_output_fps=47.329485 refresh_hz=75.000000 skipped=0 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[25984.499 ms] stats prepares=300 frameTimeDelta_ms{avg=33.316 min=31.136 max=33.990 sd=0.268} prepareQpc_ms{avg=33.332 min=31.563 max=34.870 sd=0.286} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[52383.556 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=300 dropped=0} late=200 latency_ms=2.12 short_gaps=0/300 back_to_back=0 gap_min_ms=22.83 gpu_wait_ms{avg=0.95 max=1.48} guard{holds=200 avg_ms=7.22 max_ms=10.49 timeouts=0} present_call_ms{avg=0.17 max=0.63} scan_at_flip{blank=100 q1=0 q2=0 q3=0 q4=200 unread=0} idle_in_blank=100/300
+[70416.956 ms] fg: vrr game thread cycles=2700 real_fps=143.191686 planned_output_fps=143.191686 refresh_hz=75.000000 skipped=1703 backpressure_waits=137/300 backpressure_ms{avg=9.971888 max=12.215700}
+[81411.663 ms] sedici: overlay present frames=300 real=300 generated=0 output_fps=64.41 real_fps=64.63 span_ms=4641.9
+[84254.837 ms] sedici: stall prepare interval=48779.061 ms median=33.328 ms ratio=1463.628x frameID=3918 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=468888185928
+[87471.578 ms] sedici: stall prepare interval=110.418 ms median=15.609 ms ratio=7.074x frameID=4069 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=468920353304
+[89517.462 ms] sedici: stall prepare interval=113.772 ms median=16.636 ms ratio=6.839x frameID=4173 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=468940812167
+[92105.410 ms] sedici: overlay present frames=300 real=156 generated=144 output_fps=67.85 real_fps=35.40 span_ms=4406.5
+[99862.111 ms] sedici: stall prepare interval=69.089 ms median=17.619 ms ratio=3.921x frameID=4752 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469044258735
+[101273.826 ms] diag: log{queued=119 written=118 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[112007.239 ms] diag: log{queued=130 written=129 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[122633.908 ms] stats prepares=300 frameTimeDelta_ms{avg=17.677 min=15.181 max=20.030 sd=0.880} prepareQpc_ms{avg=17.675 min=15.572 max=20.021 sd=0.859} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[133138.877 ms] stats prepares=300 frameTimeDelta_ms{avg=17.497 min=15.427 max=19.574 sd=0.861} prepareQpc_ms{avg=17.494 min=15.476 max=19.710 sd=0.830} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[135656.280 ms] sedici: stall prepare interval=64.455 ms median=17.612 ms ratio=3.660x frameID=6771 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469402200431
+[138337.694 ms] sedici: stall prepare interval=141.294 ms median=17.143 ms ratio=8.242x frameID=6918 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469429014527
+[140925.696 ms] sedici: stall prepare interval=131.204 ms median=17.542 ms ratio=7.479x frameID=7058 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469454894514
+[143891.106 ms] fg: vrr present jobs=300 generated{shown=202 dropped=93} real{shown=196 dropped=104} late=392 latency_ms=29.17 short_gaps=0/398 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=1.53 max=22.31} guard{holds=784 avg_ms=5.96 max_ms=12.08 timeouts=0} present_call_ms{avg=0.36 max=7.86} scan_at_flip{blank=3 q1=0 q2=0 q3=0 q4=395 unread=0} idle_in_blank=2/3
+[155166.157 ms] fg: vrr present jobs=300 generated{shown=213 dropped=87} real{shown=170 dropped=130} late=383 latency_ms=30.83 short_gaps=0/383 back_to_back=0 gap_min_ms=13.35 gpu_wait_ms{avg=1.06 max=6.01} guard{holds=766 avg_ms=6.02 max_ms=12.03 timeouts=0} present_call_ms{avg=0.27 max=0.89} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=383 unread=0} idle_in_blank=0/0
+[166323.647 ms] fg: vrr game thread cycles=8400 real_fps=49.810736 planned_output_fps=99.621472 refresh_hz=75.000000 OVER_REFRESH: cap the real rate at 36.000000 fps ([limiter] fps) or use multiplier = "adaptive" skipped=2885 backpressure_waits=13/300 backpressure_ms{avg=1.331331 max=2.612000}
+[168479.795 ms] sedici: stall prepare interval=1489.999 ms median=20.515 ms ratio=72.630x frameID=8536 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469730435281
+[170598.220 ms] sedici: stall prepare interval=805.718 ms median=21.588 ms ratio=37.323x frameID=8652 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469751619780
+[177157.851 ms] sedici: overlay present frames=300 real=300 generated=0 output_fps=70.01 real_fps=70.25 span_ms=4270.5
+[181452.142 ms] sedici: stall prepare interval=9056.473 ms median=22.414 ms ratio=404.052x frameID=9389 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469860159048
+[188122.274 ms] sedici: stall prepare interval=74.269 ms median=19.539 ms ratio=3.801x frameID=9732 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469926860366
+[190300.070 ms] stats prepares=300 frameTimeDelta_ms{avg=18.855 min=13.491 max=65.273 sd=3.031} prepareQpc_ms{avg=18.854 min=15.572 max=74.269 sd=3.411} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[191048.709 ms] sedici: stall prepare interval=70.187 ms median=17.521 ms ratio=4.006x frameID=9892 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=469956124731
+[200644.728 ms] stats prepares=300 frameTimeDelta_ms{avg=17.378 min=12.708 max=32.789 sd=2.097} prepareQpc_ms{avg=17.385 min=14.001 max=33.505 sd=1.926} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[205350.651 ms] sedici: stall prepare interval=136.578 ms median=17.102 ms ratio=7.986x frameID=10720 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=470099144053
+[211090.717 ms] sedici: overlay present frames=300 real=135 generated=165 output_fps=70.98 real_fps=32.05 span_ms=4212.5
+[219590.934 ms] sedici: overlay present frames=300 real=118 generated=182 output_fps=70.11 real_fps=27.67 span_ms=4265.0
+[228052.187 ms] sedici: overlay present frames=300 real=137 generated=163 output_fps=70.79 real_fps=32.44 span_ms=4223.6
+[238345.312 ms] fg: vrr present jobs=300 generated{shown=186 dropped=114} real{shown=176 dropped=124} late=362 latency_ms=28.99 short_gaps=0/362 back_to_back=0 gap_min_ms=13.35 gpu_wait_ms{avg=0.90 max=2.83} guard{holds=724 avg_ms=6.02 max_ms=11.83 timeouts=0} present_call_ms{avg=0.26 max=0.86} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=362 unread=0} idle_in_blank=0/0
+[248826.929 ms] fg: vrr present jobs=300 generated{shown=208 dropped=92} real{shown=159 dropped=141} late=367 latency_ms=29.30 short_gaps=0/367 back_to_back=0 gap_min_ms=13.35 gpu_wait_ms{avg=0.96 max=3.32} guard{holds=734 avg_ms=6.00 max_ms=12.01 timeouts=0} present_call_ms{avg=0.25 max=0.56} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=367 unread=0} idle_in_blank=0/0
+[259582.185 ms] fg: vrr game thread cycles=13800 real_fps=53.149697 planned_output_fps=106.299394 refresh_hz=75.000000 OVER_REFRESH: cap the real rate at 36.000000 fps ([limiter] fps) or use multiplier = "adaptive" skipped=3698 backpressure_waits=3/300 backpressure_ms{avg=4.433200 max=7.024800}
+[270387.486 ms] sedici: overlay present frames=300 real=142 generated=158 output_fps=71.91 real_fps=34.15 span_ms=4157.8
+[271801.823 ms] sedici: stall prepare interval=63.041 ms median=19.049 ms ratio=3.309x frameID=14446 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=470763655890
+[280552.066 ms] diag: log{queued=300 written=299 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[290717.560 ms] diag: log{queued=310 written=309 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[302104.723 ms] stats prepares=300 frameTimeDelta_ms{avg=18.811 min=12.839 max=26.771 sd=2.224} prepareQpc_ms{avg=18.811 min=16.294 max=27.091 sd=1.116} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[312228.989 ms] sedici: overlay present frames=300 real=191 generated=109 output_fps=71.97 real_fps=45.98 span_ms=4154.3
+[320592.632 ms] sedici: overlay present frames=300 real=191 generated=109 output_fps=71.56 real_fps=45.71 span_ms=4178.3
+[321043.404 ms] sedici: stall prepare interval=57.363 ms median=19.064 ms ratio=3.009x frameID=17165 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=471256071602
+[328583.038 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[328583.134 ms] ffxDispatch #13709 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=17561 flags=none cmd=0x213821f82d0 render=1506x635 jitter=(0.4375,0.2407) mvScale=(1506.0000,635.0000) frameTimeDelta=20.5266 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x213b0444bc0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[328623.531 ms] sedici: stall prepare interval=103.535 ms median=19.070 ms ratio=5.429x frameID=17562 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=471331872881
+[331328.260 ms] fg: vrr present jobs=300 generated{shown=133 dropped=165} real{shown=269 dropped=31} late=397 latency_ms=39.90 short_gaps=1/402 back_to_back=0 gap_min_ms=12.72 gpu_wait_ms{avg=1.89 max=72.04} guard{holds=793 avg_ms=6.04 max_ms=12.06 timeouts=0} present_call_ms{avg=0.21 max=0.58} scan_at_flip{blank=3 q1=0 q2=0 q3=0 q4=399 unread=0} idle_in_blank=0/2
+[335759.052 ms] sedici: stall prepare interval=137.498 ms median=18.856 ms ratio=7.292x frameID=17931 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=471403227944
+[342714.994 ms] fg: vrr game thread cycles=18300 real_fps=52.814762 planned_output_fps=105.629524 refresh_hz=75.000000 OVER_REFRESH: cap the real rate at 36.000000 fps ([limiter] fps) or use multiplier = "adaptive" skipped=3698 backpressure_waits=25/300 backpressure_ms{avg=3.293256 max=6.899300}
+[353909.410 ms] fg: vrr game thread cycles=18900 real_fps=54.170671 planned_output_fps=108.341343 refresh_hz=75.000000 OVER_REFRESH: cap the real rate at 36.000000 fps ([limiter] fps) or use multiplier = "adaptive" skipped=3698 backpressure_waits=8/300 backpressure_ms{avg=2.030063 max=4.639400}
+[364234.654 ms] diag: log{queued=385 written=384 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[373456.625 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[373456.730 ms] ffxDispatch #16065 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=19917 flags=none cmd=0x213821f82d0 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=24.4155 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0x ...
+[373555.749 ms] sedici: stall prepare interval=159.730 ms median=22.431 ms ratio=7.121x frameID=19918 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=471781195046
+[376269.350 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[376269.391 ms] ffxDispatch #16162 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20014 flags=none cmd=0x212e8700680 render=1506x635 jitter=(0.3750,-0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=28.4496 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[376551.344 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[376551.396 ms] ffxDispatch #16170 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20022 flags=none cmd=0x212e8700680 render=1506x635 jitter=(0.4375,0.2407) mvScale=(1506.0000,635.0000) frameTimeDelta=29.3157 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[377593.163 ms] stats prepares=300 frameTimeDelta_ms{avg=25.054 min=14.785 max=66.000 sd=6.608} prepareQpc_ms{avg=25.599 min=16.747 max=159.730 sd=10.209} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[379926.275 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[379926.371 ms] ffxDispatch #16284 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20136 flags=none cmd=0x21421803a60 render=1506x635 jitter=(-0.0625,-0.3148) mvScale=(1506.0000,635.0000) frameTimeDelta=29.8225 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0x ...
+[382988.564 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[382988.669 ms] ffxDispatch #16383 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20235 flags=none cmd=0x21421803a60 render=1506x635 jitter=(0.1562,0.3148) mvScale=(1506.0000,635.0000) frameTimeDelta=32.8481 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[383550.182 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[383550.308 ms] ffxDispatch #16398 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20250 flags=none cmd=0x21421803a60 render=1506x635 jitter=(0.1875,0.0185) mvScale=(1506.0000,635.0000) frameTimeDelta=41.1498 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[389848.356 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[389848.454 ms] ffxDispatch #16569 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20421 flags=none cmd=0x2144d4a8630 render=1506x635 jitter=(0.4062,-0.3519) mvScale=(1506.0000,635.0000) frameTimeDelta=46.9097 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[390159.983 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[390160.030 ms] ffxDispatch #16576 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20428 flags=none cmd=0x2144d4a8630 render=1506x635 jitter=(0.3750,-0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=38.4853 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[390254.616 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[390254.660 ms] ffxDispatch #16578 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=20430 flags=none cmd=0x2147ed01570 render=1506x635 jitter=(0.0625,0.4630) mvScale=(1506.0000,635.0000) frameTimeDelta=23.5079 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x21316efdca0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[392036.127 ms] sedici: overlay present frames=300 real=158 generated=142 output_fps=48.80 real_fps=25.79 span_ms=6127.3
+[409905.475 ms] fg: vrr game thread cycles=21000 real_fps=28.536221 planned_output_fps=57.072441 refresh_hz=75.000000 skipped=3704 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[428100.895 ms] fg: vrr present jobs=300 generated{shown=81 dropped=0} real{shown=300 dropped=0} late=240 latency_ms=36.78 short_gaps=2/381 back_to_back=0 gap_min_ms=13.07 gpu_wait_ms{avg=5.14 max=29.66} guard{holds=483 avg_ms=5.64 max_ms=12.03 timeouts=0} present_call_ms{avg=0.21 max=1.45} scan_at_flip{blank=103 q1=0 q2=0 q3=0 q4=278 unread=0} idle_in_blank=0/0
+[433581.099 ms] sedici: stall prepare interval=8539.084 ms median=35.793 ms ratio=238.567x frameID=21973 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=472381448424
+[436223.066 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[436223.185 ms] ffxDispatch #17583 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=22026 flags=none cmd=0x21401e62bf0 render=1506x635 jitter=(0.3750,-0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=47.2758 reset=false near=16000.0000 far=0.0200 fov=0.8902 viewToMeters=1.0000 depth={res=0x2138c879000 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[436426.316 ms] sedici: stall prepare interval=265.248 ms median=43.619 ms ratio=6.081x frameID=22027 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=472409900661
+[438556.790 ms] sedici: stall prepare interval=116.259 ms median=35.387 ms ratio=3.285x frameID=22085 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=472431205528
+[441253.905 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[441253.966 ms] ffxDispatch #17718 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=22161 flags=none cmd=0x21401e62bf0 render=1506x635 jitter=(-0.3750,0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=39.7073 reset=false near=16000.0000 far=0.0200 fov=0.8902 viewToMeters=1.0000 depth={res=0x2138c879000 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[443391.016 ms] sedici: stall prepare interval=138.991 ms median=40.615 ms ratio=3.422x frameID=22210 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=472479547594
+[446053.258 ms] sedici: overlay present frames=300 real=156 generated=144 output_fps=49.03 real_fps=25.58 span_ms=6098.4
+[464035.430 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[464035.533 ms] ffxDispatch #18343 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=22786 flags=none cmd=0x21401e62bf0 render=1506x635 jitter=(-0.4375,-0.3889) mvScale=(1506.0000,635.0000) frameTimeDelta=40.3651 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x2138c879000 format=R32_FLOAT(0x1c) size=1506x635 state=0x ...
+[464129.874 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[464129.931 ms] ffxDispatch #18345 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=22788 flags=none cmd=0x2147f965a70 render=1506x635 jitter=(-0.1875,0.1296) mvScale=(1506.0000,635.0000) frameTimeDelta=27.0229 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x2138c879000 format=R32_FLOAT(0x1c) size=1506x635 state=0xc ...
+[464647.575 ms] fg: vrr game thread cycles=22800 real_fps=25.263069 planned_output_fps=50.189297 refresh_hz=75.000000 skipped=4295 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[470144.669 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x21091e70000]
+[470144.781 ms] ffxDispatch #18489 ctx=0x21091e70000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=22932 flags=none cmd=0x21401e62bf0 render=1506x635 jitter=(-0.4688,-0.0926) mvScale=(1506.0000,635.0000) frameTimeDelta=47.0145 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x2138c879000 format=R32_FLOAT(0x1c) size=1506x635 state=0x ...
+[485747.553 ms] stats prepares=300 frameTimeDelta_ms{avg=35.810 min=29.431 max=44.305 sd=3.067} prepareQpc_ms{avg=35.826 min=29.576 max=44.542 sd=3.007} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[502967.041 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=49.35 real_fps=24.76 span_ms=6059.2
+[521519.823 ms] fg: vrr game thread cycles=24300 real_fps=28.550190 planned_output_fps=57.100379 refresh_hz=75.000000 skipped=4295 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[522552.772 ms] sedici: stall prepare interval=143.540 ms median=31.677 ms ratio=4.531x frameID=24329 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=473271165123
+[537783.245 ms] stats prepares=300 frameTimeDelta_ms{avg=28.821 min=26.573 max=37.188 sd=1.621} prepareQpc_ms{avg=28.811 min=25.563 max=37.169 sd=1.706} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[550231.411 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=70.72 real_fps=35.48 span_ms=4228.1
+[563697.796 ms] fg: vrr game thread cycles=25800 real_fps=37.009197 planned_output_fps=74.018394 refresh_hz=75.000000 skipped=4295 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[578782.900 ms] diag: log{queued=549 written=548 dropped=0 suppressed=71 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[591110.085 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=73.89 real_fps=37.07 span_ms=4046.6
+[608579.774 ms] sedici: stall prepare interval=7445.795 ms median=26.982 ms ratio=275.955x frameID=27505 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=474131435356
+[610494.069 ms] stats prepares=300 frameTimeDelta_ms{avg=25.181 min=9.583 max=66.000 sd=5.462} prepareQpc_ms{avg=51.650 min=16.094 max=7445.795 sd=428.778} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[620295.731 ms] sedici: stall prepare interval=153.456 ms median=22.049 ms ratio=6.960x frameID=28058 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=474248594648
+[620339.557 ms] sedici: overlay present frames=300 real=193 generated=107 output_fps=66.39 real_fps=42.86 span_ms=4503.5
+[629977.544 ms] fg: vrr present jobs=300 generated{shown=173 dropped=127} real{shown=283 dropped=17} late=456 latency_ms=32.52 short_gaps=0/456 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=1.86 max=4.81} guard{holds=912 avg_ms=6.14 max_ms=11.70 timeouts=0} present_call_ms{avg=0.41 max=1.29} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=456 unread=0} idle_in_blank=0/0
+[633229.911 ms] sedici: overlay present frames=300 real=195 generated=105 output_fps=71.23 real_fps=46.45 span_ms=4197.7
+[634852.963 ms] sedici: overlay disabled
+[634853.002 ms] an exception was thrown while drawing
+[636515.906 ms] ffxDestroyContext #1 ctx=0x21091e70000 result=0 (OK) chain=none
+[636517.205 ms] fg: vrr present jobs=291 generated{shown=82 dropped=62} real{shown=274 dropped=17} late=356 latency_ms=26.44 short_gaps=0/356 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=1.00 max=40.48} guard{holds=711 avg_ms=6.16 max_ms=12.08 timeouts=0} present_call_ms{avg=0.35 max=1.82} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=356 unread=0} idle_in_blank=0/0
+[636526.139 ms] ffxDestroyContext #2 ctx=0x21091e70010 result=0 (OK) chain=none

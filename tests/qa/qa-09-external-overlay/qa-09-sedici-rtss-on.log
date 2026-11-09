@@ -1,0 +1,52 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 115 lines, kept locally as qa-09-sedici-rtss-on.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.918 ms] sedici:   fg.present       = "vrr" [file]
+[1.262 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.578 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.958 ms] sedici:   fg.target_fps    = 0 [file]
+[2.378 ms] sedici:   limiter.fps      = 0 [file]
+[2.713 ms] sedici:   limiter.spin_us  = 1000 [file]
+[3.088 ms] sedici:   ui.mode          = "off" [file]
+[3.498 ms] sedici:   ui.scale         = "auto" [file]
+[3.866 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[4.221 ms] sedici:   log.level        = 1 [file]
+[4.558 ms] sedici: effective: real-frame limiter off
+[1212.653 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1618.580 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1618.593 ms] fg: created frame generation context
+[1618.641 ms] ffxCreateContext #1 ctx=0x1d50f3a0000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1b3f1354620   0x2000e (FrameGenerationCreateVersion) ve ...
+[1626.177 ms] fg: "vrr" present unavailable (RTSS is injected and would write the chain from the wrong queue; close RTSS or set SEDICI_FG_ALLOW_RTSS=1); falling back to "vsync"
+[1626.193 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vsync align_vblank=no
+[1626.202 ms] fg: created swapchain wrapper
+[1626.225 ms] ffxCreateContext #2 ctx=0x1d50f3a0010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0x26fd3fef40 swapchain=0x1d4f71e0270 gameQueue=0x1d4c261cf00   0x2 (BackendDX12) device=0x1b3f1354620
+[1626.339 ms] sedici: overlay input hook installed
+[2064.733 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[5627.664 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[5634.354 ms] ffxDispatch #1 ctx=0x1d50f3a0000 result=0 (OK) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=217 flags=none cmd=0x1d6a498acc0 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=12.1983 reset=false near=16000.0000 far=0.0200 fov=1.0472 viewToMeters=1.0000 depth={res=0x1d6d738b7c0 format=R32_FLOAT(0x1c) size=1506x635 state=0xc usage=0x4 ...
+[6713.755 ms] sedici: overlay present frames=300 real=264 generated=36 output_fps=64.31 real_fps=56.79 span_ms=4649.0
+[7675.066 ms] fg: present pacing cycles=300 generated=72 skipped=11 interval_ms=26.681985 cpu_gap_ms{avg=11.743669 min=2.804400 max=13.735700} mid_not_ready=29/72 drain_waits=242/300 drain_wait_ms{avg=11.358255 max=39.574800} align_misses=0/0
+[8277.413 ms] sedici: stall prepare interval=93.544 ms median=26.743 ms ratio=3.498x frameID=321 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=859830896636
+[11409.170 ms] sedici: stall prepare interval=84.190 ms median=26.695 ms ratio=3.154x frameID=451 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=859862214216
+[12447.595 ms] sedici: stall prepare interval=26.673 ms median=8.404 ms ratio=3.174x frameID=541 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=859872598501
+[15062.058 ms] sedici: stall prepare interval=112.693 ms median=26.778 ms ratio=4.208x frameID=636 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=859898743073
+[21341.800 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.91 real_fps=37.58 span_ms=3991.6
+[37589.621 ms] fg: present pacing cycles=1800 generated=915 skipped=668 interval_ms=13.455901 cpu_gap_ms{avg=0.000000 min=0.000000 max=0.000000} mid_not_ready=0/0 drain_waits=283/300 drain_wait_ms{avg=11.039317 max=16.660600} align_misses=0/0
+[51178.543 ms] sedici: stall prepare interval=22199.387 ms median=26.703 ms ratio=831.360x frameID=2608 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860259907910
+[52348.840 ms] sedici: stall prepare interval=189.433 ms median=26.751 ms ratio=7.081x frameID=2617 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860271610485
+[55353.777 ms] sedici: stall prepare interval=148.861 ms median=26.622 ms ratio=5.592x frameID=2713 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860301660195
+[57382.924 ms] sedici: stall prepare interval=113.472 ms median=26.673 ms ratio=4.254x frameID=2780 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860321951700
+[58535.183 ms] sedici: stall prepare interval=88.117 ms median=26.506 ms ratio=3.324x frameID=2820 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860333474288
+[62020.010 ms] sedici: overlay present frames=300 real=151 generated=149 output_fps=74.44 real_fps=37.59 span_ms=4016.8
+[78038.905 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.91 real_fps=37.58 span_ms=3991.2
+[78232.681 ms] sedici: stall prepare interval=133.697 ms median=26.685 ms ratio=5.010x frameID=3555 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860530448909
+[84390.838 ms] sedici: stall prepare interval=85.396 ms median=26.287 ms ratio=3.249x frameID=3775 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=860592030918
+[86485.813 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=73.94 real_fps=37.09 span_ms=4043.9
+[87727.175 ms] fg: present pacing cycles=3900 generated=2192 skipped=1491 interval_ms=26.607510 cpu_gap_ms{avg=13.534155 min=12.600800 max=16.134000} mid_not_ready=192/296 drain_waits=149/300 drain_wait_ms{avg=2.394554 max=4.433700} align_misses=0/0
+[90739.086 ms] fg: rejected: destroy before GPU retirement [op=destroy ctx=0x1d50f3a0000]
+[90739.098 ms] ffxDestroyContext #1 ctx=0x1d50f3a0000 result=1 (ERROR) chain=none
+[90742.144 ms] ffxDestroyContext #2 ctx=0x1d50f3a0010 result=0 (OK) chain=none

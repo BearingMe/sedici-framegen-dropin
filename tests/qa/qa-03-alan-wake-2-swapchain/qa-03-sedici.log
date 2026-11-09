@@ -1,0 +1,32 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 26 lines, kept locally as qa-03-sedici.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+[0.000 ms] sedici: read C:\Program Files\Epic Games\AlanWake2\sedici.toml (once, on the first ffx call)
+[0.777 ms] sedici:   fg.present       = "vrr" [file]
+[1.056 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.292 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.638 ms] sedici:   fg.target_fps    = 0 [file]
+[1.931 ms] sedici:   limiter.fps      = 0 [file]
+[2.215 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.461 ms] sedici:   ui.mode          = "off" [file]
+[2.716 ms] sedici:   ui.scale         = "auto" [file]
+[2.962 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[3.196 ms] sedici:   log.level        = 1 [file]
+[3.420 ms] sedici: effective: real-frame limiter off
+[3.707 ms] ffxCreateContext #1 ctx=null result=2 (UNKNOWN_DESCTYPE) chain=0x30005 (FrameGenerationSwapChainNewDX12) -> 0x3000b (FrameGenerationSwapChainVersionDX12)   0x30005 (FrameGenerationSwapChainNewDX12) variant=new swapchainPtr=0xf32adff0f8 swapchain=0x20e84043bd0 desc{buffers=2 size=2560x1080 format=R10G10B10A2_UNORM(0x18) refresh=0/0 usage=0x20 swapEffect=4 flags=0x802 windowed=true outputWindow=0x711e0} fact ...
+[0.000 ms] sedici: read C:\Program Files\Epic Games\AlanWake2\sedici.toml (once, on the first ffx call)
+[0.764 ms] sedici:   fg.present       = "vrr" [file]
+[1.096 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.461 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.819 ms] sedici:   fg.target_fps    = 0 [file]
+[2.254 ms] sedici:   limiter.fps      = 0 [file]
+[2.591 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.994 ms] sedici:   ui.mode          = "off" [file]
+[3.328 ms] sedici:   ui.scale         = "auto" [file]
+[3.630 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[3.900 ms] sedici:   log.level        = 1 [file]
+[4.239 ms] sedici: effective: real-frame limiter off
+[4.508 ms] ffxCreateContext #1 ctx=null result=2 (UNKNOWN_DESCTYPE) chain=0x30005 (FrameGenerationSwapChainNewDX12) -> 0x3000b (FrameGenerationSwapChainVersionDX12)   0x30005 (FrameGenerationSwapChainNewDX12) variant=new swapchainPtr=0x39e1efef68 swapchain=0x512de043bd0 desc{buffers=2 size=2560x1080 format=R10G10B10A2_UNORM(0x18) refresh=0/0 usage=0x20 swapEffect=4 flags=0x802 windowed=true outputWindow=0x911e0} fact ...

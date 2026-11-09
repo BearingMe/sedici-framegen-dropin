@@ -1,0 +1,114 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 478 lines, kept locally as qa-11-sedici.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[1.168 ms] sedici:   fg.present       = "vrr" [file]
+[1.548 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.919 ms] sedici:   fg.multiplier    = "2x" [file]
+[2.315 ms] sedici:   fg.target_fps    = 0 [file]
+[2.647 ms] sedici:   limiter.fps      = 0 [file]
+[3.001 ms] sedici:   limiter.spin_us  = 1000 [file]
+[3.355 ms] sedici:   ui.mode          = "off" [file]
+[3.659 ms] sedici:   ui.scale         = "auto" [file]
+[3.908 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[4.152 ms] sedici:   log.level        = 1 [file]
+[4.383 ms] sedici: effective: real-frame limiter off
+[1372.395 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1788.096 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1788.108 ms] fg: created frame generation context
+[1788.183 ms] ffxCreateContext #1 ctx=0x2010fba0000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1df82e9ae40   0x2000e (FrameGenerationCreateVersion) ve ...
+[1795.842 ms] fg: "vrr" present unavailable (RTSS is injected and would write the chain from the wrong queue; close RTSS or set SEDICI_FG_ALLOW_RTSS=1); falling back to "vsync"
+[1795.858 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vsync align_vblank=no
+[1795.864 ms] fg: created swapchain wrapper
+[1795.884 ms] ffxCreateContext #2 ctx=0x2010fba0010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0xcd47ffefe0 swapchain=0x20102b28600 gameQueue=0x2009aa17330   0x2 (BackendDX12) device=0x1df82e9ae40
+[1796.079 ms] sedici: overlay input hook installed
+[1974.563 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[6208.642 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[6215.327 ms] ffxDispatch #1 ctx=0x2010fba0000 result=0 (OK) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=278 flags=none cmd=0x2026f884d60 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=4.9264 reset=false near=16000.0000 far=0.0200 fov=1.0472 viewToMeters=1.0000 depth={res=0x202ce61ed40 format=R32_FLOAT(0x1c) size=1506x635 state=0xc usage=0x4} ...
+[6484.350 ms] sedici: overlay present frames=300 real=292 generated=8 output_fps=66.30 real_fps=64.75 span_ms=4509.8
+[6668.584 ms] fg: present pacing cycles=300 generated=14 skipped=8 interval_ms=20.768332 cpu_gap_ms{avg=7.239871 min=2.844500 max=10.494800} mid_not_ready=14/14 drain_waits=231/300 drain_wait_ms{avg=11.047529 max=40.231700} align_misses=0/0
+[8476.120 ms] sedici: stall prepare interval=94.077 ms median=26.752 ms ratio=3.517x frameID=366 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863011246570
+[13324.396 ms] sedici: stall prepare interval=81.968 ms median=26.686 ms ratio=3.072x frameID=576 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863059729236
+[17262.950 ms] sedici: stall prepare interval=106.779 ms median=26.707 ms ratio=3.998x frameID=722 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863099114843
+[21939.965 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.91 real_fps=37.58 span_ms=3991.2
+[40281.865 ms] fg: present pacing cycles=1800 generated=1074 skipped=448 interval_ms=13.354875 cpu_gap_ms{avg=0.000000 min=0.000000 max=0.000000} mid_not_ready=0/0 drain_waits=300/300 drain_wait_ms{avg=11.398555 max=12.063700} align_misses=0/0
+[58871.546 ms] sedici: stall prepare interval=24381.808 ms median=26.681 ms ratio=913.833x frameID=3019 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863515200731
+[62551.395 ms] stats prepares=300 frameTimeDelta_ms{avg=27.988 min=13.391 max=66.000 sd=6.699} prepareQpc_ms{avg=110.492 min=13.928 max=24381.808 sd=1403.826} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[63017.790 ms] sedici: stall prepare interval=146.465 ms median=26.647 ms ratio=5.496x frameID=3140 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863556663131
+[65053.332 ms] sedici: stall prepare interval=118.846 ms median=25.955 ms ratio=4.579x frameID=3209 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863577018564
+[66183.362 ms] sedici: stall prepare interval=91.245 ms median=26.399 ms ratio=3.456x frameID=3248 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863588318857
+[74980.342 ms] sedici: stall prepare interval=126.650 ms median=26.847 ms ratio=4.717x frameID=3575 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863676288537
+[80383.755 ms] fg: present pacing cycles=3900 generated=1699 skipped=1923 interval_ms=13.338112 cpu_gap_ms{avg=13.314076 min=13.042700 max=13.540300} mid_not_ready=55/55 drain_waits=296/300 drain_wait_ms{avg=9.764111 max=11.960800} align_misses=0/0
+[89204.447 ms] sedici: stall prepare interval=12111.319 ms median=26.746 ms ratio=452.822x frameID=4503 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863818529792
+[98513.640 ms] sedici: stall prepare interval=86.927 ms median=26.696 ms ratio=3.256x frameID=4837 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=863911621742
+[99038.031 ms] sedici: overlay present frames=300 real=151 generated=149 output_fps=72.60 real_fps=36.66 span_ms=4118.4
+[107947.109 ms] ffxDestroyContext #1 ctx=0x2010fba0000 result=0 (OK) chain=none
+[108330.613 ms] fg: context created, display 1920x1080, max render 1920x1080, depth inverted
+[108330.621 ms] fg: created frame generation context
+[108330.647 ms] ffxCreateContext #3 ctx=0x2010fba0020 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=1920x1080 maxRender=1920x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1df82e9ae40   0x2000e (FrameGenerationCreateVersion)  ...
+[111422.560 ms] fg: native inputs depth{format=19 flags=2 size=1129x635} motion{format=10 flags=1 size=1129x635}
+[111437.576 ms] sedici: stall prepare interval=11561.318 ms median=28.159 ms ratio=410.571x frameID=5694 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864040861157
+[119321.773 ms] stats prepares=300 frameTimeDelta_ms{avg=27.415 min=17.189 max=66.000 sd=4.862} prepareQpc_ms{avg=65.797 min=9.218 max=11561.318 sd=664.822} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[135342.453 ms] stats prepares=300 frameTimeDelta_ms{avg=26.697 min=24.833 max=28.916 sd=0.511} prepareQpc_ms{avg=26.702 min=24.327 max=29.616 sd=0.870} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[151874.510 ms] ffxDestroyContext #2 ctx=0x2010fba0020 result=0 (OK) chain=none
+[152248.811 ms] fg: context created, display 1280x720, max render 1280x720, depth inverted
+[152248.819 ms] fg: created frame generation context
+[152248.845 ms] ffxCreateContext #4 ctx=0x2010fba0030 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=1280x720 maxRender=1280x720 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1df82e9ae40   0x2000e (FrameGenerationCreateVersion) ve ...
+[152641.729 ms] sedici: overlay present frames=300 real=300 generated=0 output_fps=66.39 real_fps=66.61 span_ms=4503.5
+[154281.963 ms] fg: native inputs depth{format=19 flags=2 size=753x424} motion{format=10 flags=1 size=753x424}
+[154287.102 ms] sedici: stall prepare interval=12697.477 ms median=26.604 ms ratio=477.282x frameID=7709 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864469356432
+[159247.766 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2010fba0030]
+[159247.855 ms] ffxDispatch #3419 ctx=0x2010fba0030 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=7893 flags=none cmd=0x20416c13530 render=753x424 jitter=(0.1875,0.0185) mvScale=(753.0000,424.0000) frameTimeDelta=26.9560 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x20416c5bd90 format=R32_FLOAT(0x1c) size=753x424 state=0xc usage ...
+[159264.237 ms] sedici: stall prepare interval=93.245 ms median=26.694 ms ratio=3.493x frameID=7894 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864519127712
+[167405.717 ms] sedici: stall prepare interval=124.659 ms median=26.675 ms ratio=4.673x frameID=8194 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864600542397
+[169099.070 ms] sedici: overlay present frames=300 real=151 generated=149 output_fps=72.64 real_fps=36.68 span_ms=4116.3
+[185143.007 ms] sedici: overlay present frames=300 real=156 generated=144 output_fps=74.91 real_fps=39.08 span_ms=3991.4
+[197532.448 ms] ffxDestroyContext #3 ctx=0x2010fba0030 result=0 (OK) chain=none
+[197982.788 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[197982.795 ms] fg: created frame generation context
+[197982.826 ms] ffxCreateContext #5 ctx=0x2010fba0040 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1df82e9ae40   0x2000e (FrameGenerationCreateVersion)  ...
+[200528.011 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[200587.628 ms] sedici: stall prepare interval=15611.627 ms median=26.611 ms ratio=586.654x frameID=9943 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864932361577
+[204098.832 ms] diag: log{queued=203 written=202 dropped=0 suppressed=65 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[206184.568 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2010fba0040]
+[206184.688 ms] ffxDispatch #4577 ctx=0x2010fba0040 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=10140 flags=none cmd=0x2045b1fa150 render=1506x635 jitter=(0.1250,-0.2778) mvScale=(1506.0000,635.0000) frameTimeDelta=26.9673 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x2044f1bfc10 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[206253.553 ms] sedici: stall prepare interval=152.504 ms median=26.545 ms ratio=5.745x frameID=10141 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=864989020792
+[213714.060 ms] sedici: stall prepare interval=6288.170 ms median=26.533 ms ratio=236.995x frameID=10612 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=865063625934
+[217668.945 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2010fba0040]
+[217669.060 ms] ffxDispatch #4767 ctx=0x2010fba0040 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=10758 flags=none cmd=0x2044f5e12d0 render=1506x635 jitter=(-0.2188,0.4259) mvScale=(1506.0000,635.0000) frameTimeDelta=26.3541 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x2036e2ffc80 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[217790.167 ms] sedici: stall prepare interval=194.228 ms median=26.630 ms ratio=7.294x frameID=10759 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=865104386964
+[221154.766 ms] sedici: stall prepare interval=92.970 ms median=26.609 ms ratio=3.494x frameID=10880 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=865138032962
+[223167.035 ms] sedici: overlay present frames=300 real=151 generated=149 output_fps=80.71 real_fps=40.76 span_ms=3704.8
+[233417.393 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=120.04 real_fps=60.22 span_ms=2490.8
+[244157.962 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=107.01 real_fps=53.68 span_ms=2794.2
+[253679.903 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=125.37 real_fps=62.89 span_ms=2385.0
+[263067.107 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.01 real_fps=63.72 span_ms=2354.1
+[272597.371 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=124.81 real_fps=62.61 span_ms=2395.7
+[282027.876 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=126.92 real_fps=63.67 span_ms=2355.9
+[291542.153 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=123.52 real_fps=61.96 span_ms=2420.7
+[300937.577 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=128.04 real_fps=64.24 span_ms=2335.1
+[310437.343 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=124.51 real_fps=62.46 span_ms=2401.4
+[320058.111 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=123.79 real_fps=62.10 span_ms=2415.4
+[329450.618 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.54 real_fps=63.98 span_ms=2344.4
+[338857.871 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.20 real_fps=63.81 span_ms=2350.7
+[348266.811 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.26 real_fps=63.84 span_ms=2349.4
+[357636.611 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=128.32 real_fps=64.38 span_ms=2330.1
+[367058.555 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.23 real_fps=63.83 span_ms=2350.1
+[376415.885 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.97 real_fps=64.20 span_ms=2336.5
+[385824.241 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=127.79 real_fps=64.11 span_ms=2339.7
+[395219.130 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=126.03 real_fps=63.22 span_ms=2372.5
+[408020.385 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=124.26 real_fps=62.34 span_ms=2406.3
+[418304.207 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=114.67 real_fps=57.52 span_ms=2607.6
+[428331.824 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=120.59 real_fps=60.50 span_ms=2479.5
+[438290.710 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=120.18 real_fps=60.29 span_ms=2487.9
+[450270.045 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.66 real_fps=37.45 span_ms=4004.9
+[466289.036 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.91 real_fps=37.58 span_ms=3991.5
+[478306.307 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=74.91 real_fps=37.58 span_ms=3991.4
+[479133.403 ms] sedici: stall prepare interval=154.719 ms median=26.623 ms ratio=5.811x frameID=25853 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=867717819293
+[482426.348 ms] sedici: overlay present frames=300 real=150 generated=150 output_fps=72.81 real_fps=36.53 span_ms=4106.7
+[485356.687 ms] fg: rejected: destroy before GPU retirement [op=destroy ctx=0x2010fba0040]
+[485356.698 ms] ffxDestroyContext #4 ctx=0x2010fba0040 result=1 (ERROR) chain=none
+[485359.714 ms] ffxDestroyContext #5 ctx=0x2010fba0010 result=0 (OK) chain=none

@@ -1,0 +1,124 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 370 lines, kept locally as qa-13-sedici-runs-1-3.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.945 ms] sedici:   fg.present       = "vrr" [file]
+[1.255 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.507 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.752 ms] sedici:   fg.target_fps    = 0 [file]
+[2.107 ms] sedici:   limiter.fps      = 0 [file]
+[2.374 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.697 ms] sedici:   ui.mode          = "off" [file]
+[3.029 ms] sedici:   ui.scale         = "auto" [file]
+[3.298 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[3.563 ms] sedici:   log.level        = 1 [file]
+[3.811 ms] sedici: effective: real-frame limiter off
+[1087.706 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1519.361 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1519.375 ms] fg: created frame generation context
+[1519.452 ms] ffxCreateContext #1 ctx=0x1a00f100000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x17ef96098a0   0x2000e (FrameGenerationCreateVersion) ve ...
+[1573.430 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1573.440 ms] fg: schedule multiplier=2x ratio=2/1
+[1573.445 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vrr align_vblank=no
+[1573.467 ms] fg: created swapchain wrapper
+[1573.485 ms] ffxCreateContext #2 ctx=0x1a00f100010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0x63fffea70 swapchain=0x19ff7937980 gameQueue=0x19fc208ef00   0x2 (BackendDX12) device=0x17ef96098a0
+[1573.551 ms] sedici: overlay input hook installed
+[1835.701 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[3642.921 ms] fg: vrr game thread cycles=300 real_fps=163.430418 planned_output_fps=163.430418 refresh_hz=75.000000 skipped=0 backpressure_waits=108/300 backpressure_ms{avg=8.609141 max=72.446600}
+[3648.737 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=123 dropped=177} late=123 latency_ms=1.00 short_gaps=2/123 back_to_back=0 gap_min_ms=0.00 gpu_wait_ms{avg=1.00 max=90.38} guard{holds=238 avg_ms=5.91 max_ms=12.25 timeouts=0} present_call_ms{avg=0.81 max=24.17} scan_at_flip{blank=4 q1=0 q2=0 q3=0 q4=119 unread=0} idle_in_blank=4/13
+[5739.462 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[5766.384 ms] ffxDispatch #1 ctx=0x1a00f100000 result=0 (OK) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=527 flags=none cmd=0x1a1dede4980 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=66.0000 reset=false near=16000.0000 far=0.0200 fov=1.0472 viewToMeters=1.0000 depth={res=0x1a1cb4f6e10 format=R32_FLOAT(0x1c) size=1506x635 state=0xc usage=0x4 ...
+[8896.826 ms] sedici: stall prepare interval=50.327 ms median=10.980 ms ratio=4.583x frameID=889 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886058539520
+[11188.973 ms] stats prepares=300 frameTimeDelta_ms{avg=10.011 min=2.377 max=41.895 sd=3.589} prepareQpc_ms{avg=10.000 min=6.015 max=50.327 sd=3.266} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[17313.537 ms] diag: log{queued=72 written=71 dropped=0 suppressed=76 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[23426.356 ms] diag: log{queued=82 written=81 dropped=0 suppressed=76 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[27518.535 ms] sedici: stall prepare interval=55.374 ms median=10.959 ms ratio=5.053x frameID=2693 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886244756594
+[31182.374 ms] sedici: overlay present frames=300 real=203 generated=97 output_fps=74.39 real_fps=50.50 span_ms=4019.6
+[33480.011 ms] ffxDestroyContext #1 ctx=0x1a00f100000 result=0 (OK) chain=none
+[33489.557 ms] ffxDestroyContext #2 ctx=0x1a00f100010 result=0 (OK) chain=none
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.738 ms] sedici:   fg.present       = "vrr" [file]
+[0.994 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.230 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.483 ms] sedici:   fg.target_fps    = 0 [file]
+[1.801 ms] sedici:   limiter.fps      = 0 [file]
+[2.070 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.309 ms] sedici:   ui.mode          = "off" [file]
+[2.538 ms] sedici:   ui.scale         = "auto" [file]
+[2.755 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[2.992 ms] sedici:   log.level        = 1 [file]
+[3.220 ms] sedici: effective: real-frame limiter off
+[1346.250 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1653.788 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1653.798 ms] fg: created frame generation context
+[1653.827 ms] ffxCreateContext #1 ctx=0x26c12ff0000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x24aa8a81750   0x2000e (FrameGenerationCreateVersion) ve ...
+[1700.251 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1700.260 ms] fg: schedule multiplier=2x ratio=2/1
+[1700.264 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vrr align_vblank=no
+[1700.289 ms] fg: created swapchain wrapper
+[1700.306 ms] ffxCreateContext #2 ctx=0x26c12ff0010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0x5bdefff010 swapchain=0x26c05d825d0 gameQueue=0x26b85657e00   0x2 (BackendDX12) device=0x24aa8a81750
+[1700.322 ms] sedici: overlay input hook installed
+[2226.485 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[5657.507 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[6538.422 ms] sedici: overlay cursor interception installed on executable imports
+[9823.027 ms] sedici: stall prepare interval=48.338 ms median=8.766 ms ratio=5.514x frameID=888 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886540375531
+[9988.906 ms] fg: vrr present jobs=300 generated{shown=65 dropped=233} real{shown=131 dropped=169} late=196 latency_ms=12.76 short_gaps=1/196 back_to_back=0 gap_min_ms=12.59 gpu_wait_ms{avg=0.95 max=50.29} guard{holds=387 avg_ms=5.59 max_ms=11.94 timeouts=0} present_call_ms{avg=0.26 max=0.63} scan_at_flip{blank=1 q1=0 q2=0 q3=0 q4=195 unread=0} idle_in_blank=0/6
+[15448.092 ms] fg: vrr present jobs=300 generated{shown=84 dropped=216} real{shown=117 dropped=183} late=201 latency_ms=14.08 short_gaps=0/201 back_to_back=0 gap_min_ms=13.30 gpu_wait_ms{avg=0.62 max=1.82} guard{holds=402 avg_ms=5.72 max_ms=11.93 timeouts=0} present_call_ms{avg=0.24 max=0.50} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=201 unread=0} idle_in_blank=0/0
+[19598.171 ms] sedici: stall prepare interval=43.064 ms median=11.223 ms ratio=3.837x frameID=1923 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886638127014
+[22273.676 ms] stats prepares=300 frameTimeDelta_ms{avg=9.495 min=2.452 max=43.144 sd=3.607} prepareQpc_ms{avg=9.493 min=5.580 max=43.064 sd=2.969} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[28264.386 ms] stats prepares=300 frameTimeDelta_ms{avg=9.281 min=2.645 max=14.387 sd=2.810} prepareQpc_ms{avg=9.302 min=5.269 max=12.953 sd=1.804} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[29853.343 ms] sedici: stall prepare interval=46.953 ms median=11.173 ms ratio=4.202x frameID=2970 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886740678679
+[32830.117 ms] sedici: stall prepare interval=63.322 ms median=11.250 ms ratio=5.628x frameID=3263 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=886770446449
+[34390.023 ms] diag: log{queued=105 written=104 dropped=0 suppressed=76 lost=0 sink_failures=0 max_depth=4 sink=ok} retention{swapchains_parked=0 parked_total=0 released_total=0 router_parked=0} settings_io{stalls=0 stalled_now=no} unavailable{physical_flip_time,input_to_photon_latency}
+[40410.313 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=3062}
+[40778.444 ms] ffxDestroyContext #1 ctx=0x26c12ff0000 result=0 (OK) chain=none
+[40787.937 ms] ffxDestroyContext #2 ctx=0x26c12ff0010 result=0 (OK) chain=none
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.629 ms] sedici:   fg.present       = "vrr" [file]
+[0.915 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.167 ms] sedici:   fg.multiplier    = "2x" [file]
+[1.428 ms] sedici:   fg.target_fps    = 0 [file]
+[1.695 ms] sedici:   limiter.fps      = 0 [file]
+[1.944 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.207 ms] sedici:   ui.mode          = "off" [file]
+[2.458 ms] sedici:   ui.scale         = "auto" [file]
+[2.723 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[2.966 ms] sedici:   log.level        = 1 [file]
+[3.256 ms] sedici: effective: real-frame limiter off
+[1180.663 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[1507.709 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[1507.718 ms] fg: created frame generation context
+[1507.745 ms] ffxCreateContext #1 ctx=0x1e10f7d0000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x1bfa3e33a70   0x2000e (FrameGenerationCreateVersion) ve ...
+[1555.590 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1555.601 ms] fg: schedule multiplier=2x ratio=2/1
+[1555.606 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vrr align_vblank=no
+[1555.611 ms] fg: created swapchain wrapper
+[1555.658 ms] ffxCreateContext #2 ctx=0x1e10f7d0010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0x4a9adfef40 swapchain=0x1bf94e48d30 gameQueue=0x1e09f874c80   0x2 (BackendDX12) device=0x1bfa3e33a70
+[1555.671 ms] sedici: overlay input hook installed
+[1932.673 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[5531.138 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[6590.379 ms] sedici: overlay present frames=300 real=278 generated=22 output_fps=64.19 real_fps=59.69 span_ms=4657.8
+[7149.587 ms] sedici: stall prepare interval=71.559 ms median=9.496 ms ratio=7.536x frameID=607 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887084056384
+[7465.066 ms] sedici: overlay cursor interception installed on executable imports
+[12397.879 ms] fg: vrr game thread cycles=1200 real_fps=109.381590 planned_output_fps=218.763179 refresh_hz=75.000000 OVER_REFRESH: cap the real rate at 36.000000 fps ([limiter] fps) or use multiplier = "adaptive" skipped=0 backpressure_waits=180/300 backpressure_ms{avg=5.387136 max=10.345700}
+[16880.523 ms] sedici: stall prepare interval=34.587 ms median=11.342 ms ratio=3.049x frameID=1655 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887181365751
+[18305.528 ms] fg: vrr present jobs=300 generated{shown=136 dropped=162} real{shown=94 dropped=206} late=230 latency_ms=14.21 short_gaps=1/230 back_to_back=0 gap_min_ms=12.60 gpu_wait_ms{avg=0.75 max=23.86} guard{holds=455 avg_ms=5.99 max_ms=12.04 timeouts=0} present_call_ms{avg=0.26 max=0.96} scan_at_flip{blank=1 q1=0 q2=0 q3=0 q4=229 unread=0} idle_in_blank=0/3
+[24507.511 ms] fg: vrr present jobs=300 generated{shown=129 dropped=171} real{shown=104 dropped=196} late=233 latency_ms=14.53 short_gaps=0/233 back_to_back=0 gap_min_ms=13.30 gpu_wait_ms{avg=0.48 max=1.12} guard{holds=466 avg_ms=5.91 max_ms=11.91 timeouts=0} present_call_ms{avg=0.26 max=0.57} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=233 unread=0} idle_in_blank=0/0
+[26688.764 ms] sedici: stall prepare interval=65.165 ms median=10.585 ms ratio=6.156x frameID=2617 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887279448102
+[30969.000 ms] sedici: overlay present frames=300 real=236 generated=64 output_fps=74.64 real_fps=58.92 span_ms=4005.7
+[44241.448 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=233 dropped=67} late=215 latency_ms=3.58 short_gaps=2/233 back_to_back=0 gap_min_ms=12.63 gpu_wait_ms{avg=1.47 max=6.63} guard{holds=408 avg_ms=4.79 max_ms=12.09 timeouts=0} present_call_ms{avg=2.79 max=14.21} scan_at_flip{blank=19 q1=0 q2=0 q3=0 q4=214 unread=0} idle_in_blank=13/26
+[48124.160 ms] sedici: stall prepare interval=19485.956 ms median=8.740 ms ratio=2229.489x frameID=4448 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887493802040
+[49129.997 ms] sedici: stall prepare interval=43.794 ms median=10.184 ms ratio=4.300x frameID=4467 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887503860412
+[51077.518 ms] sedici: stall prepare interval=125.747 ms median=13.931 ms ratio=9.026x frameID=4601 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887523335613
+[53107.251 ms] sedici: stall prepare interval=111.319 ms median=14.033 ms ratio=7.933x frameID=4728 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=887543632854
+[57951.948 ms] stats prepares=300 frameTimeDelta_ms{avg=15.193 min=10.974 max=66.000 sd=3.110} prepareQpc_ms{avg=15.279 min=13.033 max=81.471 sd=3.934} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[66947.901 ms] stats prepares=300 frameTimeDelta_ms{avg=15.148 min=12.912 max=17.167 sd=0.863} prepareQpc_ms{avg=15.149 min=12.851 max=17.106 sd=0.874} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[76355.768 ms] stats prepares=300 frameTimeDelta_ms{avg=15.575 min=13.059 max=17.959 sd=0.906} prepareQpc_ms{avg=15.572 min=13.027 max=18.343 sd=0.917} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[81870.322 ms] fg: vrr present jobs=300 generated{shown=149 dropped=75} real{shown=175 dropped=125} late=324 latency_ms=21.94 short_gaps=0/324 back_to_back=0 gap_min_ms=13.32 gpu_wait_ms{avg=0.82 max=12.43} guard{holds=647 avg_ms=6.03 max_ms=12.15 timeouts=0} present_call_ms{avg=0.31 max=0.74} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=324 unread=0} idle_in_blank=0/0
+[84103.941 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=5648}
+[84655.325 ms] ffxDestroyContext #1 ctx=0x1e10f7d0000 result=0 (OK) chain=none
+[84655.785 ms] fg: vrr present jobs=103 generated{shown=0 dropped=0} real{shown=103 dropped=0} late=103 latency_ms=16.33 short_gaps=0/103 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=0.56 max=1.34} guard{holds=205 avg_ms=6.26 max_ms=12.13 timeouts=0} present_call_ms{avg=0.25 max=0.51} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=103 unread=0} idle_in_blank=1/1
+[84663.988 ms] ffxDestroyContext #2 ctx=0x1e10f7d0010 result=0 (OK) chain=none

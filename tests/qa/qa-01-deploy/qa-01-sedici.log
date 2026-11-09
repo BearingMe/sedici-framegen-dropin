@@ -1,0 +1,192 @@
+# Excerpt of the owner's QA run, kept for the citations in docs/refactor/known-issues.md.
+# Full log: 214 lines, kept locally as qa-01-sedici.full.log (ignored by git).
+# Kept: settings header, create/destroy calls, presenter and context setup, stalls, rejections,
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+# (plus the first two and last two). Dropped: routine dispatch/configure calls.
+# ---
+# errors, overlay events, the first dispatch, and every 10th periodic statistics line
+[0.000 ms] sedici: read C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\sedici.toml (once, on the first ffx call)
+[0.765 ms] sedici:   fg.present       = "vrr" [file]
+[1.101 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.449 ms] sedici:   fg.multiplier    = "1.5x" [file]
+[1.714 ms] sedici:   fg.target_fps    = 0 [file]
+[1.961 ms] sedici:   limiter.fps      = 48 [file]
+[2.263 ms] sedici:   limiter.spin_us  = 1000 [file]
+[2.649 ms] sedici:   ui.mode          = "off" [file]
+[3.024 ms] sedici:   ui.scale         = "auto" [file]
+[3.581 ms] sedici:   ui.hotkey        = "alt+f10" [file]
+[4.039 ms] sedici:   log.level        = 1 [file]
+[4.418 ms] sedici: effective: real-frame limiter 48 fps (spin 1000 us)
+[2062.891 ms] fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)
+[2384.166 ms] fg: context created, display 2560x1080, max render 2560x1080, depth inverted
+[2384.177 ms] fg: created frame generation context
+[2384.206 ms] ffxCreateContext #1 ctx=0x2110f550000 result=0 (OK) chain=0x20001 (FrameGenerationCreate) -> 0x2 (BackendDX12) -> 0x2000e (FrameGenerationCreateVersion) -> 0x5 (OverrideVersion)   0x20001 (FrameGenerationCreate) flags=AsyncWorkloads|DepthInverted display=2560x1080 maxRender=2560x1080 backbufferFormat=R8G8B8A8_UNORM(0xa)   0x2 (BackendDX12) device=0x21081f80670   0x2000e (FrameGenerationCreateVersion) ve ...
+[2427.031 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[2427.041 ms] fg: schedule multiplier=1.5x ratio=3/2
+[2427.046 ms] fg: native chain buffers=3 size=2560x1080 flags=2112 max_latency=1 waitable=yes present=vrr align_vblank=no
+[2427.060 ms] fg: created swapchain wrapper
+[2427.076 ms] ffxCreateContext #2 ctx=0x2110f550010 result=0 (OK) chain=0x30001 (FrameGenerationSwapChainWrapDX12) -> 0x2 (BackendDX12)   0x30001 (FrameGenerationSwapChainWrapDX12) variant=wrap swapchainPtr=0xa3015fe8c0 swapchain=0x210f41988a0 gameQueue=0x2108209cc70   0x2 (BackendDX12) device=0x21081f80670
+[2427.091 ms] sedici: overlay input hook installed
+[2611.513 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=off
+[2623.917 ms] sedici: overlay present callback active device=0x0 commandList=0x0 output=0x0 size=0x0 format=0 state=0 ui=no
+[7094.772 ms] fg: native inputs depth{format=19 flags=2 size=1506x635} motion{format=10 flags=1 size=1506x635}
+[7101.596 ms] ffxDispatch #1 ctx=0x2110f550000 result=0 (OK) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=181 flags=none cmd=0x2125b0f11b0 render=1506x635 jitter=(-0.2500,-0.1667) mvScale=(1506.0000,635.0000) frameTimeDelta=3.3121 reset=false near=16000.0000 far=0.0200 fov=1.0472 viewToMeters=1.0000 depth={res=0x212d520a550 format=R32_FLOAT(0x1c) size=1506x635 state=0xc usage=0x4} ...
+[7102.162 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[8785.197 ms] sedici: overlay present frames=300 real=220 generated=80 output_fps=48.53 real_fps=35.71 span_ms=6161.3
+[9581.715 ms] fg: vrr game thread cycles=300 real_fps=43.042888 planned_output_fps=51.507989 refresh_hz=75.000000 skipped=0 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[15977.572 ms] sedici: overlay cursor interception installed on executable imports
+[26602.496 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=510}
+[27835.473 ms] sedici: stall prepare interval=65.242 ms median=20.754 ms ratio=3.144x frameID=1175 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=440554678392
+[85701.114 ms] sedici: stall prepare interval=26362.504 ms median=20.864 ms ratio=1263.528x frameID=3850 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441133334683
+[86786.944 ms] sedici: stall prepare interval=129.435 ms median=20.913 ms ratio=6.189x frameID=3860 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441144191593
+[92756.463 ms] sedici: stall prepare interval=68.438 ms median=20.919 ms ratio=3.272x frameID=4143 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441203888186
+[94972.907 ms] sedici: stall prepare interval=166.421 ms median=20.812 ms ratio=7.996x frameID=4238 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441226052630
+[97025.043 ms] sedici: stall prepare interval=139.157 ms median=20.844 ms ratio=6.676x frameID=4325 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441246573991
+[107067.902 ms] sedici: limiter stats frames=300 target_ms=20.833 interval_ms{avg=20.833 p50=20.833 p99=20.834 max=20.940} wait_ms{avg=10.056} overshoot_ms{avg=0.000 p99=0.001 max=0.107} late=0 resets=0 fg=on
+[115009.789 ms] sedici: stall prepare interval=75.542 ms median=20.825 ms ratio=3.628x frameID=5180 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441426421499
+[121113.598 ms] sedici: stall prepare interval=66.961 ms median=20.805 ms ratio=3.218x frameID=5469 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=441487459690
+[136755.391 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=93}
+[138262.537 ms] sedici: limiter active target=43 fps interval=23.256 ms spin=1000 us fg=on
+[138528.081 ms] sedici: limiter active target=42 fps interval=23.809 ms spin=1000 us fg=on
+[138586.165 ms] sedici: limiter active target=41.5 fps interval=24.096 ms spin=1000 us fg=on
+[138670.114 ms] sedici: limiter active target=41 fps interval=24.390 ms spin=1000 us fg=on
+[143898.920 ms] sedici: limiter active target=40 fps interval=25.000 ms spin=1000 us fg=on
+[143958.543 ms] sedici: limiter active target=38 fps interval=26.316 ms spin=1000 us fg=on
+[143971.229 ms] sedici: limiter active target=37.5 fps interval=26.667 ms spin=1000 us fg=on
+[143986.654 ms] sedici: limiter active target=37 fps interval=27.027 ms spin=1000 us fg=on
+[144023.579 ms] sedici: limiter active target=36.5 fps interval=27.397 ms spin=1000 us fg=on
+[144087.518 ms] sedici: limiter active target=34.5 fps interval=28.985 ms spin=1000 us fg=on
+[144100.165 ms] sedici: limiter active target=33.5 fps interval=29.851 ms spin=1000 us fg=on
+[144116.209 ms] sedici: limiter active target=33 fps interval=30.303 ms spin=1000 us fg=on
+[144131.470 ms] sedici: limiter active target=32.5 fps interval=30.769 ms spin=1000 us fg=on
+[144171.430 ms] sedici: limiter active target=32 fps interval=31.250 ms spin=1000 us fg=on
+[144184.465 ms] sedici: limiter active target=31.5 fps interval=31.746 ms spin=1000 us fg=on
+[144225.529 ms] sedici: limiter active target=30 fps interval=33.333 ms spin=1000 us fg=on
+[144268.468 ms] sedici: limiter active target=29.5 fps interval=33.898 ms spin=1000 us fg=on
+[144281.686 ms] sedici: limiter active target=29 fps interval=34.483 ms spin=1000 us fg=on
+[144296.934 ms] sedici: limiter active target=28.5 fps interval=35.088 ms spin=1000 us fg=on
+[144313.059 ms] sedici: limiter active target=28 fps interval=35.714 ms spin=1000 us fg=on
+[144445.921 ms] sedici: limiter active target=27 fps interval=37.037 ms spin=1000 us fg=on
+[144688.800 ms] sedici: limiter active target=24.5 fps interval=40.816 ms spin=1000 us fg=on [+1 similar suppressed]
+[145113.595 ms] sedici: limiter active target=22 fps interval=45.455 ms spin=1000 us fg=on [+2 similar suppressed]
+[151705.196 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=466}
+[180260.859 ms] sedici: limiter active target=61.5 fps interval=16.260 ms spin=1000 us fg=on [+1 similar suppressed]
+[180483.793 ms] sedici: limiter active target=61 fps interval=16.393 ms spin=1000 us fg=on
+[180513.042 ms] sedici: limiter active target=60.5 fps interval=16.529 ms spin=1000 us fg=on
+[180526.861 ms] sedici: limiter active target=60 fps interval=16.667 ms spin=1000 us fg=on
+[180571.441 ms] sedici: limiter active target=59.5 fps interval=16.807 ms spin=1000 us fg=on
+[180636.223 ms] sedici: limiter active target=59 fps interval=16.949 ms spin=1000 us fg=on
+[180681.350 ms] sedici: limiter active target=58.5 fps interval=17.094 ms spin=1000 us fg=on
+[180726.885 ms] sedici: limiter active target=58 fps interval=17.241 ms spin=1000 us fg=on
+[180756.809 ms] sedici: limiter active target=57.5 fps interval=17.391 ms spin=1000 us fg=on
+[180769.317 ms] sedici: limiter active target=56.5 fps interval=17.699 ms spin=1000 us fg=on
+[180851.751 ms] sedici: limiter active target=56 fps interval=17.857 ms spin=1000 us fg=on
+[180865.339 ms] sedici: limiter active target=55 fps interval=18.182 ms spin=1000 us fg=on
+[180880.885 ms] sedici: limiter active target=54 fps interval=18.518 ms spin=1000 us fg=on
+[180895.518 ms] sedici: limiter active target=52.5 fps interval=19.048 ms spin=1000 us fg=on
+[180909.622 ms] sedici: limiter active target=51 fps interval=19.608 ms spin=1000 us fg=on
+[180924.734 ms] sedici: limiter active target=49.5 fps interval=20.202 ms spin=1000 us fg=on
+[180955.187 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[181111.498 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on [+1 similar suppressed]
+[181287.158 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[182327.901 ms] sedici: limiter active target=45 fps interval=22.222 ms spin=1000 us fg=on
+[182360.877 ms] sedici: limiter active target=44.5 fps interval=22.472 ms spin=1000 us fg=on
+[182820.485 ms] sedici: limiter active target=44 fps interval=22.727 ms spin=1000 us fg=on
+[182834.768 ms] sedici: limiter active target=43 fps interval=23.256 ms spin=1000 us fg=on
+[182848.365 ms] sedici: limiter active target=42.5 fps interval=23.529 ms spin=1000 us fg=on
+[183350.062 ms] sedici: limiter active target=42.5 fps interval=23.529 ms spin=1000 us fg=on
+[183477.799 ms] sedici: limiter active target=43 fps interval=23.256 ms spin=1000 us fg=on [+1 similar suppressed]
+[183491.481 ms] sedici: limiter active target=44 fps interval=22.727 ms spin=1000 us fg=on
+[183506.025 ms] sedici: limiter active target=44.5 fps interval=22.472 ms spin=1000 us fg=on
+[183813.385 ms] sedici: limiter active target=46.5 fps interval=21.505 ms spin=1000 us fg=on
+[184254.808 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on [+4 similar suppressed]
+[184286.844 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on [+1 similar suppressed]
+[184673.942 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on [+1 similar suppressed]
+[184954.907 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[185026.638 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on
+[185853.097 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[186007.272 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[186142.796 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on
+[186155.941 ms] sedici: limiter active target=47 fps interval=21.277 ms spin=1000 us fg=on
+[186486.144 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on
+[186579.809 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[187239.751 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[187896.158 ms] sedici: limiter active target=47 fps interval=21.277 ms spin=1000 us fg=on
+[190747.677 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=606}
+[205518.145 ms] sedici: limiter active target=50.5 fps interval=19.802 ms spin=1000 us fg=on [+1 similar suppressed]
+[205551.729 ms] sedici: limiter active target=53 fps interval=18.868 ms spin=1000 us fg=on
+[205665.904 ms] sedici: limiter active target=51 fps interval=19.608 ms spin=1000 us fg=on
+[205704.357 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on
+[205758.248 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[205795.622 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[205954.389 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on
+[206018.956 ms] sedici: limiter active target=46 fps interval=21.739 ms spin=1000 us fg=on
+[206058.201 ms] sedici: limiter active target=44.5 fps interval=22.472 ms spin=1000 us fg=on
+[206082.457 ms] sedici: limiter active target=43 fps interval=23.256 ms spin=1000 us fg=on
+[206268.842 ms] sedici: limiter active target=45 fps interval=22.222 ms spin=1000 us fg=on
+[206327.761 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on
+[206371.714 ms] sedici: limiter active target=48 fps interval=20.833 ms spin=1000 us fg=on
+[206408.267 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[206437.164 ms] sedici: limiter active target=50 fps interval=20.000 ms spin=1000 us fg=on
+[206476.643 ms] sedici: limiter active target=50.5 fps interval=19.802 ms spin=1000 us fg=on
+[206552.335 ms] sedici: limiter active target=52 fps interval=19.231 ms spin=1000 us fg=on [+1 similar suppressed]
+[206916.469 ms] sedici: limiter active target=50.5 fps interval=19.802 ms spin=1000 us fg=on
+[206957.568 ms] sedici: limiter active target=49.5 fps interval=20.202 ms spin=1000 us fg=on
+[221208.285 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=547}
+[222513.740 ms] sedici: stall prepare interval=663.481 ms median=37.603 ms ratio=17.644x frameID=8733 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=442501461000
+[226184.709 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[226184.806 ms] ffxDispatch #7458 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=8829 flags=none cmd=0x2141b849290 render=1506x635 jitter=(0.1875,0.0185) mvScale=(1506.0000,635.0000) frameTimeDelta=32.3799 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc us ...
+[226264.258 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[226264.309 ms] ffxDispatch #7460 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=8831 flags=none cmd=0x2141b9aa7c0 render=1506x635 jitter=(0.4375,0.2407) mvScale=(1506.0000,635.0000) frameTimeDelta=19.8399 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc us ...
+[229624.019 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[229624.109 ms] ffxDispatch #7544 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=8915 flags=none cmd=0x2141b9aa7c0 render=1506x635 jitter=(0.3750,-0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=39.9631 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[236497.197 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[236497.313 ms] ffxDispatch #7718 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=9089 flags=none cmd=0x2141b9aa7c0 render=1506x635 jitter=(-0.3438,-0.2407) mvScale=(1506.0000,635.0000) frameTimeDelta=43.7132 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[245607.167 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[245607.218 ms] ffxDispatch #7942 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=9313 flags=none cmd=0x2141b7b9040 render=1506x635 jitter=(-0.0625,-0.3148) mvScale=(1506.0000,635.0000) frameTimeDelta=34.4527 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[249498.358 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[249498.455 ms] ffxDispatch #8038 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=9409 flags=none cmd=0x213757ffde0 render=1506x635 jitter=(-0.2188,0.4259) mvScale=(1506.0000,635.0000) frameTimeDelta=41.0426 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[252224.772 ms] sedici: limiter active target=25.5 fps interval=39.216 ms spin=1000 us fg=on
+[253333.499 ms] sedici: limiter active target=21.5 fps interval=46.512 ms spin=1000 us fg=on
+[254228.596 ms] sedici: limiter active target=36.5 fps interval=27.397 ms spin=1000 us fg=on
+[257919.861 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[257919.950 ms] ffxDispatch #8255 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=9626 flags=none cmd=0x213757ffde0 render=1506x635 jitter=(0.1250,-0.2778) mvScale=(1506.0000,635.0000) frameTimeDelta=43.2019 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[260455.906 ms] sedici: limiter active target=24 fps interval=41.667 ms spin=1000 us fg=on [+1 similar suppressed]
+[263882.522 ms] sedici: limiter active target=23.5 fps interval=42.553 ms spin=1000 us fg=on
+[263918.736 ms] sedici: limiter active target=22.5 fps interval=44.444 ms spin=1000 us fg=on
+[263959.065 ms] sedici: limiter active target=22 fps interval=45.455 ms spin=1000 us fg=on
+[263994.262 ms] stats prepares=300 frameTimeDelta_ms{avg=39.636 min=10.280 max=54.957 sd=5.852} prepareQpc_ms{avg=39.780 min=15.565 max=73.680 sd=6.326} presentInterval_ms=n/a presentsPerPrepare{avg=0.000 min=0 max=0}
+[263994.664 ms] sedici: limiter active target=21 fps interval=47.619 ms spin=1000 us fg=on
+[264036.401 ms] sedici: limiter active target=20.5 fps interval=48.781 ms spin=1000 us fg=on
+[264150.698 ms] sedici: limiter active target=20 fps interval=50.000 ms spin=1000 us fg=on
+[268801.044 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=464}
+[277510.857 ms] sedici: limiter active target=45 fps interval=22.222 ms spin=1000 us fg=on
+[278012.407 ms] sedici: limiter active target=46.5 fps interval=21.505 ms spin=1000 us fg=on
+[278081.721 ms] sedici: limiter active target=47.5 fps interval=21.053 ms spin=1000 us fg=on
+[278111.685 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[278154.381 ms] sedici: limiter active target=49.5 fps interval=20.202 ms spin=1000 us fg=on
+[278196.332 ms] sedici: limiter active target=50 fps interval=20.000 ms spin=1000 us fg=on
+[278576.137 ms] sedici: limiter active target=49.5 fps interval=20.202 ms spin=1000 us fg=on
+[278652.171 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on
+[278691.754 ms] sedici: limiter active target=48.5 fps interval=20.619 ms spin=1000 us fg=on
+[278922.076 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on
+[278994.508 ms] sedici: limiter active target=50.5 fps interval=19.802 ms spin=1000 us fg=on
+[279316.879 ms] sedici: limiter active target=50 fps interval=20.000 ms spin=1000 us fg=on
+[279363.790 ms] sedici: limiter active target=49.5 fps interval=20.202 ms spin=1000 us fg=on
+[279404.843 ms] sedici: limiter active target=49 fps interval=20.408 ms spin=1000 us fg=on
+[286670.179 ms] sedici: overlay cursor interception released suppressed{sets=0 clips=279}
+[292325.782 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[292325.863 ms] ffxDispatch #9059 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=10430 flags=none cmd=0x213b5072190 render=1506x635 jitter=(-0.3750,0.0556) mvScale=(1506.0000,635.0000) frameTimeDelta=43.3328 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[294873.265 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[294873.362 ms] ffxDispatch #9120 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=10491 flags=none cmd=0x214235d6140 render=1506x635 jitter=(0.2812,0.0926) mvScale=(1506.0000,635.0000) frameTimeDelta=44.5758 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[320435.135 ms] sedici: stall prepare interval=19260.420 ms median=44.313 ms ratio=434.648x frameID=11583 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=443480674757
+[324389.622 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[324389.720 ms] ffxDispatch #9361 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=11674 flags=none cmd=0x2141b4c41e0 render=1506x635 jitter=(0.3125,-0.2037) mvScale=(1506.0000,635.0000) frameTimeDelta=38.9156 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc  ...
+[324481.441 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[324481.500 ms] ffxDispatch #9363 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=11676 flags=none cmd=0x2142ade6160 render=1506x635 jitter=(0.1875,0.0185) mvScale=(1506.0000,635.0000) frameTimeDelta=20.5163 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[324560.198 ms] fg: rejected: prepare slot is still in flight [op=dispatch ctx=0x2110f550000]
+[324560.243 ms] ffxDispatch #9365 ctx=0x2110f550000 result=1 (ERROR) chain=0x20004 (FrameGenerationPrepare)   0x20004 (FrameGenerationPrepare) frameID=11678 flags=none cmd=0x2141b4c41e0 render=1506x635 jitter=(0.4375,0.2407) mvScale=(1506.0000,635.0000) frameTimeDelta=20.3820 reset=false near=16000.0000 far=0.0200 fov=1.2043 viewToMeters=1.0000 depth={res=0x212d4f9dd60 format=R32_FLOAT(0x1c) size=1506x635 state=0xc u ...
+[368311.543 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=296 dropped=4} late=149 latency_ms=3.73 short_gaps=0/296 back_to_back=0 gap_min_ms=13.33 gpu_wait_ms{avg=3.08 max=36.01} guard{holds=221 avg_ms=4.62 max_ms=11.99 timeouts=0} present_call_ms{avg=0.26 max=1.00} scan_at_flip{blank=113 q1=0 q2=0 q3=0 q4=183 unread=0} idle_in_blank=106/177
+[371765.991 ms] ffxDestroyContext #1 ctx=0x2110f550000 result=0 (OK) chain=none
+[371766.456 ms] fg: vrr present jobs=91 generated{shown=0 dropped=0} real{shown=91 dropped=0} late=1 latency_ms=3.66 short_gaps=0/91 back_to_back=0 gap_min_ms=19.11 gpu_wait_ms{avg=2.59 max=3.85} guard{holds=1 avg_ms=6.00 max_ms=6.00 timeouts=0} present_call_ms{avg=0.27 max=0.67} scan_at_flip{blank=90 q1=0 q2=0 q3=0 q4=1 unread=0} idle_in_blank=90/91
+[371775.117 ms] ffxDestroyContext #2 ctx=0x2110f550010 result=0 (OK) chain=none

@@ -1,3 +1,4 @@
-# Full logs and the owner's raw notes stay local; the folder READMEs and log excerpts are tracked.
+# The repo ignores *.log; the QA log excerpts are evidence and are tracked.
+# Full logs stay local.
+!*.log
 *.full.log
-*.original.md
