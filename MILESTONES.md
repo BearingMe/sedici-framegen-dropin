@@ -1028,7 +1028,7 @@ first; acceptance is the owner's session (QA-03).
   scenes), `sedici_regression` (cursor scan). 41 of 41 CTest entries.
 - **Waiting for the game:** QA-03 (create accepted) and QA-17 (generation, HDR on and off, menu, exit). The
   calls the game makes after a successful create are still unseen, so the first session may show more.
-- **Commit:** b38d1b8.
+- **Commits:** b38d1b8 (routes, formats, cursor scan), 9a04826 (settle reports, analyzers, QA entries), 9f21334 (harness fixes, baseline).
 
 ### P4.9 — Final acceptance (game)
 
