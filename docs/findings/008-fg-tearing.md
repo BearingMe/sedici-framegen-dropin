@@ -1,5 +1,9 @@
 # 008: Where frame-generation tearing came from
 
+> **Status (2026-11-09): cause analysis valid, resolution superseded by `vrr`.** The shipped
+> default is `present = "vrr"` with `tear_guard = "scanline"`; `vblank` and `vsync` are the
+> fixed-refresh fallback. The finding stays for its evidence and failure analysis.
+
 Dedicated finding for the tearing reported during the Phase 1 Mob-FGSR game
 sessions on `experiment/cobalt-otter`. The chronological integration history is
 in [007](007-fg-baseline.md); this file isolates the tearing cause, the evidence

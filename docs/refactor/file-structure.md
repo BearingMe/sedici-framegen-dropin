@@ -7,6 +7,12 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): historical proposal, not adopted.** P2.2-P2.10 refactored the
+> existing flat `src/` in place, so the tree below (`src/abi`, `src/runtime`,
+> `cmake/`, `shaders/`, `CMakePresets.json`, `third_party/amd_fsr3`) does not exist. The
+> migration map still describes the code. The current layout is in
+> [AGENTS.md](../../AGENTS.md#layout).
+
 Status: proposed placement map, not an inventory of existing files. Headers
 accompany implementations where needed; the tree is not a requirement to create
 empty files. Keep small responsibilities together until a split has a concrete use.

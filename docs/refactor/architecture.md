@@ -7,6 +7,14 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): adopted ownership and dependency rules; the proposed paths are not
+> the layout.** `src/` is flat. Current owners: `dllmain.cpp` (ABI); `fg_route.*`,
+> `fg_integration.*`, `fg_context.*` (session, registry, routing); `fg_pacing.*`,
+> `fg_presenter.*`, `fg_swapchain.*`, `limiter.*` (presentation); `ui.*`, `ui_input.*`,
+> `overlay*` (UI); `config.*`, `config_patch.*`, `settings_*`, `live.*` (settings);
+> `log.*`, `diag.*`, `stats.*`, `timing.*` (diagnostics). There is one backend. Not built:
+> the watchdog and Stage 2. The audit is historical, see [audit.md](audit.md).
+
 Status: recommended refactor baseline; paths below are proposed. See
 [decision status](README.md#decision-status) and [file structure](file-structure.md).
 The [current-state audit](audit.md) documents where the implementation differs;
@@ -95,9 +103,8 @@ and normalization/color-space conventions. Capture and history ordering are
 explicit; the inference implementation does not reach into another stage's
 private targets. Training and asset export remain outside the runtime build.
 
-Composition is outside Stage 1. Neither HUD nor overlay pixels enter residual
-inference. AMD integration must provide an equivalent final-output overlay
-attachment through its supported contract.
+Composition is a separate recording step (`Stage1::composite_hud`), kept apart from
+Stage 1 synthesis. Neither HUD nor overlay pixels enter residual inference.
 
 ## GPU and presentation ownership
 
@@ -148,8 +155,8 @@ current code.
   wrapped or recreated; what reference the wrap desc hands over; what state must
   be carried (colour space, HDR metadata, fullscreen, latency); and what the game
   gets when replacement fails after the old chain is gone. Unsupported formats
-  must be rejected before ownership changes so the game can be served by the
-  fallback.
+  must be rejected before ownership changes; the game gets a defined local
+  error (K70), because there is no fallback.
 - **Queue ownership must survive third-party overlays** (K13). Overlays may
   draw from the queue they last observed and reuse it across swapchains. Queue
   lifetime (per device, possibly process-long) and the presentation queue used
@@ -159,7 +166,7 @@ current code.
   snapshot, generated outputs, generation command lists and overlay drawing until
   presentation retires it; overlay work for an output that is dropped should not
   be recorded or should be retired with the slot.
-- **Status has one source** (K18, K19, K22). FG active/inactive, effective
+- **Status has one source** (K19, K22; K18 is obsolete). FG active/inactive, effective
   multiplier and resolved output target come from the session, updated on
   configure, destroy and display changes, and are what the UI and limiter read.
 - **Diagnostics define their metrics** (K10). Counters such as late flips, short

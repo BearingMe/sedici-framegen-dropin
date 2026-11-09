@@ -1,5 +1,11 @@
 # 007: Frame generation baseline and observed contract
 
+> **Status (2026-11-09): historical Phase 1 record from the two-backend era.** `fg.mode`,
+> AMD forwarding, `src/toggles.cpp` and `src/present_hook.cpp` were removed (d95d454), and
+> `present` now defaults to `vrr` with the `scanline` tear guard instead of `vblank`. The
+> observed Cyberpunk contract, the depth-format fix and the pacing and retirement lessons
+> remain the reference. Ignore its `fg.mode` and `vblank` instructions.
+
 Baseline and chronological integration findings for Mob-FGSR on
 `experiment/cobalt-otter`. The initial sections describe the pre-deployment
 baseline; later sections record authorized game sessions and superseding fixes.

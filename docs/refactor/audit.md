@@ -7,6 +7,12 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): historical.** A static review of commit `f95b54d`, before
+> P2.3-P2.10. Later work fixed several of its findings (routing lock K27, wrapper
+> lifetime K28, destructor drain K39, synchronous log I/O K114, destroy K40), and the AMD
+> paths it describes are gone. Do not read it as current code; see the README and
+> [MILESTONES.md](../../MILESTONES.md).
+
 Audit baseline: commit `f95b54d` (`test: add export-level harness and P2.2
 coverage baseline`), clean working tree when this audit began. This is a static
 source review, not a new game run or a fresh test result. The coverage evidence

@@ -9,6 +9,9 @@
   around explicit ownership, coherent live
   settings, and useful diagnostics. The first gate is audit/documentation, the
   second is test coverage, and only then does structural migration begin.
+- **Phase 3:** the full refactor. Finish the structure, error contract, configuration,
+  test layout and defect backlog so Stage 2 has a stable base. Proposed 2026-11-09,
+  starts after P2.11; see the Phase 3 section at the end.
 - **Later delivery:** implement and validate residual inference against
   [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
   the boundary, not quietly absorb model training, inference optimization, and
@@ -244,11 +247,9 @@ operate as one maintainable product rather than independently working components
 Use a session-owned runtime with explicit lifecycle, backend/context ownership,
 GPU retirement, acknowledged settings, and bounded diagnostics/recovery.
 
-**Status:** planned. The direction is recorded in
-[docs/refactor](docs/refactor/README.md); the
-[documentation improvement plan](docs/refactor/planning/README.md) is the first
-work package, not completed acceptance. No milestone below is complete merely
-because its proposed structure has been documented.
+**Status:** P2.1-P2.10 accepted (P2.3 and the AMD half of P2.9 superseded); P2.11 in progress.
+The progress table below is the current state. The direction is recorded in
+[docs/refactor](docs/refactor/README.md).
 
 **Scope:** retain and validate the analytical implementation while migrating its
 integration. The AMD backend and compatibility forwarding were removed by owner
@@ -297,8 +298,8 @@ has run in the game since the AMD backend was removed.
 | P2.10 Errors, diagnostics and watchdog hardening | Complete (owner accepted 2026-11-09), with recorded gaps | (a) K47, K41, K48, K77, K37 resolved, K111, K113 fixed (65a30da, cf48198, 721546a). (b) K114, K115 fixed (c6ef9ab, aaa6327): bounded asynchronous log with rate limit, drop and sink-failure accounting, diag snapshot, call identity. (c) K64, K83 resolved, K116 fixed (446244d): the module pins itself once a handle is issued (`sedici_abi unload`), and a stalled settings worker is reported, cancelled best effort and its late result discarded (`sedici_regression`) | Recorded gaps: a GPU that never retires keeps its swapchain parked (option A); no background reaper thread; abandoned-prepare recovery not built; a game whose prepare queue differs from the wrap queue is untested; typed error codes and frame or settings identity are deferred to the upcoming refactor (the error contract in `docs/refactor/reliability.md`, owner decision); lines queued at a hard crash may be lost; a used DLL stays resident until process exit (behaviour change, README); a hung network share may ignore the settings cancel; in-game overhead of the observer and a real hung volume are checked in P2.11
 | P2.11 Integrated acceptance and Stage 2 handoff | In progress: offline part done (2026-11-08); in-game checklist QA-01 to QA-16 run by the owner (QA-03 fails on K100; QA-04, QA-05, QA-12 partial or inconclusive; QA-14 skipped) | `sedici_abi_integrated` (35 checks), `sedici_regression observer` (overlay and log cost per frame, QA-12), the in-game QA record in [tests/qa](tests/qa/README.md), `sedici_fgcheck --resolution` quality and timing, [Stage 2 contract](docs/refactor/stage2-contract.md), K117, K118-K128 (QA findings), K129-K132 (Alan Wake 2, finding 015), [feature requests](docs/refactor/feature-requests.md) | Stage 1 measures 0.64-0.69 ms at 1080p against the 0.15-0.30 ms estimate (K117, open). The only gate that needs the game: see the in-game checklist in the P2.11 section |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 134 entries): 48 open
-(K1-K17, K19-K24, K32, K36, K54, K59, K98-K101, K112, K117-K132; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 75 fixed or resolved (K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K133, K134; hashes are in each entry), 10 obsolete with the AMD path (K18, K31, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
+**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 135 entries): 48 open
+(K1-K17, K19-K24, K32, K36, K54, K59, K98-K101, K112, K117-K132; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 76 fixed or resolved (K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K133-K135; hashes are in each entry), 10 obsolete with the AMD path (K18, K31, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -625,3 +626,207 @@ are resolved or explicitly scope-limited and accepted, and current docs, tests,
 configuration, and diagnostic status tell the same story. Verified old paths have
 been retired where replaced. A clean directory tree, isolated test success, or a
 successful deployment alone does not complete Phase 2.
+
+## Phase 3 — Full refactor: structure, contracts and a closed backlog
+
+**Goal:** leave the code base in the state Stage 2 can be built on. Phase 2 made the
+runtime reliable by hardening the existing flat modules in place. Phase 3 finishes the
+job: the module structure matches the ownership rules, the error and diagnostic
+contracts are real, the open defects are closed or knowingly accepted, the tests are
+organised by domain, and the documentation has one owner per fact.
+
+**Status:** proposed, awaiting owner approval (2026-11-09). Nothing in Phase 3 has
+started. It begins when P2.11 closes, because the in-game QA record
+([tests/qa](tests/qa/README.md)) is the behavioural baseline that every structural step
+must keep intact.
+
+**Why a full refactor, from the Phase 2 evidence:**
+
+- `src/` is flat and three files carry most of the weight: `fg_swapchain.cpp` (1,173
+  lines), `ui.cpp` (1,128) and `config.cpp` (958). The tests are three monoliths:
+  `fgcheck.cpp` (3,333), `abi.cpp` (1,470) and `regression.cpp` (1,333). The target tree in
+  [file-structure.md](docs/refactor/file-structure.md) was never adopted.
+- 48 defects are open ([known-issues.md](docs/refactor/known-issues.md)). Many are
+  accepted gaps, but the in-game ones (K118-K128) and the Alan Wake 2 set (K100, K129-K132,
+  K14) change what the product does.
+- Two contracts are still targets: typed error codes with call, frame and settings
+  identity (deferred in P2.10), and a watchdog (not built).
+- Hidden environment switches remain (K20), and the design docs were found to describe a
+  schema and a tree that were never shipped (docs audit, 2026-11-09).
+- Stage 1 costs 0.64-0.69 ms against a 0.15-0.30 ms estimate (K117), and there is no
+  per-pass timing to say where it goes.
+
+**Scope:** behaviour-preserving restructuring, plus the product fixes the QA run asked
+for, plus the Stage 2 seams. **Not in scope:** training or running the residual network,
+any AMD backend, the loader or upscaler DLLs, more than the five exports, or anything that
+needs the game to be launched by the agent (the owner runs every in-game check).
+
+### Rules for every Phase 3 step
+
+- **Behaviour first, structure second.** A commit either moves or restructures code with
+  no behaviour change, or changes behaviour with a test and a K entry. Never both.
+- **Pin before moving.** Before a module is split, the checks that cover it must pass and
+  must still pass unchanged afterwards (`ctest` 37 of 37 on an idle GPU, the ABI scenarios
+  on the real DLL, `sedici_fgcheck` quality numbers).
+- **Small, reviewable commits**, each building and passing `ctest`. No big-bang move.
+- The AGENTS.md hard rules apply: five exports, no game launch, third-party and loader or
+  upscaler files untouched, every bug gets a K entry, the progress table stays current.
+
+### Phase 3 progress
+
+**Keep this table current**, in the same commit as any change to a milestone. Last
+updated: 2026-11-09.
+
+| Milestone | Size | Status | Prerequisites |
+| --- | --- | --- | --- |
+| P3.1 Baseline freeze | Large | Proposed | P2.11 closed |
+| P3.2 In-game defect fixes | Large | Proposed | P3.1 |
+| P3.3 Backlog triage | Large | Proposed | P3.1 |
+| P3.4 Module structure | Very large | Proposed | P3.1, P3.2 |
+| P3.5 Error contract and diagnostics | Very large | Proposed | P3.4 |
+| P3.6 Configuration surface | Large | Proposed | P3.4 |
+| P3.7 Test suite reorganisation | Large | Proposed | P3.1; runs alongside P3.4 |
+| P3.8 Format and game compatibility | Very large | Proposed, owner decision first | P3.4, P3.5 |
+| P3.9 Stage 2 seams and cost | Large | Proposed | P3.4, P3.7 |
+| P3.10 Documentation and release | Large | Proposed | all |
+
+### P3.1 — Freeze the baseline
+
+Pin what must not change. Tag the last Phase 2 commit. Record the performance baseline:
+per-pass GPU timestamps for Stage 1 (K117), prepare and present cost, overlay cost. Turn
+the QA findings that can be automated into offline checks (the observer cost mode of
+QA-12 is the first). Capture the owner-side gaps still open from P2.11 (QA-04/05
+present-interval captures, a K119 repro) or record them as accepted.
+
+**Exit:** a tagged baseline; `ctest` 37 of 37; a recorded timing table; the QA record
+lists which results are baseline and which are accepted gaps.
+
+### P3.2 — Fix what the owner found in the game
+
+Behaviour changes, each with a test and a K entry, before any structural move so the
+fixes are not hidden inside a refactor.
+
+- K126 Alt+F4 passes through the Full menu; K127 destroy at process exit waits and
+  retires; K118/FR-01/FR-02 slider in clamped 0.5 steps with an Apply button;
+  K125 truthful Real fps labelling; FR-04 menu scales 0.8/0.9/1.0; FR-05 warning when
+  real fps times the multiplier exceeds the refresh.
+- K128 loading-screen generation and K98/K121/K122/K123 stalls: investigate, then fix or
+  accept with the log evidence.
+
+**Exit:** each item fixed with its commit, or accepted with a reason in its K entry; the
+owner re-runs the matching QA tests (QA-08, QA-13, QA-16) and signs them off.
+
+### P3.3 — Close the backlog
+
+Walk every open K entry (48 at the time of writing) and give each an outcome: fixed,
+accepted with a reason, or obsolete. Merge true duplicates by cross-reference (entries
+are never deleted). Resolve the ones that block structure work first (K11, K12, K14,
+K19, K20, K22). Entries that are not product defects (K16, K23, K24, K36, K54, K101,
+K112) get a standing "accepted" note.
+
+**Exit:** no open entry without an owner, a reason or a milestone; the MILESTONES bug
+counts match the file.
+
+### P3.4 — Module structure
+
+Replace the flat `src/` with directories chosen from the code as it is, not from the
+Phase 2 proposal. Start from the existing ownership rules in
+[architecture.md](docs/refactor/architecture.md) and the current file owners
+(ABI, routing and sessions, presentation, UI, settings, diagnostics, GPU stages).
+
+- Split `fg_swapchain.cpp` along its real seams (wrap and resize, slot and retirement,
+  present admission, recording), `ui.cpp` (input, Mini, Full, settings client) and
+  `config.cpp` (parse, validate, report).
+- One library target per module with an explicit dependency direction; no module reaches
+  into another's private state. Public headers stay minimal.
+- Rewrite [file-structure.md](docs/refactor/file-structure.md) to describe the tree that
+  exists, and update the AGENTS.md layout in the same commit as each move.
+
+**Exit:** each module builds as its own target; the dependency graph has no cycles; the
+exports, the ABI scenarios and `sedici_fgcheck` results are unchanged.
+
+### P3.5 — Error contract and diagnostics
+
+Build the targets that Phase 2 deferred.
+
+- Typed internal error codes mapped to the documented FFX return codes in one place, with
+  call, frame and settings identity in every rejection.
+- A structured event vocabulary for the log (the P2.10 log keeps its bounded queue).
+- Decide the watchdog: build the minimal monitor (stuck prepare, stuck retirement, stuck
+  settings I/O), or record that parking and bounded waits are the final design.
+- Close the P2.10 recorded gaps that remain (abandoned-prepare recovery, background reaper).
+
+**Exit:** the error table in the README is generated from the same table the code uses;
+each recorded P2.10 gap is closed or explicitly accepted.
+
+### P3.6 — Configuration surface
+
+One schema, one owner. Remove or document the hidden environment switches (K20); version
+the schema; keep the migration for old keys. Make `sedici.toml`, `config.cpp`, the README
+key table and [configuration.md](docs/refactor/configuration.md) agree, preferably with a
+test that fails when a key exists in code but not in the shipped file or the README.
+
+**Exit:** a drift test passes; no environment-only switch remains undocumented.
+
+### P3.7 — Test suite reorganisation
+
+Split the three monoliths by domain behind a shared harness (fakes for the device, queue
+and clock; the stub original is gone). Tag timing-sensitive checks so a busy GPU is
+reported as such (K112) instead of as a failure. Add address and undefined-behaviour
+checks for the host-side objects where the toolchain allows it. Keep the quality numbers
+(PSNR/SSIM) as pinned expectations.
+
+**Exit:** no test file over about 1,000 lines; `ctest` labels (`fast`, `gpu`, `timing`);
+the same checks as before still run and pass.
+
+### P3.8 — Format and game compatibility
+
+Owner decision first, then implementation. The items change what the product accepts:
+10-bit back buffers (K14), the HDR create flag (K129), the `SwapChainNewDX12` route
+(K100), the device-object rule (K130), the interpolation queries (K131) and the Full
+menu cursor interception (K132). The worktree `aw2-patch` ([finding
+015](docs/findings/015-alan-wake-2-first-sedici-session.md)) is a starting point, not
+code to merge as it stands. Each accepted item gets offline tests; the owner runs the
+game.
+
+**Exit:** for each item, a recorded decision (support, or documented refusal with its
+return code) and, where supported, an owner-run QA entry.
+
+### P3.9 — Stage 2 seams and cost
+
+Prepare the boundary without building the network. Implement the pieces the
+[Stage 2 contract](docs/refactor/stage2-contract.md) marks as seams: the focus-mask
+target, scratch ownership and retirement for a second pass, and per-pass timing in the
+log. Decide the Stage 1 cost (K117): optimise it, or revise the budget in the design
+note with the measurement.
+
+**Exit:** the contract's seams exist and are tested with a stub second pass; the
+budget in `references/papers/realtime-fg.md` and AGENTS.md matches a measurement.
+
+### P3.10 — Documentation and release
+
+Make the documents agree: one owner per fact (README for users, `docs/refactor` for
+contracts, MILESTONES for status, `known-issues.md` for defects, `tests/qa` for evidence),
+historical findings bannered, and every K reference checked. Re-run the full QA checklist
+(QA-01 to QA-16) on the final build, including a second game if the owner chooses.
+
+**Exit:** a docs link and reference check passes; QA-01 to QA-16 re-run by the owner with
+no new regression; the licence and provenance files are current; a release note lists the
+behaviour changes since the Phase 1 baseline.
+
+### Phase 3 exit
+
+The module tree, the error and diagnostic contracts, the configuration schema and the
+test layout are what the documents say they are. No open defect lacks an owner or a
+reason. The Stage 1 cost is measured and the budget reflects it. The owner has re-run
+the in-game checklist on the final build. Only then does the Stage 2 work, postponed on
+2026-11-08, start.
+
+### Decisions needed from the owner
+
+1. Start Phase 3 after P2.11 closes, or earlier on the parts that do not need the game
+   (P3.3, P3.7)?
+2. P3.8: support HDR and 10-bit and the Alan Wake 2 create path, or document the refusal?
+3. P3.5: build the watchdog, or declare parking and bounded waits the final design?
+4. P3.4: is a directory tree the goal, or is splitting the three large files enough?
+5. K117: optimise Stage 1, or accept the cost and revise the budget?

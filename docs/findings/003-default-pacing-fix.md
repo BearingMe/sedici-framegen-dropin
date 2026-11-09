@@ -1,5 +1,11 @@
 # 003 - Default pacing fix and confirmation runs
 
+> **Status (2026-11-09): superseded, closed history.** This records the milestone when
+> Sedici sent AMD's pacing tuning by default. That path and the `[pacing]` and `[async]`
+> keys were removed (d95d454). Today's defaults are `fg.present = "vrr"`,
+> `tear_guard = "scanline"` and `limiter.fps = 0` (`src/config.h`). The run set J-M was
+> never completed.
+
 Milestone 1 turns the finding from
 [002-pacing-baseline.md](002-pacing-baseline.md) into Sedici's default behaviour
 and then re-measures it on fresh processes.

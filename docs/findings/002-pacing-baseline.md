@@ -1,10 +1,17 @@
 # 002 — Frame pacing baseline (PresentMon) and first A/B toggles
 
+> **Status (2026-11-09): measurements valid, mechanism superseded.** This measured AMD's
+> own frame generation through a forwarding proxy. Sedici no longer forwards, and the
+> `SEDICI_ASYNC` and `SEDICI_PACING` switches were removed with the AMD path (d95d454).
+> The cadence data (runs A-I) is still the evidence behind the limiter and the `vrr`
+> defaults, and `tools/capture.ps1` and `analyze.py` still work. Read the toggles as
+> history, not configuration.
+
 Date: 2026-11-05
 Status: measurement work in progress; Sedici behavior unchanged unless a
 `SEDICI_*` variable is set.
 
-Follows `docs/001-frame-generation-pacing-and-watchdog-investigation.md`.
+Follows [finding 001](001-frame-generation-pacing-and-watchdog-investigation.md).
 
 ## Why this run set exists
 

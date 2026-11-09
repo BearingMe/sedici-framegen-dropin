@@ -1,5 +1,10 @@
 # Real-Time Frame Generation: Architecture and Paper Selection (RDNA3 / FFX FG Hook)
 
+> **Status note (2026-11-09):** the 0.15-0.30 ms Stage 1 figure below is a design
+> estimate. Measured offline at 1080p, Stage 1 costs 0.64-0.69 ms (K117, open), so the
+> combined budget claims here are not met as written. Nothing has been profiled in the
+> game.
+
 | Field | Value |
 | --- | --- |
 | Scope | Architecture and paper selection for frame generation behind an FFX FG hook |

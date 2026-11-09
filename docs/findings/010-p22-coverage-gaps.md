@@ -1,5 +1,10 @@
 # 010: P2.2 coverage and accepted gaps
 
+> **Status (2026-11-09): historical partition.** The gap split is still the rationale for
+> which milestone owns what, but the test count has grown (37 registered CTest entries)
+> and P2.6 and P2.8 have since been accepted, so "Closed in" names an owner, not a
+> status.
+
 Records what the P2.2 regression and integration coverage proves, what it
 deliberately does not, and where each gap is closed. The refactor-side table is
 [reliability.md](../refactor/reliability.md#p22-accepted-gaps); this file is the

@@ -108,8 +108,8 @@ descriptors that were never routed. The vendored SDK declares both.
 
 ## Second blocker if `New` were routed
 
-`Swapchain::initialize_buffers` (`fg_swapchain.cpp:277`) and `resize`
-(`fg_swapchain.cpp:1026`) accept only `DXGI_FORMAT_R8G8B8A8_UNORM`; anything else
+`Swapchain::initialize_buffers` (`fg_swapchain.cpp:331` today) and `resize`
+(`fg_swapchain.cpp:1095` today) accept only `DXGI_FORMAT_R8G8B8A8_UNORM`; anything else
 returns `DXGI_ERROR_UNSUPPORTED`. This is [K14](../refactor/known-issues.md), and
 AW2's request lands on it exactly: a routed `New` create would build the chain and
 then refuse it at buffer creation, i.e. after Sedici has consumed the factory and

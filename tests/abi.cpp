@@ -4,9 +4,10 @@
 //
 //   sedici_abi <scenario> <sedici.dll> <stub.dll>
 //
-// Scenarios: exports, forward, pacing, async-off, missing-orig, bad-config,
-// session, window-replace, destroy-inflight, log-failure, invalid-calls.
-// See docs/refactor/reliability.md, "Current coverage and gaps".
+// Scenarios: see the foreach lists in CMakeLists.txt (exports, contract,
+// legacy-config, readonly-sedici, bad-config, session, window-replace,
+// destroy-inflight, log-failure, invalid-calls, overlay-hotkey, stale-forward,
+// unload, integrated).
 // Never touches game files and never downloads anything.
 
 #include <windows.h>

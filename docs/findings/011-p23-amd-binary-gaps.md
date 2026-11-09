@@ -1,5 +1,10 @@
 # 011: P2.3 AMD binary evidence, decision and open gaps
 
+> **Status (2026-11-09): superseded.** This is the decision record for a backend that no
+> longer exists. The owner removed AMD forwarding in d95d454, so the "GO", the bundling
+> question and the P2.9 packaging estimate are obsolete. The probe facts and the
+> validation lessons stay in [amd-binary.md](../refactor/amd-binary.md).
+
 Evidence record for P2.3. The full artifact table, runtime tables and the 8-point
 integration contract are in [amd-binary.md](../refactor/amd-binary.md); this file
 records the decision and what remains unproven. Nothing here ran in the game.

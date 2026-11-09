@@ -1,5 +1,10 @@
 # 001 — Frame-generation pacing and GPU watchdog investigation
 
+> **Status (2026-11-09): historical.** Investigation from the forwarding-proxy era (tag
+> `pre-amd-removal`); no forwarding code exists today. The stored gap measurements, the
+> observed Cyberpunk API shape and the separation of GPU-watchdog stalls remain valid
+> evidence. Its next-steps list was carried out in findings 002 and 005.
+
 Date: 2026-11-05
 Status: observation only; no behavior changes
 

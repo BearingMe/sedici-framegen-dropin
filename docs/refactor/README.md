@@ -7,6 +7,10 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): decision record.** The AMD rows in the decision status are
+> superseded. The implementation landed as flat modules, not the tree in
+> [file-structure.md](file-structure.md). [audit.md](audit.md) is historical.
+
 This directory records the refactor discussion and proposed implementation
 contracts. It describes a **target**, not the current source layout or shipped
 configuration. Creating these documents does not implement or authorize runtime,
@@ -38,7 +42,7 @@ and model/LUT export remain offline, outside the shipped runtime.
 | [configuration.md](configuration.md) | Proposed TOML, application semantics, defaults, and legacy migration |
 | [reliability.md](reliability.md) | Errors, watchdog behavior, diagnostics, and integrated acceptance |
 | [stage2-contract.md](stage2-contract.md) | Draft interface a residual network must meet: tensor layout, phase, colour, reset, padding, provenance, scratch and retirement |
-| [audit.md](audit.md) | Current code paths, ownership risks, evidence and prioritized P2.2 handoff |
+| [audit.md](audit.md) | Historical static review (f95b54d) and the P2.2 handoff |
 | [known-issues.md](known-issues.md) | Defects found and deliberately deferred until after the refactor, with evidence and owning milestone |
 | [feature-requests.md](feature-requests.md) | Owner and agent requests from the in-game QA runs; not scheduled |
 

@@ -7,6 +7,10 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](../amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): historical.** The documentation work this plan describes was
+> done in P2.1. Sections that concern an AMD backend, the `.orig` fallback or a bundled
+> runtime are obsolete.
+
 Status: planned documentation work before implementing the refactor. This records
 the review scope; it does not settle open architectural choices, change shipped
 behavior, or authorize implementation, deployment, or game launches.

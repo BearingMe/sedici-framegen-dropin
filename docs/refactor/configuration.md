@@ -7,6 +7,15 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): the candidate schema was not shipped.** P2.6 shipped
+> `[fg] present/multiplier/target_fps/tear_guard`, `[limiter] fps/spin_us`,
+> `[log] level` and `[ui] mode/scale/hotkey` (see `sedici.toml` and the README), with
+> `limiter.fps` unchanged. The transaction, revision and migration rules were
+> implemented (a54073d, 029ce7b). Unknown keys and the removed `fg.mode`, `[pacing]`
+> and `[async]` are reported once and ignored. The names `[frame_generation]`,
+> `[presentation]`, `[logging]` and `limiter.real_fps` are superseded. Environment-only
+> switches remain (K20).
+
 Status: proposed refactor schema and behavior. **Do not copy this example over the
 current `sedici.toml`: the current parser does not implement these names.** Existing
 defaults and opt-outs remain unchanged until an explicitly approved migration.

@@ -1,5 +1,12 @@
 # 009: Output multipliers for the vrr presenter
 
+> **Status (2026-11-09): valid, and implemented.** The line below saying nothing has run in
+> the game predates the three game sessions recorded further down. The multipliers, the
+> adaptive mode and the latency fixes are the current implementation. Finding number 004
+> exists only on the branch `exp/fg-1.5x` (commit 84f8060, "why 1.5x frame dropping is
+> not supported by the FFX API"); its conclusion is superseded by the scheduler described
+> here.
+
 Adds `[fg] multiplier` ("2x", "1.75x", "1.5x", "1.25x", "adaptive") and
 `[fg] target_fps` to `present = "vrr"` on `experiment/cobalt-otter`. This file
 records the design, the research it rests on, and the offline results. Nothing

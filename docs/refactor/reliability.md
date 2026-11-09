@@ -7,6 +7,13 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
+> **Status (2026-11-09): target contracts plus implemented scope.** Implemented and
+> accepted in P2.4-P2.10: the error contract (reason string plus FFX code, K115),
+> bounded retention and parking, the asynchronous log with drop accounting, and the diag
+> line. Not built: the watchdog component and the structured event vocabulary. The
+> "Current coverage" section is the P2.2 baseline and is historical; the 37 registered
+> CTest entries are in `CMakeLists.txt` and `MILESTONES.md`.
+
 Status: target contracts for the refactor, not claims that the current build passes.
 The architecture's ownership rules are in [architecture.md](architecture.md).
 
@@ -182,7 +189,7 @@ reconciliation, not fixed here):
   behaviour (only `allowAsyncWorkloads` in configure), and `sedici_abi async-off`
   checks the README behaviour.
 
-Build: the DLL, `sedici_regression` and `sedici_fgcheck` share one `sedici_core` object library, so tests exercise the same compiled production objects (all 13 CTest entries pass).
+Build: the DLL, `sedici_regression` and `sedici_fgcheck` share one `sedici_core` object library, so tests exercise the same compiled production objects (37 CTest entries are registered; the count at the P2.2 baseline was 13).
 
 Third-party interference: with RTSS running, vrr checks are reported as skipped
 (the wrapper refuses "vrr" under RTSS) and RTSS has drawn its overlay into test

@@ -1,5 +1,11 @@
 # 006: Overlay callback investigation
 
+> **Status (2026-11-09): partly superseded.** AMD's present callback is gone. Dear ImGui is
+> now built and drawn from Sedici's output hooks, and HUD handling moved to
+> `Stage1::composite_hud`. The rationale for the back-buffer copy with state restoration
+> and the import-interception limits still describe real constraints. The cited
+> "56-check harness" and `cursor_test.cpp` do not exist in the tree.
+
 ## Status
 
 The composition-safe Step 0 callback is implemented and awaiting the user's

@@ -1,6 +1,6 @@
 # Known issues deferred to after the refactor
 
-Status (2026-11-09, K1-K134): 48 open, 75 fixed or resolved, 10 obsolete (the AMD path, K31 and K94 among them),
+Status (2026-11-09, K1-K135): 48 open, 76 fixed or resolved, 10 obsolete (the AMD path, K31 and K94 among them),
 1 retracted claim (K30). The original K1-K26 were found while building the vrr presenter, the output
 multipliers and the P2.2 coverage on `experiment/cobalt-otter` (through `f95b54d`); K27 onward are in
 later sections. The decision was to fix them on the refactored architecture, not to patch the old code.
@@ -16,7 +16,7 @@ fence-wait trust; K39, K40, K41, K47 and K48 are one retention cluster.
 
 Entries marked **[arch]** constrain the target design; the resulting notes are in
 [architecture.md](architecture.md#constraints-from-known-defects). The static
-current-state review is in [audit.md](audit.md); the coverage map and tracked
+pre-refactor review (historical) is in [audit.md](audit.md); the coverage map and tracked
 expected failures are in [reliability.md](reliability.md#current-coverage-and-gaps-p22-baseline).
 
 ## Output pacing and latency
@@ -182,6 +182,7 @@ milestone was migrating; they are recorded here so the evidence is not lost.
 | K132 | In Alan Wake 2 the Full menu was unavailable: `Full menu unavailable: the executable's cursor calls could not be intercepted`. The overlay stayed Mini or off. | Measured: log of the earlier AW2 session (finding 015). Cause not investigated; the executable probably reaches `SetCursorPos`/`ClipCursor` in a way the import interception misses (suspected). | **Open, documented only.** Intercept the cursor calls for this game, or document the limit. P2.8, P2.11. |
 | K133 | The size and prerequisites table at the end of the Phase 2 progress section in `MILESTONES.md` had five rows (P2.6-P2.8, P2.9, P2.10) overwritten with copies of the progress-table rows, so their size and prerequisites were lost. | Measured: reading the file; the original rows are in `7897b83^`. | **Fixed** with the commit that adds this entry (rows restored from `7897b83^`). P2.1. |
 | K134 | Documentation defects found while tidying the docs: 28 entries (K29, K39, K40, K45, K46, K55, K57-K61, K63, K65-K69, K71-K73, K76, K78, K79, K87-K89, K93) still said "fix in working tree" long after the code was committed, which inflated the open count; K18 described a module that no longer exists; K124 contained control characters (a bell and a form feed in place of "an" and "ffx"); the K1-K26 header said only K1-K26 were recorded; `docs/refactor/README.md` had the feature-requests row outside its table; `planning/README.md` had a broken link to `amd-binary.md`. | Measured: a subagent checked each entry against the current code, tests and `git log -S` (a54073d, 63e809e, 65a30da, cf48198, b466866, 446244d, d95d454); a link checker and a control-character search over the tracked docs. | **Fixed** with the commit that adds this entry; statuses rewritten with the real commit hashes, K59 stays partial, K87-K89 and K18 are marked obsolete. P2.1. |
+| K135 | Documentation described a state that no longer exists, with no status marker: findings 001-003, 005-013 and the `docs/refactor` design docs (architecture, file-structure, configuration, audit, reliability, planning) still read as current although they describe the AMD forwarding proxy, a proposed `src/` tree and a candidate TOML schema that were never shipped; `reliability.md` said 13 CTest entries (37 are registered); `002` linked a file that does not exist; `014` and `amd-binary.md` cited stale line numbers and tense; `realtime-fg.md` gave the 0.15-0.30 ms Stage 1 estimate with no pointer to the measured 0.64-0.69 ms (K117). Two code comments were stale: `src/config.h` listed `SEDICI_PACING` and `SEDICI_ASYNC` as environment overrides (nothing reads them) and `tests/abi.cpp` listed ABI scenarios that no longer exist. Finding number 004 is not on this branch (it lives on `exp/fg-1.5x`, commit 84f8060). | Measured: three read-only audits of the docs against `src/`, `tests/`, `CMakeLists.txt` and `sedici.toml`, 2026-11-09, plus a link check. | **Fixed** with the commit that adds this entry: status banners on every affected document, the factual lines corrected, and the two comments updated. The root `README.md` audit is recorded separately if it finds more. P2.1, P3.10. |
 
 ## Obsoleted by removing the AMD backend
 

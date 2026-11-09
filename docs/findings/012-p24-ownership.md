@@ -1,5 +1,9 @@
 # 012: P2.4 session, context and callback ownership
 
+> **Update (2026-11-09):** the deferred cross-backend item is obsolete. The AMD path was
+> removed in d95d454, so only Sedici's own session exists. There are 37 registered CTest
+> entries, not 18.
+
 Records what P2.4 changed, how it is tested, and what it deliberately leaves for
 later milestones. Nothing here has run in the game.
 

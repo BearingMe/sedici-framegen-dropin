@@ -5,8 +5,9 @@
 // The effective settings come from two places, in increasing priority:
 //
 //   1. `sedici.toml`, beside the deployed DLL, parsed with toml++.
-//   2. Environment variables (`SEDICI_PACING`, `SEDICI_ASYNC`,
-//      `SEDICI_LIMIT_FPS`, `MFSRFG_LOG`).
+//   2. Environment variables (`SEDICI_LIMIT_FPS`,
+//      `SEDICI_FG_PRESENT`, `SEDICI_FG_MULTIPLIER`, `SEDICI_FG_TARGET_FPS`,
+//      `SEDICI_FG_TEAR_GUARD`, `MFSRFG_LOG`).
 //
 // The file is read *once*, on the first `ffx*` call, and never again. Doing it
 // in `DllMain` would run under the loader lock, so the first call is used

@@ -1,5 +1,9 @@
 # Stage 2 feature and model contract
 
+> **Status:** draft for the P2.11 handoff. The "as built" statements were checked against
+> `src/` on 2026-11-09. K47 and K77 are closed, and the retirement rule they describe is
+> implemented.
+
 Status: draft, written for P2.11 (2026-11-08). **Owner decision 2026-11-08: all AI
 integration is postponed until the current system is fully refactored and stable.**
 Nothing here is implemented and no Stage 2 work starts before that. It fixes the interface a residual network must meet so that adding it

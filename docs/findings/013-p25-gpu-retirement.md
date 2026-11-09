@@ -1,5 +1,8 @@
 # 013: P2.5 GPU submission and retirement
 
+> **Update (2026-11-09):** K37, K41 and K48 were resolved after this record (cf48198,
+> 721546a). The unbounded-retention remainder is K47 and the P2.10 watchdog gap.
+
 Records the retirement audit, the defects it found, how they are covered and what is
 left. Nothing here has run in the game.
 

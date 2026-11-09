@@ -1,5 +1,11 @@
 # 005 - Built-in real-frame limiter
 
+> **Status (2026-11-09): mostly valid.** The limiter design and its measured accuracy are
+> unchanged, and `[limiter]` and `SEDICI_LIMIT_FPS` still work. Two things are stale: the
+> generated frames are presented by Sedici's own presenter, not inside AMD's swapchain,
+> and the `[pacing]` and `[async]` block in the recommended configuration is no longer
+> read.
+
 Milestone 2 moves the frame cap that run G proved effective into Sedici, so
 Anti-Lag 2 can stay enabled while the game runs uncapped.
 

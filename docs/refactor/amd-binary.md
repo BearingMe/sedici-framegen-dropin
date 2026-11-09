@@ -5,7 +5,7 @@
 > when it was probed; it is kept because it is useful for later work on FSR frame
 > generation. Sedici no longer loads, forwards to or ships that binary.
 
-Status: **evidence complete; gate decision recorded below (review pending).**
+Status: **evidence complete; gate decision recorded below; superseded by the AMD removal, d95d454).**
 Technically feasible with the user's installed copy; **bundling was blocked on a
 licence review**; the owner has since reviewed AMD's terms and accepted responsibility (`NOTICE.md`). Nothing here is
 inferred from the vendored 2.4.0 headers.
@@ -93,7 +93,7 @@ updates, or all AMD descriptor-lifetime paths.
 | Question | Result |
 | --- | --- |
 | Loads privately under another file name; dependencies resolve | **Yes.** `sedici_amd_a.dll` loads, five exports resolve. No file beside the DLL is needed; `dxgi`, `d3d12`, `winmm`, `version` and the VC runtime are mapped. |
-| Loads under the `.orig` name, as the proxy does today | **Yes.** |
+| Loads under the `.orig` name, as the removed proxy did | **Yes.** |
 | Two instances coexist | **Yes.** Two copies are two modules with distinct function addresses. Freeing one leaves the other usable. The same path loaded twice returns the same instance. |
 | Provider versions | `GetVersions`: FrameGeneration **3.1.6** (id `0xf600000000c01006`), swapchain wrap **3.1.7** (id `0xf65cdd1200c01007`), one each. The file is labelled 4.0.1, but the providers inside report 3.1.x, matching AGENTS.md's "FSR 3.1". The vendored 4.0.2 headers are therefore not the binary's contract. |
 | Swapchain wrap create | Succeeds with a **bare** wrap descriptor (`swapchain` in/out + `gameQueue`). With the swapchain-version and backend descriptors linked it returned `ERROR_PARAMETER` (6) in the first run; the later shape loop found the bare form accepted, so those descriptors must not be added to a wrap create. |
@@ -138,8 +138,8 @@ Consequences for the refactor:
 Sedici's own wrapper already refuses all three hostile cases without crashing
 (`sedici_abi invalid-calls`: null queue, null swapchain slot, empty display size,
 destroyed handle, double destroy all return an error and leave the caller's chain
-intact). Because AMD does not validate, **Sedici must keep validating these before
-forwarding anything to AMD**: no foreign or zero-sized argument may reach the binary.
+intact). Because AMD does not validate, **Sedici had to validate these before
+forwarding anything to AMD** (no forwarding exists now): no foreign or zero-sized argument may reach the binary.
 
 ## Integration contract (testable; for P2.4/P2.9)
 
