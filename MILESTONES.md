@@ -871,7 +871,7 @@ FR-04 (scale list; check the high-DPI case first), K125 (the Real counter counts
 K124 (reproduce the exception while drawing, then fix or contain it), K119 (overlay state
 across launches: test the persisted state and the start-up path), K19 (re-resolve `target_fps`
 after a mode change), K22 (multiplier fallback), K10 and K17 (diagnostic wording and the first
-overlay log line), FR-05 (one target frame rate: `0` uncapped, `N` capped, `auto` = `Hz - Hz^2/3600`,
+overlay log line), FR-05 (one target frame rate: `0` uncapped, `N` capped, `auto` = floor(`Hz - Hz^2/3600`),
 uncapped if the refresh is unknown; replaces `limiter.fps` and `fg.target_fps`, which keep loading as
 aliases; K3 and the `OVER_REFRESH` note are fixed by it). The slider step
 logic, the settings transaction and the counters are pure logic and get regression tests.
@@ -952,8 +952,7 @@ final build, counts and tables current, `docs/dev` updated.
 
 ### Owner decisions still needed
 
-1. **FR-04** accepted and **FR-05** decided (2026-11-09): see the requests list. Open design points
-   for FR-05, with the proposed answer: the target is the *output* rate (real cap = target /
-   multiplier); the default stays `0` because the limiter is opt-out; the `auto` value is not
-   rounded down (Godot and OptiScaler floor it; 75 Hz gives 73.4 against 73).
+1. **FR-04** accepted and **FR-05** decided (2026-11-09), design points confirmed: the target is the
+   *output* rate (real cap = target / multiplier); the default is `0` (uncapped), because games such
+   as Cyberpunk 2077 have their own cap; the `auto` value is rounded down (75 Hz gives 73).
 2. **P4.8 scope:** decided when the first step of that milestone lists the calls.
