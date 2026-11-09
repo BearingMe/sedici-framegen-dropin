@@ -53,3 +53,39 @@ frame 5667 look like. That chain is a hypothesis; the log cannot show it.
   this game's pipelining. Sedici answers that with an error to the game each time (K139).
 - Whether the game expects the swapchain itself to present the interpolation texture it recorded into: Sedici
   discards what the game records there and generates its own frame.
+
+## Third run, review against `aw2-patch`, and what the SDK documentation says (2026-11-09)
+
+**Third run (QA-03, `qa-03-sedici-3.full.log`).** Still black. The queries no longer block (they continue
+past 35.9 s), so K138 is not the whole story. The generation context is created at 34.9 s; the first
+`Prepare` (frame 4510) succeeds, the next one is refused as `E_SLOT_BUSY` and so is every one after it, until
+the run ends at 51.6 s. The last periodic present line is at 34.3 s, so the wrapper stops receiving
+presents (or never finishes one) from the moment generation starts. The `build` stamp still reads 09:35:20: it
+comes from `config.cpp`'s compile time, so it does not say which DLL ran (K101). A generation that fails
+inside Present was invisible at log level 1; `Context::fail` now logs at level 1, so the next log carries the
+reason.
+
+**Review against the `aw2-patch` worktree.** The worktree is clean at `fffa3e6`, the tip that was ported. The
+port is faithful: the `New` route, 10-bit formats, the same-adapter rule, the scratch list and texture, and
+the dispatch acknowledgement match. Differences are deliberate: the `ForHwnd` route, `GetVersions` for both
+forms, error codes, the scan of every module for cursor imports, and K138's separate lock. The branch never
+ran with a generation context (the HDR flag was refused there, K129), so the black screen is new ground, not
+a regression from the branch.
+
+**What the SDK documentation says (context7, `/websites/gpuopen_manuals`).**
+
+- The swapchain hands the game a command list (`ffxGetInterpolationCommandlist`) and a texture that
+  represents the back buffer (`ffxGetFrameinterpolationTexture`); the game records its interpolation
+  dispatch into them, and the *swapchain* submits that list and presents the result. So the game never
+  executes the list; our scratch shim leaves a list that is never submitted, which is consistent, but it means
+  the frame the game believes it generated is not shown, and Sedici's own generation has to cover for it.
+- "When using frame generation, a new preparation dispatch must be called every frame", at the place of the
+  upscaling dispatch. AMD's swapchain therefore keeps per-frame state for each prepare; Sedici keeps one slot
+  (K139). A game that prepares frame N+1 before frame N has been presented is normal for AMD's design and is
+  refused by ours.
+- The present callback runs before presentation (UI composition); Alan Wake 2 sets `presentCallback=none`.
+
+**What follows.** K139 is now the lead: a single prepare slot against a per-frame prepare. If the next log
+shows the first generation failing for a reason of its own (the level-1 `rejected:` line), that is fixed
+first. If the refusals are only the result of the first generation never completing, the slot needs to be a
+short ring of prepared frames (a change to `runtime/context`, for the owner to approve).

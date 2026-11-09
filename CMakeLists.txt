@@ -46,6 +46,13 @@ endforeach()
 
 # Everything except the five exports lives in one object library, so the DLL and
 # every test host compile the same production objects (no private source lists).
+# K140: the "build <date> <time>" line in sedici.log comes from config.cpp, so it only moved when that
+# file changed and two different DLLs could carry one stamp. The output below is never created, so the
+# command is always out of date and config.cpp is compiled again on every build.
+add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/always_stamp
+    COMMAND ${CMAKE_COMMAND} -E echo_append "" VERBATIM)
+set_source_files_properties(src/settings/config.cpp PROPERTIES OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/always_stamp)
+
 add_library(sedici_core OBJECT
     src/abi/describe.cpp
     src/diagnostics/stats.cpp

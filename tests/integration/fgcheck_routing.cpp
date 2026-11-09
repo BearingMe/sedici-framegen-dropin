@@ -1,6 +1,8 @@
 // fgcheck group: the five-export router, lease contract and creation faults.
 #include "fgcheck_common.h"
 
+#include <psapi.h>
+
 namespace fgcheck {
 
 HANDLE routingLookupArrived = nullptr;
@@ -624,6 +626,97 @@ bool check_routing_faults(Device& state)
             const bool newDestroyed = sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
             if (!hwndFormat || !refusedOk || !hwndDestroyed || !newDestroyed || FAILED(game->GetDesc1(&got))) return false;
             std::puts("PASS HWND swapchain form builds a 10-bit chain; a null factory is a local error; both destroy cleanly");
+        }
+
+        // Memory growth over repeated lifecycles (the Alan Wake 2 shape: a New chain and a 10-bit
+        // session, queries, destroy). The process's private bytes after a warm-up must not climb by
+        // more than a small allowance per cycle; a leak of a texture or a chain would be megabytes.
+        {
+            HWND cycleWindow = CreateWindowW(className, L"Sedici cycles", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                                             CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+            if (!cycleWindow) return false;
+            const auto closeCycle = [&](void*) { DestroyWindow(cycleWindow); };
+            std::unique_ptr<void, decltype(closeCycle)> cycleGuard(reinterpret_cast<void*>(1), closeCycle);
+            const auto privateBytes = [] {
+                PROCESS_MEMORY_COUNTERS_EX counters{};
+                counters.cb = sizeof(counters);
+                GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+                                     sizeof(counters));
+                return static_cast<long long>(counters.PrivateUsage);
+            };
+            const auto cycle = [&]() -> bool {
+                DXGI_SWAP_CHAIN_DESC legacy{};
+                legacy.BufferDesc.Width = kDisplayWidth;
+                legacy.BufferDesc.Height = kDisplayHeight;
+                legacy.BufferDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+                legacy.SampleDesc.Count = 1;
+                legacy.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                legacy.BufferCount = 2;
+                legacy.OutputWindow = cycleWindow;
+                legacy.Windowed = TRUE;
+                legacy.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                IDXGISwapChain4* out = nullptr;
+                ffxCreateContextDescFrameGenerationSwapChainNewDX12 made{};
+                made.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12;
+                made.swapchain = &out;
+                made.desc = &legacy;
+                made.dxgiFactory = factory.Get();
+                made.gameQueue = state.queue.Get();
+                ffxContext swapContext = nullptr;
+                ffxReturnCode_t code{};
+                if (!sedici::fg::route_create(&swapContext, &made.header, &code) || code != FFX_API_RETURN_OK || !out) return false;
+                ID3D12GraphicsCommandList* list = nullptr;
+                ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 q1{};
+                q1.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12;
+                q1.pOutCommandList = reinterpret_cast<void**>(&list);
+                FfxApiResource texture{};
+                ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 q2{};
+                q2.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12;
+                q2.pOutTexture = &texture;
+                const bool queried = sedici::fg::route_query(&swapContext, &q1.header, &code) && code == FFX_API_RETURN_OK &&
+                                     sedici::fg::route_query(&swapContext, &q2.header, &code) && code == FFX_API_RETURN_OK;
+                auto tenBit = create;
+                tenBit.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
+                tenBit.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
+                ffxContext session = nullptr;
+                bool ok = queried && sedici::fg::route_create(&session, &tenBit.header, &code) && code == FFX_API_RETURN_OK;
+                ffxReturnCode_t destroyed{};
+                if (session) ok = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK && ok;
+                if (out) out->Release(); // the game's reference
+                ok = sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK && ok;
+                return ok;
+            };
+            // Video memory of this adapter in use by the process: a leaked chain buffer or scratch
+            // texture is megabytes each and shows here even when the CPU heap does not move.
+            ComPtr<IDXGIAdapter3> adapter;
+            {
+                ComPtr<IDXGIFactory4> factory4;
+                const LUID luid = state.device->GetAdapterLuid();
+                if (SUCCEEDED(factory.As(&factory4))) (void)factory4->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter));
+            }
+            const auto videoBytes = [&]() -> long long {
+                DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+                if (!adapter || FAILED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) return -1;
+                return static_cast<long long>(info.CurrentUsage);
+            };
+            constexpr int warmup = 5, measured = 40;
+            for (int i = 0; i < warmup; ++i) if (!cycle()) return false;
+            const long long before = privateBytes();
+            const long long videoBefore = videoBytes();
+            for (int i = 0; i < measured; ++i) if (!cycle()) return false;
+            const long long growth = privateBytes() - before;
+            std::printf("%s memory over %d create/destroy cycles: private bytes grew by %lld KB (%lld KB per cycle)\n",
+                        growth < 4LL * 1024 * 1024 ? "PASS" : "FAIL", measured, growth / 1024, growth / 1024 / measured);
+            if (growth >= 4LL * 1024 * 1024) return false;
+            const long long videoAfter = videoBytes();
+            if (videoBefore >= 0 && videoAfter >= 0) {
+                const long long videoGrowth = videoAfter - videoBefore;
+                const bool videoOk = videoGrowth < 16LL * 1024 * 1024;
+                std::printf("%s video memory over %d cycles: grew by %lld KB\n", videoOk ? "PASS" : "FAIL", measured, videoGrowth / 1024);
+                if (!videoOk) return false;
+            } else {
+                std::puts("NOTE video memory query unavailable; GPU growth not checked");
+            }
         }
 
         // K29: a refused handle reservation issues no token; a retry succeeds.

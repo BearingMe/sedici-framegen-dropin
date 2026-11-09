@@ -77,6 +77,10 @@ struct PresentJob {
     POINT offset{};
 };
 
+// Number of devices that currently have a shared present queue (K140: it must fall back to the
+// level it had once the last presenter of a device is gone, unless a Present-hooking overlay is loaded).
+size_t shared_present_queue_count() noexcept;
+
 class Presenter {
 public:
     using TearGuard = FrameGenerationSettings::TearGuard;

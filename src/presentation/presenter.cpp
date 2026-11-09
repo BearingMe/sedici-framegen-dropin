@@ -85,21 +85,52 @@ std::string ms(double seconds)
 
 constexpr DWORD kGpuTimeoutMs = 5000;
 
-// One present queue per device for the life of the process, never released.
-// Overlays that hook Present (RTSS's, at least) remember the queue a swapchain
-// presents on and use it again for later swapchains; destroying it with the
-// wrapper crashed the next swapchain's Present inside RTSS in the offline check.
+// One present queue per device, shared by that device's presenters. Overlays that hook Present
+// (RTSS's, at least) remember the queue a swapchain presents on and use it again for later
+// swapchains; destroying it with the wrapper crashed the next swapchain's Present inside RTSS in
+// the offline check. So while such an overlay is loaded the queue is kept for the life of the
+// process. Without one it is released with its last presenter (K140): a queue keeps its device
+// alive, so a game that recreates its device (a device loss, a mode change) otherwise leaked every
+// old device and everything it still owned.
+struct SharedQueueEntry {
+    ID3D12Device* device;
+    ID3D12CommandQueue* queue;
+    unsigned users;
+};
+std::mutex& shared_queue_mutex() { static std::mutex mutex; return mutex; }
+std::vector<SharedQueueEntry>& shared_queue_entries()
+{
+    static auto* entries = new std::vector<SharedQueueEntry>; // the registry itself lives for the process
+    return *entries;
+}
+
+// Drops one presenter's use. `idle` says its work retired (a failed drain keeps the queue). When the
+// last user goes and no Present-hooking overlay is loaded, the queue and its device reference go.
+void release_shared_present_queue(ID3D12Device* device, bool idle) noexcept
+{
+    ID3D12CommandQueue* doomed = nullptr;
+    {
+        std::lock_guard lock(shared_queue_mutex());
+        auto& entries = shared_queue_entries();
+        for (auto it = entries.begin(); it != entries.end(); ++it) {
+            if (it->device != device) continue;
+            if (it->users > 0) --it->users;
+            if (it->users == 0 && idle && !GetModuleHandleW(L"RTSSHooks64.dll")) {
+                doomed = it->queue;
+                entries.erase(it);
+            }
+            break;
+        }
+    }
+    if (doomed) doomed->Release();
+}
+
 HRESULT shared_present_queue(ID3D12Device* device, Microsoft::WRL::ComPtr<ID3D12CommandQueue>& out) noexcept try
 {
-    struct Entry {
-        ID3D12Device* device;
-        ID3D12CommandQueue* queue;
-    };
-    static std::mutex mutex;
-    static auto* entries = new std::vector<Entry>; // intentionally leaked with the queues
-    std::lock_guard lock(mutex);
-    for (const auto& entry : *entries) {
-        if (entry.device == device) { out = entry.queue; return S_OK; }
+    std::lock_guard lock(shared_queue_mutex());
+    auto& entries = shared_queue_entries();
+    for (auto& entry : entries) {
+        if (entry.device == device) { ++entry.users; out = entry.queue; return S_OK; }
     }
     D3D12_COMMAND_QUEUE_DESC desc{};
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -114,14 +145,20 @@ HRESULT shared_present_queue(ID3D12Device* device, Microsoft::WRL::ComPtr<ID3D12
     if (FAILED(hr)) return hr;
     (void)queue->SetName(L"Sedici FG present queue");
     // The entry keeps the queue's reference, and the queue keeps its device
-    // alive, so the device address can never be reused by another device.
-    entries->push_back({device, queue});
+    // alive while the entry exists, so the device address cannot be reused meanwhile.
+    entries.push_back({device, queue, 1});
     out = queue;
     return S_OK;
 }
 catch (...) { return E_OUTOFMEMORY; }
 
 } // namespace
+
+size_t shared_present_queue_count() noexcept
+{
+    std::lock_guard lock(shared_queue_mutex());
+    return shared_queue_entries().size();
+}
 
 std::unique_ptr<Presenter> Presenter::create(ID3D12Device* device, TearGuard guard,
                                              std::string& why) noexcept try
@@ -261,10 +298,16 @@ Presenter::~Presenter()
     m_wake.notify_all();
     if (m_thread.joinable()) m_thread.join();
     if (m_window.jobs) log_window(); // the partial window, so short sessions report too
-    (void)drain_gpu();
+    const bool idle = SUCCEEDED(drain_gpu());
     close_adapter();
     if (m_event) CloseHandle(m_event);
     if (m_timer) CloseHandle(m_timer);
+    if (m_queue && m_device) {
+        // Our references first, so the release below can be the last one on the queue.
+        const Microsoft::WRL::ComPtr<ID3D12Device> device = m_device;
+        m_queue.Reset();
+        release_shared_present_queue(device.Get(), idle);
+    }
 }
 
 void Presenter::request_stop() noexcept

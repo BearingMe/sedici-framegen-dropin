@@ -170,6 +170,33 @@ int main(int argc, char** argv)
                     rejected ? "PASS" : "FAIL");
         ok = rejected && ok;
     }
+    {
+        // K140: the shared present queue holds its device. After the last presenter is gone (and no
+        // Present-hooking overlay is loaded) the device must be back to the references it had.
+        // A device of its own: the queue of the shared device may already exist from earlier checks.
+        ComPtr<ID3D12Device> fresh;
+        const bool haveFresh = SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&fresh)));
+        const size_t before = sedici::fg::shared_present_queue_count();
+        size_t during = 0;
+        if (haveFresh) {
+            std::string why;
+            auto presenter = sedici::fg::Presenter::create(
+                fresh.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
+            if (!presenter) std::puts("NOTE presenter unavailable; present queue release not checked");
+            during = sedici::fg::shared_present_queue_count();
+        }
+        const size_t after = sedici::fg::shared_present_queue_count();
+        if (!haveFresh) {
+            std::puts("NOTE no second device; present queue release not checked");
+        } else if (GetModuleHandleW(L"RTSSHooks64.dll")) {
+            std::puts("NOTE RTSS is loaded: the present queue is kept on purpose, release not checked");
+        } else {
+            const bool released = during == before + 1 && after == before;
+            std::printf("%s present queue released with its last presenter (queues %zu before, %zu with a presenter, %zu after)\n",
+                        released ? "PASS" : "FAIL", before, during, after);
+            ok = released && ok;
+        }
+    }
     ok = check_pacing() && ok;
     if (present) ok = check_window(state) && ok;
     // Known failures, tracked in docs/refactor/reliability.md ("Current coverage

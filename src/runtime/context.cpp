@@ -77,7 +77,10 @@ bool is_supported_motion(DXGI_FORMAT format) noexcept
 bool Context::fail(const char* reason) noexcept
 {
     m_error = reason;
-    try { log_event(2, std::string("fg: rejected: ") + reason); } catch (...) {}
+    // Level 1: a generation that fails inside a present never reaches the router, so this line is the
+    // only trace of why a frame was not generated (Alan Wake 2 black screen, finding 016). The log
+    // rate-limits repeats of one message.
+    try { log_event(1, std::string("fg: rejected: ") + reason); } catch (...) {}
     return false;
 }
 
