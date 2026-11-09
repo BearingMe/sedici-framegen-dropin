@@ -961,6 +961,25 @@ void observer_cost()
     sedici::live_set_ui_mode(sedici::UiMode::Off);
     DestroyWindow(hwnd);
 }
+// K137: Windows refuses SetForegroundWindow from a process that is not the foreground one, which
+// made the foreground checks skip whenever another application had focus. Attaching to the input
+// queue of the current foreground thread lets the
+// test take the foreground; it still fails honestly on a locked desktop.
+bool take_foreground(HWND window)
+{
+    if (GetForegroundWindow() == window) return true;
+    const HWND current = GetForegroundWindow();
+    const DWORD currentThread = current ? GetWindowThreadProcessId(current, nullptr) : 0;
+    const DWORD thisThread = GetCurrentThreadId();
+    const bool attached = currentThread && currentThread != thisThread &&
+                          AttachThreadInput(thisThread, currentThread, TRUE);
+    SetForegroundWindow(window);
+    BringWindowToTop(window);
+    if (attached) AttachThreadInput(thisThread, currentThread, FALSE);
+    for (int i = 0; i < 20 && GetForegroundWindow() != window; ++i) Sleep(10);
+    return GetForegroundWindow() == window;
+}
+
 void window_checks()
 {
     WNDCLASSW cls{};
@@ -1000,8 +1019,7 @@ void window_checks()
           "an unrelated unpaired key-up still reaches the game window");
     const HWND previous_foreground = GetForegroundWindow();
     ShowWindow(b, SW_SHOW);
-    SetForegroundWindow(b);
-    if (GetForegroundWindow() == b) {
+    if (take_foreground(b)) {
         release_clip_on_capture_changed = true;
         SetCapture(b);
         check(GetCapture() == b, "game owns mouse capture before Full entry");

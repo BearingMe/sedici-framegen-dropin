@@ -179,6 +179,18 @@ int run_exports(const fs::path& proxy)
 // ---------------------------------------------------------------------------
 // Minimal DX12 host shared by the scenarios that need a real swapchain.
 // ---------------------------------------------------------------------------
+// K137: DefWindowProc turns an F10 key-up that the overlay did not swallow into SC_KEYMENU, which
+// starts the keyboard menu loop and blocks the test thread until a key is pressed. The synthetic Alt
+// state the scenarios set can be dropped by the thread's key-state resync, so one hotkey in about
+// ten was not recognised and its key-up hung the run (CTest timeout). A game handles F10 itself;
+// the host swallows the menu command so a missed hotkey is a failed assertion, not a hang.
+LRESULT CALLBACK host_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if (message == WM_SYSCOMMAND && (wparam & 0xFFF0) == SC_KEYMENU) return 0;
+    if (message == WM_SYSKEYUP && wparam == VK_F10) return 0;
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
 struct Host {
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12CommandQueue> queue;
@@ -222,7 +234,7 @@ struct Host {
         list->Close();
         event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         WNDCLASSW wc{};
-        wc.lpfnWndProc = DefWindowProcW;
+        wc.lpfnWndProc = host_window_proc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"SediciAbiHost";
         RegisterClassW(&wc);
@@ -1235,6 +1247,7 @@ int run_overlay_hotkey(Harness& h)
         std::puts("INFO hotkey: set Alt up");
         SetKeyboardState(state);
         std::puts("INFO hotkey: dispatch complete");
+        host.pump(); // K137: the leave/enter is a posted message the window thread must run
     };
     (void)keys;
 
@@ -1261,6 +1274,7 @@ int run_overlay_hotkey(Harness& h)
         alt_f10(host.window); // Off
         std::puts("INFO hotkey: presenting while Off");
         rig.frames(20, true);
+        host.pump();
         RECT clipOff{};
         GetClipCursor(&clipOff);
         expect(std::memcmp(&clipOff, &clipBefore, sizeof clipOff) == 0, "cursor clip is as before after Full -> Off");
@@ -1334,8 +1348,10 @@ int run_integrated(Harness& h)
         SendMessageW(window, WM_SYSKEYUP, VK_F10, 0);
         state[VK_MENU] = 0;
         SetKeyboardState(state);
+        host.pump(); // K137: the leave/enter is a posted message the window thread must run
     };
     const auto clip_is_restored = [&](const char* what) {
+        host.pump();
         RECT now{};
         GetClipCursor(&now);
         expect(std::memcmp(&now, &clipBefore, sizeof now) == 0, std::string("cursor clip restored: ") + what);

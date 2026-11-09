@@ -188,6 +188,10 @@ if(SEDICI_BUILD_TESTS)
             COMMAND sedici_abi ${scenario} $<TARGET_FILE:sedici> $<TARGET_FILE:sedici_abi_stub>)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES TIMEOUT 60 LABELS "abi")
     endforeach()
+    # K137: these tests take the foreground window, so two of them (or the regression host's window
+    # checks) running together steal it from each other. One lock serialises them.
+    set_tests_properties(sedici_abi_overlay-hotkey sedici_abi_integrated sedici_regression
+        PROPERTIES RESOURCE_LOCK foreground_window)
     # The session scenario opens a window and presents; keep it alone on the GPU.
     foreach(scenario IN ITEMS session window-replace window-replace-vsync destroy-inflight log-failure invalid-calls overlay-hotkey stale-forward readonly-sedici unload integrated)
         set_tests_properties(sedici_abi_${scenario} PROPERTIES RUN_SERIAL TRUE LABELS "abi;gpu")

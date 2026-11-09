@@ -21,6 +21,7 @@ sedici_abi_target-auto Passed
 sedici_abi_unload Passed
 sedici_abi_window-replace Passed
 sedici_abi_window-replace-vsync Passed
+sedici_analyzers Passed
 sedici_deploy_tools Passed
 sedici_fgcheck Passed
 sedici_fgcheck_context_race Passed
@@ -45,7 +46,7 @@ sedici_regression Passed
 sedici_settings_env_priority Passed
 sedici_settings_sedici_capability Passed
 sedici_settings_worker_lifetime Passed
-ctest-total 40
+ctest-total 41
 == fgcheck
 display 480x270, render 320x180, alpha 0.5, 40 iterations
 rightward pan      psnr  42.92 dB  ssim 0.9985
@@ -64,6 +65,8 @@ fast bar           psnr  42.87 dB  ssim 0.9985
 PASS fast bar           phases in one list: 1/3 psnr  42.94 dB (nearest real  15.19), 2/3 psnr  42.66 dB (nearest real  15.12)
 fast bar           hud preservation 100.0%
 PASS fast bar           reset seed: the game frame with a HUD source, the HUD-less colour without
+PASS 10-bit rightward pan      psnr 8-bit 42.92 dB, 10-bit 42.92 dB, between them 76.61 dB
+PASS 10-bit diagonal thin bar  psnr 8-bit 45.99 dB, 10-bit 45.99 dB, between them 77.59 dB
 PASS create accepts Cyberpunk's create desc
 PASS configure accepts the FrameGenerationConfig desc
 PASS prepare accepts the legacy prepare desc
@@ -148,6 +151,13 @@ PASS numbers rounding upward to integers can be saved
 PASS FPS semantic validation uses the rounded integer
 PASS scale semantic validation uses the rounded integer
 PASS target: auto is saved as the string "auto" and the comment is kept
+PASS cursor interception finds the executable's imports
+PASS the first scan patches both cursor imports of the executable
+PASS the cursor probe module loads
+PASS interception stays available after a module loads
+PASS a module loaded after the first scan has its cursor imports intercepted
+PASS the rescan counts the new module
+PASS the probe exports its cursor call
 PASS settings: a valid candidate is applied and acknowledged with a new revision
 PASS settings: the live value follows the acknowledged snapshot
 PASS settings: an identical candidate changes nothing and keeps the revision
@@ -287,7 +297,7 @@ PASS Full capture enters on the owning window thread
 PASS overlay failure immediately stops cursor suppression
 PASS disabled overlay cannot reopen Full
 PASS current window WM_NCDESTROY reaches the game procedure
-156 checks, 0 failed
+163 checks, 0 failed
 == regression observer
 PASS overlay Full costs the caller under 5 ms of CPU per frame
 1 checks, 0 failed
