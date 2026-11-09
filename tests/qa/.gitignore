@@ -1,0 +1,3 @@
+# Full logs and the owner's raw notes stay local; the folder READMEs and log excerpts are tracked.
+*.full.log
+*.original.md

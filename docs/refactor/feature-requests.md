@@ -1,6 +1,6 @@
 # Feature requests
 
-Requests from the owner's in-game QA runs (`qa/`) and ideas that came out of them.
+Requests from the owner's in-game QA runs (`tests/qa/`) and ideas that came out of them.
 They are **not scheduled**: the owner decided (2026-11-08) to make the current system
 stable before expanding it. A request becomes work only when the owner moves it into a
 milestone. Defects are not listed here; they go to

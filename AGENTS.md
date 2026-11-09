@@ -175,6 +175,8 @@ alone.
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
 - `tools/` — deploy/restore with `.orig` safety rules, `games.json`.
+- `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-16): a table of tests
+  and one folder per test with notes, screenshots and log excerpts.
 - `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.
 - `third_party/tomlplusplus/` — unmodified toml++ v3.4.0 single header.
 - `third_party/imgui/` — unmodified Dear ImGui v1.93.0 plus DX12/Win32 backends.
@@ -204,4 +206,7 @@ proxy marker.
 - never overwrite an existing `sedici.toml` on deploy;
 - only touch the target DLL, its `.orig`, `sedici.toml` and `sedici.log`.
 
-Never commit logs, build output, or paths containing a username.
+Never commit logs, build output, or paths containing a username. Owner-approved
+exception (2026-11-08): `tests/qa/` holds the in-game QA evidence (folder READMEs,
+tidied notes, game screenshots and log **excerpts**). Full logs stay local
+(`*.full.log` is ignored), and any evidence is checked for usernames and home paths first.

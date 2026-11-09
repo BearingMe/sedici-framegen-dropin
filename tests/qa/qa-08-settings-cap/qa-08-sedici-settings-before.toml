@@ -1,0 +1,105 @@
+# Sedici configuration.
+#
+# This file lives beside amd_fidelityfx_framegeneration_dx12.dll and is read
+# once, on the first ffx* call of the process.
+#
+# Every key is optional. Delete a key and its built-in default applies; delete
+# the whole file and every default applies. The values below ARE the defaults,
+# written out so the full set is visible in one place.
+#
+# Environment variables override this file:
+#   SEDICI_LIMIT_FPS=<number>    overrides [limiter] fps
+#   MFSRFG_LOG=0|1|2             overrides [log] level
+#
+# A malformed file is never fatal. Each bad key is reported in sedici.log with
+# its line and column, that key falls back to its default, and the rest of the
+# file still applies. A syntax error falls back to defaults for every key.
+#
+# Full reference: README.md. Measurements behind these defaults:
+# docs/findings/002-pacing-baseline.md.
+
+# [pacing] and [async] existed when Sedici forwarded to AMD's frame generation.
+# They no longer do anything; an old file that still has them loads normally and
+# the log notes that they are ignored.
+
+[fg]
+# How Sedici shows its frames.
+# "vsync" - wait for the screen's refresh before each frame. No tearing, but
+#           up to one refresh of extra latency, and the game's own FPS cap must
+#           be at or below half the refresh rate (e.g. 37 FPS on a 75 Hz
+#           screen). Do not combine with [limiter]. ("vblank" means the same.)
+# "vrr"   - for FreeSync/G-Sync screens. Frames are timed from when they are
+#           actually finished on the GPU and shown from Sedici's own thread,
+#           so the screen gets evenly spaced frames. Lower latency than vsync,
+#           works with [limiter]. Keep the real FPS under half the refresh.
+#           The default. Falls back to "vsync" while RTSS is running.
+# "game"  - use the game's own settings and timing. Lowest latency, but tears.
+present = "vrr"
+
+# How many frames to show per real frame. Only used with present = "vrr";
+# "vsync" and "game" always show 2x.
+# "2x"       - one generated frame between every two real frames.
+# "1.75x"    - 7 frames for every 4 real ones.
+# "1.5x"     - 3 frames for every 2 real ones, e.g. 48 real FPS -> 72.
+# "1.25x"    - 5 frames for every 4 real ones, e.g. 60 real FPS -> 75.
+# "adaptive" - aim for target_fps frames per second whatever the real rate,
+#              up to two generated frames per real one. Latency is up to one
+#              real frame (25 ms at 40 FPS). Below 20 real FPS it shows only
+#              real frames.
+# Below 2x, frames stay evenly spaced, so most of what you see is generated:
+# 1.5x shows every second real frame on its own, 1.25x every fourth. It also
+# adds latency compared with 2x at the same real FPS: about a sixth of a real
+# frame at 1.5x, a third at 1.25x, up to half with "adaptive".
+# Keep real FPS x multiplier under the refresh rate.
+multiplier = "2x"
+
+# Only used with multiplier = "adaptive": output frames per second to aim for.
+# 0 = three below the screen's refresh rate (72 on a 75 Hz screen).
+target_fps = 0
+
+# Only used with present = "vrr". Stops a frame from being shown while the
+# screen is still drawing the previous one, which is what a tear is.
+# "scanline" - ask the GPU where the screen is in its refresh and wait for the
+#              gap between refreshes. Works with or without FreeSync/G-Sync.
+# "timer"    - wait at least one refresh since the previous frame. Only
+#              prevents tearing on FreeSync/G-Sync screens.
+# "off"      - no protection; show each frame as soon as it is due.
+tear_guard = "scanline"
+
+[limiter]
+# Cap the game's real frames inside Sedici's Present hook, before the original
+# Present is called. The generated frames are presented inside Sedici's swapchain
+# and are not capped; with 2x frame generation the output lands at about twice
+# this rate. 0 = off (default, exact milestone-1 behaviour).
+#
+# Fractions are allowed. Example: 36.5 gives about 73 output fps with 2x frame
+# generation. On a 75 Hz panel with VRR (40-75 Hz) that is the usual target:
+# inside the VRR window and ~2 fps under the ceiling. 37 gives 74 output.
+fps = 0
+
+# Final busy-wait window before the deadline, in microseconds. The high
+# resolution waitable timer covers everything before this window; the spin
+# covers the last part so the present lands on the deadline rather than on a
+# timer tick. 0 = never spin (timer only, coarser). Must be within [0, 100000].
+spin_us = 1000
+
+[log]
+# 0 = errors only
+# 1 = normal: calls, configuration, stats every 300 prepares, and one line per
+#     detected prepare stall
+# 2 = verbose: every call
+level = 1
+
+[ui]
+# Overlay menu, drawn on the final output image after frame generation.
+# "off"  - nothing until the hotkey is pressed.
+# "mini" - one line at startup.
+# "full" - full menu at startup.
+mode = "off"
+
+# "auto" scales from the output height (1080p = 1.0, clamped to 0.5-2.0), or a
+# fixed number in [0.5, 2.0].
+scale = "auto"
+
+# Modifier+key. Alt+F10 cycles Off -> Mini -> Full -> Off.
+hotkey = "alt+f10"
