@@ -1,6 +1,6 @@
 #include "describe.h"
 
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include "ffx_api.h"
 #include "ffx_api_types.h"

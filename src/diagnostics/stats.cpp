@@ -1,7 +1,7 @@
-#include "stats.h"
+#include "diagnostics/stats.h"
 
-#include "diag.h"
-#include "log.h"
+#include "diagnostics/diag.h"
+#include "diagnostics/log.h"
 
 #include "ffx_framegeneration.h"
 

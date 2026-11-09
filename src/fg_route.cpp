@@ -6,7 +6,7 @@
 #include "fg_integration.h"
 #include "fg_bookkeeping_faults.h"
 #include "fg_token_namespace.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include <windows.h>
 

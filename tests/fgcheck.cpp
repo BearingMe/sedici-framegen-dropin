@@ -31,7 +31,7 @@
 
 #include "fg_context.h"
 #include "config.h"
-#include "diag.h"
+#include "diagnostics/diag.h"
 #include "fg_integration.h"
 #include "fg_pacing.h"
 #include "fg_params.h"
@@ -40,7 +40,7 @@
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
 #include "live.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"

@@ -160,18 +160,18 @@ alone.
   for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
 - `src/live.*` — mutable live values shared by the overlay, limiter, pacing,
   async and logging.
-- `src/timing.*` — 360-sample real/output interval rings and percentiles.
+- `src/diagnostics/timing.*` — 360-sample real/output interval rings and percentiles.
 - `src/config_patch.*` — comment-preserving `sedici.toml` value patcher.
 - `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
   plus QPC spin, scheduling, and per-300-frame accuracy stats.
 - `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
   separate so it can be tested without a clock.
-- `src/stats.*` — rolling prepare/present stats every 300 prepares, plus the
+- `src/diagnostics/stats.*` — rolling prepare/present stats every 300 prepares, plus the
   prepare stall detector.
-- `src/log.*` — `sedici.log` beside the DLL, written by a background thread from a
+- `src/diagnostics/log.*` — `sedici.log` beside the DLL, written by a background thread from a
   bounded queue with per-message rate limiting and drop/loss counters,
   `MFSRFG_LOG=0/1/2`.
-- `src/diag.*` — read-only snapshot of the log counters and parked objects, and the
+- `src/diagnostics/diag.*` — read-only snapshot of the log counters and parked objects, and the
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
 - `tools/` — deploy/restore with `.orig` safety rules, `games.json`.

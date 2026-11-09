@@ -48,11 +48,11 @@ endforeach()
 # every test host compile the same production objects (no private source lists).
 add_library(sedici_core OBJECT
     src/describe.cpp
-    src/stats.cpp
+    src/diagnostics/stats.cpp
     src/limiter.cpp
     src/overlay.cpp
     src/overlay_compose.cpp
-    src/timing.cpp
+    src/diagnostics/timing.cpp
     src/live.cpp
     src/settings_tx.cpp
     src/settings_io.cpp
@@ -60,8 +60,8 @@ add_library(sedici_core OBJECT
     src/ui_input.cpp
     src/config_patch.cpp
     src/config.cpp
-    src/log.cpp
-    src/diag.cpp
+    src/diagnostics/log.cpp
+    src/diagnostics/diag.cpp
     src/fg_params.cpp
     src/fg_bookkeeping_faults.cpp
     src/fg_stage1.cpp

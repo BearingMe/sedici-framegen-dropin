@@ -1,5 +1,5 @@
 #include "settings_io.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include <windows.h>
 

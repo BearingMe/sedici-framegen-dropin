@@ -3,7 +3,7 @@
 #include "config.h"
 #include "limiter_schedule.h"
 #include "live.h"
-#include "log.h"
+#include "diagnostics/log.h"
 #include "fg_route.h"
 
 #include <windows.h>

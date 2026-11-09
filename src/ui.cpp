@@ -9,10 +9,10 @@
 #include "describe.h"
 #include "live.h"
 #include "limiter.h"
-#include "log.h"
+#include "diagnostics/log.h"
 #include "overlay_compose.h"
-#include "stats.h"
-#include "timing.h"
+#include "diagnostics/stats.h"
+#include "diagnostics/timing.h"
 #include "fg_route.h"
 #include "ui_input.h"
 

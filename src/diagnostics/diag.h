@@ -1,6 +1,6 @@
 #pragma once
 
-#include "log.h"
+#include "diagnostics/log.h"
 #include "settings_io.h"
 
 #include <cstdint>

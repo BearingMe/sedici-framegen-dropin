@@ -3,7 +3,7 @@
 #include "config_patch.h"
 #include "limiter.h"
 #include "live.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include <atomic>
 #include <cmath>

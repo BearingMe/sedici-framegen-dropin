@@ -1,4 +1,4 @@
-#include "diag.h"
+#include "diagnostics/diag.h"
 
 #include "fg_bookkeeping_faults.h"
 #include "fg_route.h"

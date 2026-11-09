@@ -2,7 +2,7 @@
 
 #include "ffx_framegeneration.h"
 #include "fg_bookkeeping_faults.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include <list>
 #include <mutex>

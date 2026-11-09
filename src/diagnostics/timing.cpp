@@ -1,4 +1,4 @@
-#include "timing.h"
+#include "diagnostics/timing.h"
 
 #include <windows.h>
 

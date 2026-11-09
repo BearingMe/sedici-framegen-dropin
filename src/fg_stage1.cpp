@@ -8,7 +8,7 @@
 
 #include "fg_shaders.h"
 #include "fg_lut_data.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 namespace sedici::fg {
 

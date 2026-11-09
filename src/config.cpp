@@ -1,7 +1,7 @@
 #include "config.h"
 
 #include "live.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include <windows.h>
 

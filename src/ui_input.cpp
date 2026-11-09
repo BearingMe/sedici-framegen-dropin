@@ -1,5 +1,5 @@
 #include "ui_input.h"
-#include "log.h"
+#include "diagnostics/log.h"
 #include "live.h"
 
 #include <atomic>

@@ -1,4 +1,4 @@
-#include "log.h"
+#include "diagnostics/log.h"
 
 #include "live.h"
 

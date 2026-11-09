@@ -12,7 +12,7 @@
 #include <new>
 
 #include "fg_pacing.h"
-#include "log.h"
+#include "diagnostics/log.h"
 
 namespace sedici::fg {
 

@@ -9,7 +9,7 @@
 #include <new>
 #include <thread>
 
-#include "log.h"
+#include "diagnostics/log.h"
 #include "config.h"
 
 namespace sedici::fg {

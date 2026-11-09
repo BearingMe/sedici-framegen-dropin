@@ -2,10 +2,10 @@
 #include "config.h"
 #include "fg_route.h"
 #include "limiter.h"
-#include "log.h"
+#include "diagnostics/log.h"
 #include "overlay.h"
-#include "stats.h"
-#include "timing.h"
+#include "diagnostics/stats.h"
+#include "diagnostics/timing.h"
 #include "ui.h"
 
 #include "ffx_api_framegeneration_dx12.h"
