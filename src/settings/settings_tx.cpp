@@ -1,8 +1,8 @@
-#include "settings_tx.h"
+#include "settings/settings_tx.h"
 
-#include "config_patch.h"
+#include "settings/config_patch.h"
 #include "limiter.h"
-#include "live.h"
+#include "settings/live.h"
 #include "diagnostics/log.h"
 
 #include <atomic>

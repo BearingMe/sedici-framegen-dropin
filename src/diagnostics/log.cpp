@@ -1,6 +1,6 @@
 #include "diagnostics/log.h"
 
-#include "live.h"
+#include "settings/live.h"
 
 #include <windows.h>
 

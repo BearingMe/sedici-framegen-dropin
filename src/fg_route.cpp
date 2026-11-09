@@ -1,6 +1,6 @@
 #include "fg_route.h"
 
-#include "config.h"
+#include "settings/config.h"
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 #include "fg_integration.h"

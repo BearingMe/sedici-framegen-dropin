@@ -1,4 +1,4 @@
-#include "config_patch.h"
+#include "settings/config_patch.h"
 
 #include <windows.h>
 #include <bcrypt.h>

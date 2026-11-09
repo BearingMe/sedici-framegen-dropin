@@ -147,7 +147,7 @@ alone.
 - `src/fg_route.*`, `src/fg_integration.*`, `src/fg_context.*` — handle tokens and
   ownership, the session that binds a context to a wrapped swapchain, and the
   frame generation context.
-- `src/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
+- `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
 - `src/describe.*` — desc-chain walking and per-type logging.
 - `src/overlay.*` — output cadence recording and the overlay draw hooks the
@@ -158,10 +158,10 @@ alone.
   controls, snapshot/cancel.
 - `src/ui_input.*` — Full-menu cursor ownership: executable import interception
   for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
-- `src/live.*` — mutable live values shared by the overlay, limiter, pacing,
+- `src/settings/live.*` — mutable live values shared by the overlay, limiter, pacing,
   async and logging.
 - `src/diagnostics/timing.*` — 360-sample real/output interval rings and percentiles.
-- `src/config_patch.*` — comment-preserving `sedici.toml` value patcher.
+- `src/settings/config_patch.*` — comment-preserving `sedici.toml` value patcher.
 - `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
   plus QPC spin, scheduling, and per-300-frame accuracy stats.
 - `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept

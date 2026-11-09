@@ -1,6 +1,6 @@
 #include "ui_input.h"
 #include "diagnostics/log.h"
-#include "live.h"
+#include "settings/live.h"
 
 #include <atomic>
 #include <cstring>

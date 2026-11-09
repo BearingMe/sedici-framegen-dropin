@@ -53,13 +53,13 @@ add_library(sedici_core OBJECT
     src/overlay.cpp
     src/overlay_compose.cpp
     src/diagnostics/timing.cpp
-    src/live.cpp
-    src/settings_tx.cpp
-    src/settings_io.cpp
+    src/settings/live.cpp
+    src/settings/settings_tx.cpp
+    src/settings/settings_io.cpp
     src/ui.cpp
     src/ui_input.cpp
-    src/config_patch.cpp
-    src/config.cpp
+    src/settings/config_patch.cpp
+    src/settings/config.cpp
     src/diagnostics/log.cpp
     src/diagnostics/diag.cpp
     src/fg_params.cpp

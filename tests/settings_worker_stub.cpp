@@ -1,7 +1,7 @@
 // Test-only module: exercises the production settings worker's module reference.
 // This is not the Sedici proxy and is never packaged or deployed.
-#include "settings_io.h"
-#include "settings_tx.h"
+#include "settings/settings_io.h"
+#include "settings/settings_tx.h"
 
 #include <windows.h>
 

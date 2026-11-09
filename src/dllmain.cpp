@@ -1,5 +1,5 @@
 #include "describe.h"
-#include "config.h"
+#include "settings/config.h"
 #include "fg_route.h"
 #include "limiter.h"
 #include "diagnostics/log.h"

@@ -10,7 +10,7 @@
 #include <mutex>
 #include <vector>
 
-#include "config.h"
+#include "settings/config.h"
 #include "fg_pacing.h"
 #include "fg_presenter.h"
 #include "fg_stage1.h"

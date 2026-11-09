@@ -14,7 +14,7 @@
 #include <thread>
 #include <vector>
 
-#include "config.h"
+#include "settings/config.h"
 #include "fg_queue_policy.h"
 
 // `[fg] present = "vrr"`: presentation off the game's thread and queue.

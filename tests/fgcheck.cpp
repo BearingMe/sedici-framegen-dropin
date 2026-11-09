@@ -30,7 +30,7 @@
 #include <DirectXPackedVector.h>
 
 #include "fg_context.h"
-#include "config.h"
+#include "settings/config.h"
 #include "diagnostics/diag.h"
 #include "fg_integration.h"
 #include "fg_pacing.h"
@@ -39,7 +39,7 @@
 #include "fg_bookkeeping_faults.h"
 #include "fg_stage1.h"
 #include "fg_swapchain.h"
-#include "live.h"
+#include "settings/live.h"
 #include "diagnostics/log.h"
 
 #include "ffx_api_framegeneration_dx12.h"

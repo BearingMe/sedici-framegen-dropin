@@ -2,12 +2,12 @@
 
 #include "fg_bookkeeping_faults.h"
 
-#include "config.h"
-#include "config_patch.h"
-#include "settings_tx.h"
-#include "settings_io.h"
+#include "settings/config.h"
+#include "settings/config_patch.h"
+#include "settings/settings_tx.h"
+#include "settings/settings_io.h"
 #include "describe.h"
-#include "live.h"
+#include "settings/live.h"
 #include "limiter.h"
 #include "diagnostics/log.h"
 #include "overlay_compose.h"

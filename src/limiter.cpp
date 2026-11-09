@@ -1,8 +1,8 @@
 #include "limiter.h"
 
-#include "config.h"
+#include "settings/config.h"
 #include "limiter_schedule.h"
-#include "live.h"
+#include "settings/live.h"
 #include "diagnostics/log.h"
 #include "fg_route.h"
 
