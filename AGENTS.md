@@ -150,7 +150,7 @@ alone.
 - `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
 - `src/abi/describe.*` — desc-chain walking and per-type logging.
-- `src/ui/ui/overlay.*` — output cadence recording and the overlay draw hooks the
+- `src/ui/overlay.*` — output cadence recording and the overlay draw hooks the
   swapchain wrapper calls for each presented frame.
 - `src/presentation/overlay_compose.*` — the DX12 copy and resource-state restoration used by
   that callback.

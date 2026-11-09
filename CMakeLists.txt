@@ -111,7 +111,7 @@ set_target_properties(sedici PROPERTIES
 option(SEDICI_BUILD_TESTS "Build the offline Windows regression checks" OFF)
 if(SEDICI_BUILD_TESTS)
     enable_testing()
-    add_executable(sedici_regression tests/regression.cpp $<TARGET_OBJECTS:sedici_core>)
+    add_executable(sedici_regression tests/regression/regression.cpp $<TARGET_OBJECTS:sedici_core>)
     target_link_libraries(sedici_regression PRIVATE sedici_core)
     set_target_properties(sedici_regression PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
@@ -123,17 +123,17 @@ if(SEDICI_BUILD_TESTS)
 
     # Deploy/restore safety rules against a throwaway fake repo and game folder.
     add_test(NAME sedici_deploy_tools COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
-        -File ${CMAKE_SOURCE_DIR}/tests/deploy_check.ps1 -Dll $<TARGET_FILE:sedici> -Repo ${CMAKE_SOURCE_DIR})
+        -File ${CMAKE_SOURCE_DIR}/tests/tools/deploy_check.ps1 -Dll $<TARGET_FILE:sedici> -Repo ${CMAKE_SOURCE_DIR})
     set_tests_properties(sedici_deploy_tools PROPERTIES TIMEOUT 120 LABELS "packaging")
 
     # Test-only module and isolated host: unlike the proxy, this helper exports
     # one control entry so the host can verify the worker's DLL reference.
     add_library(sedici_settings_worker_stub SHARED
-        tests/settings_worker_stub.cpp $<TARGET_OBJECTS:sedici_core>)
+        tests/settings/settings_worker_stub.cpp $<TARGET_OBJECTS:sedici_core>)
     target_link_libraries(sedici_settings_worker_stub PRIVATE sedici_core)
     set_target_properties(sedici_settings_worker_stub PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    add_executable(sedici_settings_worker_host tests/settings_worker_host.cpp)
+    add_executable(sedici_settings_worker_host tests/settings/settings_worker_host.cpp)
     set_target_properties(sedici_settings_worker_host PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     add_dependencies(sedici_settings_worker_host sedici_settings_worker_stub)
@@ -147,9 +147,9 @@ if(SEDICI_BUILD_TESTS)
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
 
     # Export-level harness: the built DLL through its five exports, next to a
-    # stub "original" that records what is forwarded (tests/abi_stub.h). Each
+    # stub "original" that records what is forwarded (tests/abi/abi_stub.h). Each
     # scenario runs in its own process and scratch directory.
-    add_library(sedici_abi_stub SHARED tests/abi_stub.cpp)
+    add_library(sedici_abi_stub SHARED tests/abi/abi_stub.cpp)
     target_include_directories(sedici_abi_stub PRIVATE
         third_party/ffx/api/include
         third_party/ffx/framegeneration/include
@@ -157,7 +157,7 @@ if(SEDICI_BUILD_TESTS)
     target_compile_options(sedici_abi_stub PRIVATE /utf-8 /W4 /permissive-)
     set_target_properties(sedici_abi_stub PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    add_executable(sedici_abi tests/abi.cpp)
+    add_executable(sedici_abi tests/abi/abi.cpp)
     target_include_directories(sedici_abi PRIVATE
         third_party/ffx/api/include
         third_party/ffx/api/include/dx12
@@ -186,7 +186,7 @@ endif()
 # GPU time; --images also writes the two frames as PPM.
 option(SEDICI_BUILD_FGCHECK "Build the offline frame generation acceptance host" OFF)
 if(SEDICI_BUILD_FGCHECK)
-    add_executable(sedici_fgcheck tests/fgcheck.cpp $<TARGET_OBJECTS:sedici_core>)
+    add_executable(sedici_fgcheck tests/integration/fgcheck.cpp $<TARGET_OBJECTS:sedici_core>)
     target_link_libraries(sedici_fgcheck PRIVATE sedici_core)
     set_target_properties(sedici_fgcheck PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
