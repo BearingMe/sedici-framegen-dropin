@@ -13,7 +13,7 @@
 #include "settings/config.h"
 #include "fg_pacing.h"
 #include "fg_presenter.h"
-#include "fg_stage1.h"
+#include "generator/stage1.h"
 
 namespace sedici::fg {
 

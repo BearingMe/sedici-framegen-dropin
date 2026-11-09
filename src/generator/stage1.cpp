@@ -1,4 +1,4 @@
-#include "fg_stage1.h"
+#include "generator/stage1.h"
 
 #include <d3dcompiler.h>
 
@@ -6,8 +6,8 @@
 #include <cstring>
 #include <string>
 
-#include "fg_shaders.h"
-#include "fg_lut_data.h"
+#include "generator/shaders.h"
+#include "generator/lut_data.h"
 #include "diagnostics/log.h"
 
 namespace sedici::fg {

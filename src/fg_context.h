@@ -4,8 +4,8 @@
 
 #include <d3d12.h>
 
-#include "fg_params.h"
-#include "fg_stage1.h"
+#include "generator/params.h"
+#include "generator/stage1.h"
 
 // Sedici's frame generation context.
 //

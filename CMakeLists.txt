@@ -62,9 +62,9 @@ add_library(sedici_core OBJECT
     src/settings/config.cpp
     src/diagnostics/log.cpp
     src/diagnostics/diag.cpp
-    src/fg_params.cpp
+    src/generator/params.cpp
     src/fg_bookkeeping_faults.cpp
-    src/fg_stage1.cpp
+    src/generator/stage1.cpp
     src/fg_context.cpp
     src/fg_swapchain.cpp
     src/fg_presenter.cpp

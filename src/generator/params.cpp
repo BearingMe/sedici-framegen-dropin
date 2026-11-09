@@ -1,4 +1,4 @@
-#include "fg_params.h"
+#include "generator/params.h"
 
 #include <cmath>
 

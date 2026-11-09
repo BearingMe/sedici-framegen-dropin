@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-#include "fg_params.h"
+#include "generator/params.h"
 
 // Stage 1 of Sedici's frame generation: the Mob-FGSR analytical pass.
 //
