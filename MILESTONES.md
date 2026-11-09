@@ -12,6 +12,8 @@
 - **Phase 3:** organise the code into the module layout and prove against the Phase 2
   baseline that nothing changed; document it in the commits and in `docs/dev/`. No
   behaviour change. Proposed 2026-11-09, starts after P2.11; see the Phase 3 section.
+- **Phase 4 (placeholder):** cover all open issues and improvements, on the Phase 3 layout.
+  Not planned yet; see the Phase 4 section at the end.
 - **Later delivery:** implement and validate residual inference against
   [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
   the boundary, not quietly absorb model training, inference optimization, and
@@ -651,7 +653,7 @@ Phase 3 has started.
 features, game or format support (10-bit, HDR, Alan Wake 2), the error-contract work, the
 watchdog, the configuration schema, Stage 2 seams, splitting or rewriting large files, and
 renaming symbols, or renaming files other than dropping the `fg_` prefix. Those stay in the backlog ([known-issues.md](docs/refactor/known-issues.md),
-[feature-requests.md](docs/refactor/feature-requests.md)) and will get their own phase. The
+[feature-requests.md](docs/refactor/feature-requests.md)) and are covered by Phase 4. The
 AGENTS.md hard rules still apply: five exports, no game launch, `third_party/` and the loader
 and upscaler DLLs untouched.
 
@@ -798,3 +800,25 @@ without reading the history. The backlog is untouched and waits for the next pha
    behaviour.
 2. **Decided (2026-11-09):** drop the `fg_` prefix during the move; no other renames.
 3. **Decided (2026-11-09):** no in-game smoke check; the owner considers all behaviours proven.
+
+## Phase 4 — Cover all issues and improvements (placeholder)
+
+**Status:** placeholder, not planned (2026-11-09). Phase 4 starts after Phase 3, so every fix
+lands in the new module layout and can be compared against the Phase 2 baseline.
+
+**Intended scope:** everything Phase 3 deliberately left alone.
+
+- The open defects in [known-issues.md](docs/refactor/known-issues.md), each ending as fixed,
+  accepted with a reason, or obsolete.
+- The requests in [feature-requests.md](docs/refactor/feature-requests.md).
+- The game and format support set (10-bit back buffers, the HDR flag, Alan Wake 2: K14, K100,
+  K129-K132).
+- The contracts deferred in P2.10: typed error codes with call, frame and settings identity,
+  structured log events, the watchdog decision, the configuration schema and the hidden
+  environment switches (K20).
+- Splitting the large source and test files, and breaking the module cycles recorded in
+  `docs/dev/layout.md`.
+- The Stage 1 cost (K117) and the Stage 2 seams.
+
+**Not decided:** milestones, order, sizes and exit criteria. Write them when Phase 3 closes,
+using the Phase 3 layout and the open entries as they stand then.
