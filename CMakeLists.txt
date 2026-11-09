@@ -49,9 +49,9 @@ endforeach()
 add_library(sedici_core OBJECT
     src/abi/describe.cpp
     src/diagnostics/stats.cpp
-    src/limiter.cpp
+    src/presentation/limiter.cpp
     src/overlay.cpp
-    src/overlay_compose.cpp
+    src/presentation/overlay_compose.cpp
     src/diagnostics/timing.cpp
     src/settings/live.cpp
     src/settings/settings_tx.cpp
@@ -66,9 +66,9 @@ add_library(sedici_core OBJECT
     src/runtime/bookkeeping_faults.cpp
     src/generator/stage1.cpp
     src/runtime/context.cpp
-    src/fg_swapchain.cpp
-    src/fg_presenter.cpp
-    src/fg_pacing.cpp
+    src/presentation/swapchain.cpp
+    src/presentation/presenter.cpp
+    src/presentation/pacing.cpp
     src/runtime/integration.cpp
     src/abi/route.cpp
     ${SEDICI_IMGUI_SOURCES}

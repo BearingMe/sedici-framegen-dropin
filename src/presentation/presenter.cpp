@@ -1,4 +1,4 @@
-#include "fg_presenter.h"
+#include "presentation/presenter.h"
 #include "runtime/bookkeeping_faults.h"
 #include "gpu/retirement_policy.h"
 #include "gpu/queue_policy.h"
@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <new>
 
-#include "fg_pacing.h"
+#include "presentation/pacing.h"
 #include "diagnostics/log.h"
 
 namespace sedici::fg {

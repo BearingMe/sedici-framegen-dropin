@@ -152,7 +152,7 @@ alone.
 - `src/abi/describe.*` — desc-chain walking and per-type logging.
 - `src/overlay.*` — output cadence recording and the overlay draw hooks the
   swapchain wrapper calls for each presented frame.
-- `src/overlay_compose.*` — the DX12 copy and resource-state restoration used by
+- `src/presentation/overlay_compose.*` — the DX12 copy and resource-state restoration used by
   that callback.
 - `src/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live
   controls, snapshot/cancel.
@@ -162,9 +162,9 @@ alone.
   async and logging.
 - `src/diagnostics/timing.*` — 360-sample real/output interval rings and percentiles.
 - `src/settings/config_patch.*` — comment-preserving `sedici.toml` value patcher.
-- `src/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
+- `src/presentation/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
   plus QPC spin, scheduling, and per-300-frame accuracy stats.
-- `src/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
+- `src/presentation/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
   separate so it can be tested without a clock.
 - `src/diagnostics/stats.*` — rolling prepare/present stats every 300 prepares, plus the
   prepare stall detector.

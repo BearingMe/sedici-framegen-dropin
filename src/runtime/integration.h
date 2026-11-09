@@ -2,7 +2,7 @@
 
 #include "ffx_api.h"
 #include "runtime/context.h"
-#include "fg_swapchain.h"
+#include "presentation/swapchain.h"
 
 #include <d3d12.h>
 #include <mutex>

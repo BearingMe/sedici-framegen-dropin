@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "settings/config.h"
-#include "fg_pacing.h"
-#include "fg_presenter.h"
+#include "presentation/pacing.h"
+#include "presentation/presenter.h"
 #include "generator/stage1.h"
 
 namespace sedici::fg {
