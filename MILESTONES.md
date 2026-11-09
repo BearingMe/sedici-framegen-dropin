@@ -813,8 +813,9 @@ measurement that fails before and passes after, an entry update with the commit 
 Phase 2 baseline (`tools/baseline.ps1`) still passing except for the lines the fix is meant to
 change (record those in the commit).
 
-**Status:** proposed, awaiting owner approval (2026-11-09). Nothing in Phase 4 has started.
-Work happens on the branch `phase-4`.
+**Status:** in progress (2026-11-09). The owner set the decisions below and the goal "implement all
+milestones that can run offline": P4.1 to P4.5 are done and committed on the branch `phase-4`; P4.6 to
+P4.9 need the game and wait for the owner's sessions.
 
 **Owner decisions (2026-11-09):**
 
@@ -848,7 +849,7 @@ updated: 2026-11-09.
 | P4.2 Menu, settings and counter logic | Medium | Offline | Complete (2026-11-09); K10, K119 and K124 move on, see below | P4.1 |
 | P4.3 Lifetimes, shutdown and error contracts | Large | Offline | Complete (2026-11-09); game confirmations on the P4.7 list | P4.1 |
 | P4.4 Stage 1 cost and generated-frame quality | Large | Offline | Complete (2026-11-09); K120 capture on the P4.7 list | P4.1 |
-| P4.5 Structure: module cycles and large files | Large | Offline | Proposed | P4.2 to P4.4 |
+| P4.5 Structure: module cycles and large files | Large | Offline | Complete (2026-11-09); file splitting partial, see below | P4.2 to P4.4 |
 | P4.6 Pacing and presentation | Large | Game | Proposed | P4.5 |
 | P4.7 In-game defects from the owner's QA run | Large | Game | Proposed | P4.5 |
 | P4.8 Alan Wake 2 | Large | Offline build, game acceptance | Proposed | P4.5; owner sessions |
@@ -944,6 +945,20 @@ Use the Phase 3 method: one module per commit, `tools/baseline.ps1` and `check_m
 a commit is a pure move.
 
 **Exit:** no cycle left unrecorded, no new one added, baseline identical.
+
+**Result (2026-11-09):**
+
+- **Cycles:** all seven are gone and a CTest entry, `sedici_layers` (`tools/check_layers.ps1`), fails any
+  include that goes to the same or a higher layer. Moves: `bookkeeping_faults` to `diagnostics/`, `diag` to
+  the new `status/` module; inversions: the log level (`log_publish_level`), the limiter cap listener
+  (`live_set_cap_listener`), the limiter's frame generation probe (`limiter_set_fg_probe`), the stats extra
+  line (`stats_set_extra_line`). Commit ac86c5e. The layer table is in `docs/dev/layout.md`.
+- **Large files:** `fgcheck.cpp` (186 KB) is split into `fgcheck.cpp`, `fgcheck_common.h` and five check
+  groups; the largest is 53 KB (commit b97463f). **Not done:** `abi.cpp` (73 KB), `regression.cpp` (71 KB),
+  `swapchain.cpp` (56 KB) and `ui.cpp` (43 KB) are unchanged. The two test files could be split the same way;
+  the two production files would move code that the in-game sessions still have to confirm, so they wait
+  until after P4.9 unless the owner asks sooner.
+- **Baseline:** identical to the P4.4 record (293 lines, 40 of 40) after both commits.
 
 ### P4.6 — Pacing and presentation (game)
 

@@ -17,7 +17,7 @@ Phase 3 organised `src/` into modules without changing behaviour. The target is
 | `status/` | the read-only snapshot of parked objects and log counters (the `diag:` line) | `diag` |
 
 All sources except `dllmain.cpp` are built once into the `sedici_core` object library, which the
-DLL and every test host share. Tests live in `tests/abi`, `tests/integration` (`sedici_fgcheck`),
+DLL and every test host share. Tests live in `tests/abi`, `tests/integration` (`sedici_fgcheck`, six files: main, a shared header and five check groups),
 `tests/regression`, `tests/settings`, `tests/tools` and `tests/qa` (the owner's in-game record).
 
 ## Layers and include edges (P4.5)

@@ -74,3 +74,9 @@ The `fg_` prefix was dropped; nothing else was renamed.
 
 `src/dllmain.cpp` and `exports.def` did not move. Comments inside moved files still use the old
 names; they were left alone because Phase 3 changes only `#include` lines.
+
+## Later changes (Phase 4)
+
+- P4.5: `tests/integration/fgcheck.cpp` was split in place into `fgcheck.cpp` (main), `fgcheck_common.h`,
+  `fgcheck_quality.cpp`, `fgcheck_pacing.cpp`, `fgcheck_present.cpp`, `fgcheck_routing.cpp` and
+  `fgcheck_retention.cpp`. The executable and the CTest names are unchanged.
