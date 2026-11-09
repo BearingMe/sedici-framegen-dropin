@@ -8,8 +8,8 @@ refactored the flat `src/` in place instead, and the AMD backend was removed (d9
 tag `pre-amd-removal`). Version 2 keeps version 1's module split and applies it to the
 code as it is.
 
-**Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv`, keep
-their base names, and change only in their `#include` lines. Nothing is renamed, split or
+**Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv` and lose their `fg_` prefix (the folder now says what
+`fg_` said). They change only in their `#include` lines. Nothing else is renamed, split or
 rewritten, and no behaviour changes. A module boundary that the code already crosses in
 both directions is recorded in [docs/dev/layout.md](../dev/layout.md), not repaired here.
 
@@ -24,26 +24,26 @@ sedici/
 |   |-- dllmain.cpp                 # DLL entry and the five exports
 |   |-- abi/                        # Descriptor handling and handle routing
 |   |   |-- describe.{h,cpp}
-|   |   |-- fg_route.{h,cpp}
-|   |   `-- fg_token_namespace.h
+|   |   |-- route.{h,cpp}
+|   |   `-- token_namespace.h
 |   |-- runtime/                    # Session, context and ownership
-|   |   |-- fg_integration.{h,cpp}
-|   |   |-- fg_context.{h,cpp}
-|   |   `-- fg_bookkeeping_faults.{h,cpp}
+|   |   |-- integration.{h,cpp}
+|   |   |-- context.{h,cpp}
+|   |   `-- bookkeeping_faults.{h,cpp}
 |   |-- generator/                  # Stage 1 (Mob-FGSR analytical pass)
-|   |   |-- fg_stage1.{h,cpp}
-|   |   |-- fg_params.{h,cpp}
-|   |   |-- fg_packing.h
-|   |   |-- fg_shaders.h
-|   |   `-- fg_lut_data.h
+|   |   |-- stage1.{h,cpp}
+|   |   |-- params.{h,cpp}
+|   |   |-- packing.h
+|   |   |-- shaders.h
+|   |   `-- lut_data.h
 |   |-- gpu/                        # Pure queue, slot and retirement policies
-|   |   |-- fg_queue_policy.h
-|   |   |-- fg_slot_policy.h
-|   |   `-- fg_retirement_policy.h
+|   |   |-- queue_policy.h
+|   |   |-- slot_policy.h
+|   |   `-- retirement_policy.h
 |   |-- presentation/               # Game-facing swapchain, pacing, limiter
-|   |   |-- fg_swapchain.{h,cpp}
-|   |   |-- fg_presenter.{h,cpp}
-|   |   |-- fg_pacing.{h,cpp}
+|   |   |-- swapchain.{h,cpp}
+|   |   |-- presenter.{h,cpp}
+|   |   |-- pacing.{h,cpp}
 |   |   |-- limiter.{h,cpp}
 |   |   |-- limiter_schedule.h
 |   |   `-- overlay_compose.{h,cpp}
@@ -87,13 +87,14 @@ root because the linker and the tests reference it there.
 - `backends/amd/`, `third_party/amd_fsr3/` and every `.orig` or bundled-runtime item: the AMD
   backend is gone.
 - `residual/`, `shaders/`, `assets/`: Stage 2 is postponed, the shaders are embedded in
-  `generator/fg_shaders.h` and the LUT in `generator/fg_lut_data.h`. Empty directories are
+  `generator/shaders.h` and the LUT in `generator/lut_data.h`. Empty directories are
   not created.
 - `cmake/` helper files and `CMakePresets.json`: not needed for a move. The build keeps the
   single `sedici_core` object library so the tests exercise the same compiled objects as the
   DLL.
-- Renames such as dropping the `fg_` prefix: deferred. Keeping base names keeps
-  `git log --follow` and grep working across the move.
+- Symbol renames and any file rename other than dropping the `fg_` prefix. `git mv` records
+  each prefix drop as a rename, so `git log --follow` still works; `docs/dev/moves.md`
+  lists old and new names for grep.
 
 ## Dependency direction
 
@@ -121,19 +122,22 @@ runtime through sinks and hooks). Phase 3 moves files and records the real inclu
 
 ## Current-code migration map
 
+New names are the old names without the `fg_` prefix. Files that never had it keep their
+name.
+
 | Current file | Target |
 | --- | --- |
-| `describe.*`, `fg_route.*`, `fg_token_namespace.h` | `src/abi/` |
-| `fg_integration.*`, `fg_context.*`, `fg_bookkeeping_faults.*` | `src/runtime/` |
-| `fg_stage1.*`, `fg_params.*`, `fg_packing.h`, `fg_shaders.h`, `fg_lut_data.h` | `src/generator/` |
-| `fg_queue_policy.h`, `fg_slot_policy.h`, `fg_retirement_policy.h` | `src/gpu/` |
-| `fg_swapchain.*`, `fg_presenter.*`, `fg_pacing.*`, `limiter.*`, `limiter_schedule.h`, `overlay_compose.*` | `src/presentation/` |
-| `overlay.*`, `ui.*`, `ui_input.*`, `imgui_config.h` | `src/ui/` |
-| `config.*`, `config_patch.*`, `live.*`, `settings_io.*`, `settings_tx.*` | `src/settings/` |
-| `log.*`, `diag.*`, `stats.*`, `timing.*` | `src/diagnostics/` |
+| `describe.*`, `fg_route.*`, `fg_token_namespace.h` | `src/abi/describe.*`, `route.*`, `token_namespace.h` |
+| `fg_integration.*`, `fg_context.*`, `fg_bookkeeping_faults.*` | `src/runtime/integration.*`, `context.*`, `bookkeeping_faults.*` |
+| `fg_stage1.*`, `fg_params.*`, `fg_packing.h`, `fg_shaders.h`, `fg_lut_data.h` | `src/generator/stage1.*`, `params.*`, `packing.h`, `shaders.h`, `lut_data.h` |
+| `fg_queue_policy.h`, `fg_slot_policy.h`, `fg_retirement_policy.h` | `src/gpu/queue_policy.h`, `slot_policy.h`, `retirement_policy.h` |
+| `fg_swapchain.*`, `fg_presenter.*`, `fg_pacing.*`, `limiter.*`, `limiter_schedule.h`, `overlay_compose.*` | `src/presentation/swapchain.*`, `presenter.*`, `pacing.*`, `limiter.*`, `limiter_schedule.h`, `overlay_compose.*` |
+| `overlay.*`, `ui.*`, `ui_input.*`, `imgui_config.h` | `src/ui/` (same names) |
+| `config.*`, `config_patch.*`, `live.*`, `settings_io.*`, `settings_tx.*` | `src/settings/` (same names) |
+| `log.*`, `diag.*`, `stats.*`, `timing.*` | `src/diagnostics/` (same names) |
 | `dllmain.cpp` | stays in `src/` |
 | `tests/abi.cpp`, `abi_stub.*` | `tests/abi/` |
-| `tests/fgcheck.cpp` | `tests/integration/` |
+| `tests/fgcheck.cpp` | `tests/integration/fgcheck.cpp` (the executable keeps its name) |
 | `tests/regression.cpp` | `tests/regression/` |
 | `tests/settings_worker_*.cpp` | `tests/settings/` |
 | `tests/deploy_check.ps1` | `tests/tools/` |

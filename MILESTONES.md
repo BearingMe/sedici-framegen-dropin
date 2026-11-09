@@ -650,7 +650,7 @@ Phase 3 has started.
 **Out of scope, by the owner's decision:** any behaviour change, any bug fix, new
 features, game or format support (10-bit, HDR, Alan Wake 2), the error-contract work, the
 watchdog, the configuration schema, Stage 2 seams, splitting or rewriting large files, and
-renaming files or symbols. Those stay in the backlog ([known-issues.md](docs/refactor/known-issues.md),
+renaming symbols, or renaming files other than dropping the `fg_` prefix. Those stay in the backlog ([known-issues.md](docs/refactor/known-issues.md),
 [feature-requests.md](docs/refactor/feature-requests.md)) and will get their own phase. The
 AGENTS.md hard rules still apply: five exports, no game launch, `third_party/` and the loader
 and upscaler DLLs untouched.
@@ -667,17 +667,18 @@ Taken at the commit that closes P2.11, tagged `phase2-baseline`, and recorded in
   `sedici_regression observer` numbers, as recorded values with the tolerance for noise
   stated beside them.
 - The set of source files, their `#include` lines excluded, hashed per file. This is the
-  "nothing changed" proof: after a move, every moved file must hash the same once its
-  `#include` lines are removed.
+  "nothing changed" proof: after a move, every moved file (matched through the old-to-new
+  name ledger) must hash the same once its `#include` lines are removed.
 
-The in-game QA record ([tests/qa](tests/qa/README.md)) is the behavioural reference, but
-Phase 3 does not require new in-game runs except the owner's smoke check at the end.
+The in-game QA record ([tests/qa](tests/qa/README.md)) is the behavioural reference. The owner
+considers the behaviours proven (2026-11-09), so Phase 3 needs no new in-game runs.
 
 ### Rules for every slice
 
 - One module per slice, one slice per commit group, each commit building and passing `ctest`.
-- Move with `git mv` so history follows. Keep base names. Change only `#include` lines and the
-  source lists in `CMakeLists.txt`. If a move needs any other edit, stop and record why.
+- Move with `git mv` so history follows. Drop the `fg_` prefix from file names (the folder
+  replaces it) and change nothing else except `#include` lines and the source lists in
+  `CMakeLists.txt`. If a move needs any other edit, stop and record why.
 - Run the baseline comparison before and after the slice. A difference is not "fixed in
   passing"; the slice is reverted or the difference is recorded as a finding for the next phase.
 - Existing cycles between modules are recorded in `docs/dev/layout.md`, not removed.
@@ -691,8 +692,8 @@ scope naming the module, and a body that a reader can use without opening the di
 ```text
 refactor(presentation): move the swapchain, presenter, pacing and limiter files
 
-Moved (git mv, base names kept):
-  src/fg_swapchain.{h,cpp}  -> src/presentation/
+Moved (git mv, fg_ prefix dropped):
+  src/fg_swapchain.{h,cpp}  -> src/presentation/swapchain.{h,cpp}
   ...
 Changed: #include lines and the source lists in CMakeLists.txt only.
 Baseline: ctest 37/37, exports unchanged, fgcheck quality lines identical,
@@ -714,7 +715,7 @@ updated: 2026-11-09.
 | P3.3 Core modules: generator, runtime, abi | Large | Proposed | P3.2 |
 | P3.4 Presentation and UI | Large | Proposed | P3.3 |
 | P3.5 Tests, `docs/dev` and AGENTS layout | Large | Proposed | P3.1; finishes after P3.4 |
-| P3.6 Final proof and owner smoke check | Large | Proposed | P3.4, P3.5 |
+| P3.6 Final proof | Large | Proposed | P3.4, P3.5 |
 
 ### P3.1 — Baseline and move checker
 
@@ -774,14 +775,15 @@ Update the AGENTS.md layout section and the root README links, and mark
 **Exit:** a link check over the tracked documents passes; every file in `moves.md` exists at
 its new path; AGENTS.md describes the tree that is on disk.
 
-### P3.6 — Final proof and owner smoke check
+### P3.6 — Final proof
 
 Run the full baseline comparison on the final tree and attach the result to
-`docs/dev/baseline.md`. The owner runs a short in-game smoke check on the final build
-(QA-01 deploy, QA-02 generation in Cyberpunk, QA-15 rollback) and confirms nothing differs.
+`docs/dev/baseline.md`. No in-game run is needed: the owner's QA record is the behavioural
+reference and the offline baseline proves the code is unchanged. Update references to old
+file names in the living documents (the historical findings and K entries keep the names
+they were written with; `docs/dev/moves.md` maps them).
 
-**Exit:** all comparisons identical; owner smoke check passed; the milestone and progress
-tables are current.
+**Exit:** all comparisons identical; the milestone and progress tables are current.
 
 ### Phase 3 exit
 
@@ -794,5 +796,5 @@ without reading the history. The backlog is untouched and waits for the next pha
 
 1. **Decided (2026-11-09):** Phase 3 starts after P2.11 closes; refactoring does not change
    behaviour.
-2. **Open:** keep base names (as written), or also drop the `fg_` prefix during the move?
-3. **Open:** the in-game smoke check at the end: QA-01, QA-02 and QA-15, or a different set?
+2. **Decided (2026-11-09):** drop the `fg_` prefix during the move; no other renames.
+3. **Decided (2026-11-09):** no in-game smoke check; the owner considers all behaviours proven.
