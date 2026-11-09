@@ -47,7 +47,7 @@ endforeach()
 # Everything except the five exports lives in one object library, so the DLL and
 # every test host compile the same production objects (no private source lists).
 add_library(sedici_core OBJECT
-    src/describe.cpp
+    src/abi/describe.cpp
     src/diagnostics/stats.cpp
     src/limiter.cpp
     src/overlay.cpp
@@ -70,7 +70,7 @@ add_library(sedici_core OBJECT
     src/fg_presenter.cpp
     src/fg_pacing.cpp
     src/runtime/integration.cpp
-    src/fg_route.cpp
+    src/abi/route.cpp
     ${SEDICI_IMGUI_SOURCES}
 )
 

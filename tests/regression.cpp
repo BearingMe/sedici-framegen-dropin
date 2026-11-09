@@ -1,6 +1,6 @@
 #include "settings/config.h"
 #include "settings/config_patch.h"
-#include "fg_token_namespace.h"
+#include "abi/token_namespace.h"
 #include "gpu/retirement_policy.h"
 #include "gpu/queue_policy.h"
 #include "gpu/slot_policy.h"

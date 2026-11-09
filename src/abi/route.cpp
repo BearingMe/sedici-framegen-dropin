@@ -1,11 +1,11 @@
-#include "fg_route.h"
+#include "abi/route.h"
 
 #include "settings/config.h"
 #include "ffx_api_framegeneration_dx12.h"
 #include "ffx_framegeneration.h"
 #include "runtime/integration.h"
 #include "runtime/bookkeeping_faults.h"
-#include "fg_token_namespace.h"
+#include "abi/token_namespace.h"
 #include "diagnostics/log.h"
 
 #include <windows.h>

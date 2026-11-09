@@ -144,12 +144,12 @@ alone.
 
 - `MILESTONES.md` — experiment phases, acceptance gates and implementation references.
 - `src/dllmain.cpp` — the five exports; each call is answered by the router.
-- `src/fg_route.*`, `src/runtime/integration.*`, `src/runtime/context.*` — handle tokens and
+- `src/abi/route.*`, `src/runtime/integration.*`, `src/runtime/context.*` — handle tokens and
   ownership, the session that binds a context to a wrapped swapchain, and the
   frame generation context.
 - `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
   provenance, once-at-load reporting.
-- `src/describe.*` — desc-chain walking and per-type logging.
+- `src/abi/describe.*` — desc-chain walking and per-type logging.
 - `src/overlay.*` — output cadence recording and the overlay draw hooks the
   swapchain wrapper calls for each presented frame.
 - `src/overlay_compose.*` — the DX12 copy and resource-state restoration used by

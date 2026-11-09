@@ -35,7 +35,7 @@
 #include "runtime/integration.h"
 #include "fg_pacing.h"
 #include "generator/params.h"
-#include "fg_route.h"
+#include "abi/route.h"
 #include "runtime/bookkeeping_faults.h"
 #include "generator/stage1.h"
 #include "fg_swapchain.h"
