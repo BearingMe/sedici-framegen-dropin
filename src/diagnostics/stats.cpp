@@ -5,6 +5,7 @@
 
 #include "ffx_framegeneration.h"
 
+#include <atomic>
 #include <windows.h>
 
 #pragma warning(push)
@@ -430,6 +431,13 @@ void stats_on_swapchain_event(const char* kind) noexcept
         log_error("failed to record a swapchain event");
     }
 }
+
+namespace {
+std::atomic<uint64_t> g_real_dropped{0};
+}
+
+void stats_on_real_dropped() noexcept { g_real_dropped.fetch_add(1, std::memory_order_relaxed); }
+uint64_t stats_real_dropped() noexcept { return g_real_dropped.load(std::memory_order_relaxed); }
 
 uint64_t stats_stall_count() noexcept
 {

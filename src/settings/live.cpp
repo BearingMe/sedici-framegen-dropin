@@ -1,4 +1,5 @@
 #include "settings/live.h"
+#include "settings/target_rate.h"
 
 #include <algorithm>
 #include <atomic>
@@ -10,6 +11,8 @@ namespace {
 std::mutex g_values_mutex;
 LiveValues g_values;
 std::atomic<int> g_ui_mode{static_cast<int>(UiMode::Off)};
+std::atomic<double> g_ratio{1.0};
+std::atomic<double> g_refresh_hz{0.0};
 
 } // namespace
 
@@ -28,7 +31,8 @@ void live_apply(const LiveValues& values) noexcept
 void live_initialize(const Settings& config) noexcept
 {
     LiveValues values;
-    values.limiter_fps = config.limiter.fps;
+    values.target_fps = config.fg.target_fps;
+    values.target_auto = config.fg.target_auto;
     values.log_level = config.log.level;
     values.scale_mode = config.ui.scale_mode;
     values.ui_scale = config.ui.scale;
@@ -36,12 +40,31 @@ void live_initialize(const Settings& config) noexcept
     g_ui_mode.store(static_cast<int>(config.ui.mode), std::memory_order_relaxed);
 }
 
-double live_limiter_fps() noexcept { return live_snapshot().limiter_fps; }
-void live_set_limiter_fps(double fps) noexcept
+double live_limiter_fps() noexcept
+{
+    const LiveValues values = live_snapshot();
+    return resolve_real_cap(values.target_fps, values.target_auto,
+                            g_refresh_hz.load(std::memory_order_relaxed),
+                            g_ratio.load(std::memory_order_relaxed));
+}
+void live_set_target_fps(double fps) noexcept
 {
     std::lock_guard lock(g_values_mutex);
-    g_values.limiter_fps = std::clamp(fps, 0.0, 1000.0);
+    g_values.target_fps = std::clamp(fps, 0.0, 1000.0);
 }
+void live_set_target_auto(bool automatic) noexcept
+{
+    std::lock_guard lock(g_values_mutex);
+    g_values.target_auto = automatic;
+}
+bool live_set_output_context(double ratio, double refresh_hz) noexcept
+{
+    const double before = live_limiter_fps();
+    g_ratio.store(ratio >= 1.0 ? ratio : 1.0, std::memory_order_relaxed);
+    g_refresh_hz.store(refresh_hz > 0.0 ? refresh_hz : 0.0, std::memory_order_relaxed);
+    return live_limiter_fps() != before;
+}
+double live_output_refresh_hz() noexcept { return g_refresh_hz.load(std::memory_order_relaxed); }
 int live_log_level() noexcept { return live_snapshot().log_level; }
 void live_set_log_level(int level) noexcept
 {

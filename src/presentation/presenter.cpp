@@ -13,6 +13,7 @@
 
 #include "presentation/pacing.h"
 #include "diagnostics/log.h"
+#include "diagnostics/stats.h"
 
 namespace sedici::fg {
 
@@ -622,7 +623,7 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         if (later_output_due(job, i, ready)) {
             // A later output is already due: showing this one now would put the
             // whole schedule behind. Its copy is overwritten by the next one.
-            if (output.real) ++m_window.realsDropped;
+            if (output.real) { ++m_window.realsDropped; stats_on_real_dropped(); }
             else { ++m_generated_dropped; ++m_window.generatedDropped; }
             continue;
         }

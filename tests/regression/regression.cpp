@@ -16,6 +16,8 @@
 #include "settings/settings_io.h"
 #include "ui/ui.h"
 #include "ui/ui_input.h"
+#include "ui/ui_logic.h"
+#include "settings/target_rate.h"
 #include "ffx_api_framegeneration_dx12.h"
 
 #include <windows.h>
@@ -66,7 +68,7 @@ std::string read(const std::filesystem::path& path)
 
 bool validate_final(const sedici::LiveValues& v)
 {
-    return v.limiter_fps >= 20.0 && v.limiter_fps <= 64.0;
+    return v.target_fps >= 20.0 && v.target_fps <= 64.0;
 }
 
 bool wait_settings_io(sedici::SettingsIoCompletion& completion)
@@ -90,7 +92,7 @@ void settings_checks(const std::filesystem::path& file)
 
     const SettingsSnapshot s0 = settings_snapshot();
     LiveValues next = s0.values;
-    next.limiter_fps = 37.0;
+    next.target_fps = 37.0;
     const ApplyResult applied = settings_apply(s0.revision, next);
     check(applied.status == ApplyStatus::Applied && applied.revision == s0.revision + 1,
           "settings: a valid candidate is applied and acknowledged with a new revision");
@@ -101,19 +103,19 @@ void settings_checks(const std::filesystem::path& file)
           "settings: an identical candidate changes nothing and keeps the revision");
 
     LiveValues stale = next;
-    stale.limiter_fps = 40.0;
+    stale.target_fps = 40.0;
     const ApplyResult conflict = settings_apply(s0.revision, stale);
     check(conflict.status == ApplyStatus::Conflict && live_limiter_fps() == 37.0 &&
               conflict.revision == applied.revision,
           "settings: a stale request is a conflict and applies nothing");
 
     LiveValues bad = next;
-    bad.limiter_fps = 2000.0;
+    bad.target_fps = 2000.0;
     check(settings_apply(applied.revision, bad).status == ApplyStatus::Rejected &&
               live_limiter_fps() == 37.0,
           "settings: an out-of-range value is rejected, not clamped");
     LiveValues partial = next;
-    partial.limiter_fps = 41.0;
+    partial.target_fps = 41.0;
     partial.log_level = 9;
     check(settings_apply(applied.revision, partial).status == ApplyStatus::Rejected &&
               live_limiter_fps() == 37.0,
@@ -125,7 +127,7 @@ void settings_checks(const std::filesystem::path& file)
           "settings: an invalidated edit generation cannot publish a baseline");
     check(settings_begin_edit(), "settings: initialize a current edit baseline");
     const SettingsSaveTicket oldTicket = settings_capture_save_ticket();
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 38.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 38.0; });
     const std::string beforeStaleTicket = read(file);
     const SaveResult staleTicket = settings_save_for(oldTicket);
     check(!staleTicket.ok && staleTicket.conflict && read(file) == beforeStaleTicket,
@@ -134,7 +136,7 @@ void settings_checks(const std::filesystem::path& file)
 
     // Edit session: cancel returns to the acknowledged baseline.
     settings_begin_edit();
-    check(settings_change_edit([](LiveValues& v) { v.limiter_fps = 50.0; v.log_level = 2; }).status ==
+    check(settings_change_edit([](LiveValues& v) { v.target_fps = 50.0; v.log_level = 2; }).status ==
               ApplyStatus::Applied && live_limiter_fps() == 50.0 && live_log_level() == 2,
           "settings: a control change applies live");
     check(settings_cancel_edit().status == ApplyStatus::Applied && live_limiter_fps() == 37.0 &&
@@ -144,20 +146,20 @@ void settings_checks(const std::filesystem::path& file)
     // Save writes the acknowledged values, keeps comments, and moves the baseline,
     // so a later cancel does not revert values that are on disk.
     settings_begin_edit();
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 45.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 45.0; });
     const SaveResult saved = settings_save();
     const std::string onDisk = read(file);
     check(saved.ok && onDisk.find("fps = 45") != std::string::npos &&
               onDisk.find("# keep this comment") != std::string::npos,
           "settings: save persists the acknowledged value and keeps comments");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 60.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 60.0; });
     (void)settings_cancel_edit();
     check(live_limiter_fps() == 45.0, "settings: cancel after save returns to the saved value");
 
     // External edit between begin_edit and save: refused, file untouched.
     settings_begin_edit();
     write(file, "[limiter]\nfps = 12 # edited elsewhere, longer than before\n");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 33.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
     const SaveResult refused = settings_save();
     check(!refused.ok && refused.conflict &&
               read(file) == "[limiter]\nfps = 12 # edited elsewhere, longer than before\n" &&
@@ -165,8 +167,8 @@ void settings_checks(const std::filesystem::path& file)
           "settings: an externally edited file is not overwritten and the live value is kept");
 
     // Same-size edits with a restored write timestamp must still conflict.
-    const std::string sameSizeOriginal = std::string("[limiter]") + char(10) + "fps = 12" + char(10);
-    const std::string sameSizeChanged = std::string("[limiter]") + char(10) + "fps = 13" + char(10);
+    const std::string sameSizeOriginal = std::string("[fg]") + char(10) + "target_fps = 12" + char(10);
+    const std::string sameSizeChanged = std::string("[fg]") + char(10) + "target_fps = 13" + char(10);
     write(file, sameSizeOriginal);
     check(settings_begin_edit(), "settings: capture baseline for same-metadata edit");
     const ConfigFileStamp originalStamp = config_file_stamp(file);
@@ -219,7 +221,7 @@ void settings_checks(const std::filesystem::path& file)
     // replacement. The final recheck must preserve the external file.
     write(file, sameSizeOriginal);
     check(settings_begin_edit(), "settings: capture baseline before replacement race");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 34.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 34.0; });
     settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!settingsIoArrived || !settingsIoResume) throw std::runtime_error("replacement race fixture failed");
@@ -246,7 +248,7 @@ void settings_checks(const std::filesystem::path& file)
     // back, not overwritten, and no sibling is left behind.
     write(file, sameSizeOriginal);
     check(settings_begin_edit(), "settings: capture baseline before swap race");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 34.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 34.0; });
     settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!settingsIoArrived || !settingsIoResume) throw std::runtime_error("swap race fixture failed");
@@ -276,7 +278,7 @@ void settings_checks(const std::filesystem::path& file)
     // acknowledged baseline for a later save.
     write(file, sameSizeOriginal);
     check(settings_begin_edit(), "settings: capture baseline before post-write race");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 34.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 34.0; });
     settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!settingsIoArrived || !settingsIoResume) throw std::runtime_error("post-write fixture failed");
@@ -300,13 +302,13 @@ void settings_checks(const std::filesystem::path& file)
               settings_cancel_edit().status == ApplyStatus::Rejected,
           "settings: a post-write external edit is not accepted as the saved baseline");
     check(settings_begin_edit(), "settings: reopen after post-write conflict");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 33.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
 
     // Failure after the replacement must report that the file was written and
     // prevent another Save until a new baseline is explicitly acquired.
     write(file, sameSizeOriginal);
     check(settings_begin_edit(), "settings: capture baseline before post-write failure");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 34.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 34.0; });
     settings_fail_after_write_once();
     const SaveResult postWriteFailure = settings_save();
     const SaveResult blockedRetry = settings_save();
@@ -316,13 +318,13 @@ void settings_checks(const std::filesystem::path& file)
               settings_cancel_edit().status == ApplyStatus::Rejected,
           "settings: post-write failure reports the write and blocks reuse of an uncertain baseline");
     check(settings_begin_edit(), "settings: reacquire baseline after post-write failure");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 33.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
 
     // An outside writer must not be silently undone by Cancel or persisted as
     // if it were part of this menu edit.
     settings_begin_edit();
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 32.0; });
-    (void)settings_change([](LiveValues& v) { v.limiter_fps = 33.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 32.0; });
+    (void)settings_change([](LiveValues& v) { v.target_fps = 33.0; });
     check(settings_cancel_edit().status == ApplyStatus::Conflict && live_limiter_fps() == 33.0,
           "settings: cancel refuses to overwrite an outside change");
     check(settings_save().conflict, "settings: save refuses a conflicting outside change");
@@ -330,7 +332,7 @@ void settings_checks(const std::filesystem::path& file)
     // While Save is paused outside the settings lock, an unrelated live writer
     // can proceed. Cancel is rejected until the captured snapshot finishes saving.
     check(settings_begin_edit(), "settings: begin edit before concurrent save");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 44.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 44.0; });
     settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     HANDLE changeDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -345,7 +347,7 @@ void settings_checks(const std::filesystem::path& file)
     bool changeCompleted = false;
     if (saveArrived) {
         changing = std::thread([&] {
-            outsideChange = settings_change([](LiveValues& v) { v.limiter_fps = 33.0; });
+            outsideChange = settings_change([](LiveValues& v) { v.target_fps = 33.0; });
             concurrentCancel = settings_cancel_edit();
             SetEvent(changeDone);
         });
@@ -392,7 +394,7 @@ void settings_checks(const std::filesystem::path& file)
               currentBegin.kind == SettingsIoKind::BeginEdit && currentBegin.viewEpoch == 102 && currentBegin.beginOk &&
               currentBegin.workerThreadId != 0 && currentBegin.workerThreadId != GetCurrentThreadId(),
           "settings I/O: a current edit begins on a different bounded worker thread");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 33.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
     const SettingsSaveTicket asyncTicket = settings_capture_save_ticket();
     SettingsIoCompletion asyncSaved;
     check(settings_io_start_save(asyncTicket, 102) && wait_settings_io(asyncSaved) &&
@@ -403,7 +405,7 @@ void settings_checks(const std::filesystem::path& file)
     // An asynchronous Save owns its exact ticketed snapshot even if another
     // writer publishes a newer revision while the worker is in file I/O.
     check(settings_begin_edit(), "settings I/O: begin before concurrent worker save");
-    (void)settings_change_edit([](LiveValues& v) { v.limiter_fps = 44.0; });
+    (void)settings_change_edit([](LiveValues& v) { v.target_fps = 44.0; });
     const SettingsSaveTicket concurrentTicket = settings_capture_save_ticket();
     settingsIoArrived = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     settingsIoResume = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -419,7 +421,7 @@ void settings_checks(const std::filesystem::path& file)
     bool asyncChangeCompleted = false;
     if (savePaused) {
         concurrentWriter = std::thread([&] {
-            asyncChange = settings_change([](LiveValues& v) { v.limiter_fps = 33.0; });
+            asyncChange = settings_change([](LiveValues& v) { v.target_fps = 33.0; });
             SetEvent(asyncChangeDone);
         });
         asyncChangeCompleted = WaitForSingleObject(asyncChangeDone, 1000) == WAIT_OBJECT_0;
@@ -493,8 +495,8 @@ void settings_checks(const std::filesystem::path& file)
     // Alternating complete candidates must never produce a mixed snapshot.
     LiveValues first = live_snapshot();
     LiveValues second = first;
-    first.limiter_fps = 40.0; first.ui_scale = 1.0f;
-    second.limiter_fps = 80.0; second.ui_scale = 2.0f;
+    first.target_fps = 40.0; first.ui_scale = 1.0f;
+    second.target_fps = 80.0; second.ui_scale = 2.0f;
     live_apply(first);
     std::atomic<bool> done{false};
     std::atomic<bool> mixed{false};
@@ -504,8 +506,8 @@ void settings_checks(const std::filesystem::path& file)
     });
     while (!done.load()) {
         const LiveValues v = live_snapshot();
-        if (!((v.limiter_fps == 40.0 && v.ui_scale == 1.0f) ||
-              (v.limiter_fps == 80.0 && v.ui_scale == 2.0f))) mixed = true;
+        if (!((v.target_fps == 40.0 && v.ui_scale == 1.0f) ||
+              (v.target_fps == 80.0 && v.ui_scale == 2.0f))) mixed = true;
     }
     publisher.join();
     check(!mixed.load(), "settings: complete live snapshots never contain mixed candidates");
@@ -518,7 +520,7 @@ void settings_checks(const std::filesystem::path& file)
         writers.emplace_back([&, t] {
             for (int i = 0; i < 200; ++i) {
                 const double fps = 20.0 + t * 10.0 + (i % 5);
-                if (settings_change([fps](LiveValues& v) { v.limiter_fps = fps; }).status ==
+                if (settings_change([fps](LiveValues& v) { v.target_fps = fps; }).status ==
                     ApplyStatus::Applied)
                     appliedCount.fetch_add(1);
             }
@@ -622,17 +624,17 @@ void settings_capability_checks(bool sediciBackend, bool environment)
     const SettingsSnapshot base = settings_snapshot();
     if (sediciBackend) {
         LiveValues limiter = base.values;
-        limiter.limiter_fps = 25.0;
+        limiter.target_fps = 25.0;
         check(settings_apply(base.revision, limiter).status == ApplyStatus::Applied &&
                   live_limiter_fps() == 25.0,
               "settings: real-frame limiter is available");
     }
     if (environment) {
         const Settings& config = settings();
-        check(config.limiter.fps_source == Source::Env && config.log.level_source == Source::Env,
+        check(config.fg.target_fps_source == Source::Env && config.log.level_source == Source::Env,
               "settings: test overrides are recorded as environment sources");
         LiveValues candidate = base.values;
-        candidate.limiter_fps = candidate.limiter_fps == 45.0 ? 30.0 : 45.0;
+        candidate.target_fps = candidate.target_fps == 45.0 ? 30.0 : 45.0;
         const bool limiterRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
         candidate = base.values;
         candidate.log_level = candidate.log_level == 2 ? 1 : 2;
@@ -685,12 +687,12 @@ void config_checks(const std::filesystem::path& path)
     check(read(path) == quoted, "quoted-key rejection does not overwrite file");
 
     write(path, "[log]\nlevel = 1 # keep\n[limiter]\nfps = 0\n");
-    values.write_limiter_fps = true;
-    values.limiter_fps = 36.5;
+    values.write_target_fps = true;
+    values.target_fps = 36.5;
     check(sedici::config_save(path, values, error), "fractional FPS saves with comments");
     check(read(path).find("fps = 36.5") != std::string::npos, "fractional FPS survives patch");
 
-    values.limiter_fps = 36.9999;
+    values.target_fps = 36.9999;
     values.write_ui_scale = true;
     values.ui_scale_auto = false;
     values.ui_scale = 0.9999f;
@@ -700,6 +702,14 @@ void config_checks(const std::filesystem::path& path)
           "FPS semantic validation uses the rounded integer");
     check(rounded.find("scale = 1\n") != std::string::npos,
           "scale semantic validation uses the rounded integer");
+
+    sedici::ConfigValues autoValues;
+    autoValues.write_target_fps = true;
+    autoValues.target_auto = true;
+    write(path, "[fg]\ntarget_fps = 60 # keep\n");
+    check(sedici::config_save(path, autoValues, error) &&
+              read(path) == "[fg]\ntarget_fps = \"auto\" # keep\n",
+          "target: auto is saved as the string \"auto\" and the comment is kept");
 }
 
 constexpr UINT marker = WM_APP + 77;
@@ -1027,27 +1037,27 @@ void limiter_live_checks()
     LARGE_INTEGER frequency{};
     QueryPerformanceFrequency(&frequency);
     limiter_before_present(qpc());
-    sedici::live_set_limiter_fps(1000);
+    sedici::live_set_target_fps(1000);
     limiter_before_present(qpc());
     const uint64_t before = qpc();
     limiter_before_present(qpc());
     const uint64_t after = qpc();
     // A live rate change resets the schedule: the next frame seeds it and does
     // not wait out the old interval.
-    sedici::live_set_limiter_fps(10); // 100 ms interval
+    sedici::live_set_target_fps(10); // 100 ms interval
     limiter_on_config_changed();
     limiter_before_present(qpc());    // seeds
     const uint64_t held0 = qpc();
     limiter_before_present(qpc());    // waits about one interval
     const double heldMs = 1000.0 * static_cast<double>(qpc() - held0) / static_cast<double>(frequency.QuadPart);
-    sedici::live_set_limiter_fps(1000);
+    sedici::live_set_target_fps(1000);
     limiter_on_config_changed();
     const uint64_t reseed0 = qpc();
     limiter_before_present(qpc());
     const double reseedMs = 1000.0 * static_cast<double>(qpc() - reseed0) / static_cast<double>(frequency.QuadPart);
     check(heldMs >= 80.0 && reseedMs < 20.0,
           "limiter: a live rate change reseeds instead of waiting out the old interval");
-    sedici::live_set_limiter_fps(0);
+    sedici::live_set_target_fps(0);
     check(static_cast<double>(after - before) / static_cast<double>(frequency.QuadPart) >= 0.0005,
           "live limiter actually delays Present after silent uncapped startup");
 }
@@ -1276,6 +1286,76 @@ void settings_io_stall_checks()
 
 } // namespace
 
+// FR-05: the one target fps. Pure resolution, the live real-frame cap, the
+// legacy conversion, and the Full menu's slider/Apply logic (K118, FR-01, FR-02).
+void target_rate_checks()
+{
+    using namespace sedici;
+    check(auto_target_fps(60) == 59 && auto_target_fps(75) == 73 && auto_target_fps(120) == 116 &&
+              auto_target_fps(144) == 138 && auto_target_fps(165) == 157 && auto_target_fps(240) == 224 &&
+              auto_target_fps(360) == 324,
+          "target: auto is floor(Hz - Hz^2/3600) (59, 73, 116, 138, 157, 224, 324)");
+    check(auto_target_fps(0) == 0 && auto_target_fps(1) == 0 && auto_target_fps(-60) == 0 &&
+              auto_target_fps(std::nan("")) == 0 && auto_target_fps(5000) == 0,
+          "target: auto with an unknown or implausible refresh rate is uncapped");
+    check(resolve_real_cap(0, false, 75, 2) == 0 && resolve_real_cap(0, true, 0, 2) == 0,
+          "target: 0 and auto-without-refresh are uncapped");
+    check(resolve_real_cap(60, false, 75, 2) == 30.0 && resolve_real_cap(0, true, 75, 2) == 36.5 &&
+              resolve_real_cap(73, false, 75, 1) == 73.0 && resolve_real_cap(72, false, 75, 0.5) == 72.0,
+          "target: the real cap is the output target divided by the output ratio (at least 1)");
+    check(legacy_limiter_to_target(25, 2) == 50.0 && legacy_limiter_to_target(36.5, 2) == 73.0 &&
+              legacy_limiter_to_target(40, 1.5) == 60.0,
+          "target: a legacy limiter.fps becomes its output rate");
+
+    // live resolution: the cap follows the published ratio and refresh rate.
+    const LiveValues saved = live_snapshot();
+    live_set_target_auto(false);
+    live_set_target_fps(73);
+    (void)live_set_output_context(1.0, 0.0);
+    check(live_limiter_fps() == 73.0, "target: with no output context the cap is the target");
+    check(live_set_output_context(2.0, 75.0) && live_limiter_fps() == 36.5,
+          "target: publishing 2x reports a change and halves the cap");
+    check(!live_set_output_context(2.0, 75.0), "target: publishing the same context reports no change");
+    live_set_target_auto(true);
+    check(live_limiter_fps() == 36.5, "target: auto on 75 Hz at 2x caps real frames at 36.5");
+    check(live_set_output_context(2.0, 144.0) && live_limiter_fps() == 69.0,
+          "target: moving to a 144 Hz monitor re-resolves auto (K19)");
+    check(live_set_output_context(2.0, 0.0) && live_limiter_fps() == 0.0,
+          "target: auto with an unknown refresh rate falls back to uncapped");
+    live_set_target_auto(false);
+    live_set_target_fps(0);
+    check(live_limiter_fps() == 0.0, "target: 0 is uncapped");
+    live_apply(saved);
+    (void)live_set_output_context(1.0, 0.0);
+
+    // Full menu logic
+    check(target_units_from_fps(36.5) == 73 && target_fps_from_units(73) == 36.5 &&
+              target_units_from_fps(10) == kTargetMinUnits && target_units_from_fps(900) == kTargetMaxUnits,
+          "ui: the slider works in half-fps units and clamps");
+    PendingTarget pending;
+    pending_follow_live(pending, 40.0);
+    check(pending.units == 80 && !pending.dirty, "ui: an untouched slider follows the live value");
+    bool rose = true;
+    int previous = pending.units;
+    for (int step = 1; step <= 20; ++step) { // a slow drag upwards, 1 unit per frame
+        pending_edit(pending, previous + 1);
+        pending_follow_live(pending, 40.0); // the live value is re-read every frame
+        if (pending.units != previous + 1) rose = false;
+        previous = pending.units;
+    }
+    check(rose && pending.units == 100 && pending.dirty,
+          "ui: a slow upward drag is never undone by the live value (K118)");
+    check(pending_apply(pending) == 50.0 && !pending.dirty, "ui: Apply returns the chosen value and clears the edit");
+    check(ui_passes_to_game(0x0104, 0x73, 1ll << 29) && ui_passes_to_game(0x0105, 0x73, 1ll << 29) &&
+              !ui_passes_to_game(0x0104, 0x73, 0) && !ui_passes_to_game(0x0100, 0x73, 1ll << 29) &&
+              !ui_passes_to_game(0x0104, 0x41, 1ll << 29),
+          "ui: Alt+F4 passes through the Full menu to the game, other keys do not (K126)");
+    check(nearest_scale_choice(0.5f) == 0 && nearest_scale_choice(0.75f) == 0 &&
+              nearest_scale_choice(0.9f) == 1 && nearest_scale_choice(1.0f) == 2 &&
+              nearest_scale_choice(1.75f) == 2 && nearest_scale_choice(2.0f) == 2,
+          "ui: scale values from older files snap to 0.8, 0.9 or 1.0 (FR-04)");
+}
+
 int main(int argc, char** argv)
 {
     const auto config = dll_directory() / L"sedici.toml";
@@ -1319,6 +1399,7 @@ fps = 0
             catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
             log_sink_checks();
             settings_io_stall_checks();
+            target_rate_checks();
             limiter_policy_checks();
             limiter_live_checks();
             window_checks();

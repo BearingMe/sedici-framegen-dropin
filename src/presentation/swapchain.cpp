@@ -11,6 +11,9 @@
 
 #include "diagnostics/log.h"
 #include "settings/config.h"
+#include "settings/live.h"
+#include "settings/target_rate.h"
+#include "presentation/limiter.h"
 
 namespace sedici::fg {
 
@@ -572,6 +575,54 @@ HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceSta
     return S_OK;
 }
 
+double Swapchain::adaptive_target() const noexcept
+{
+    // Adaptive needs a rate to aim for: the one target, or auto when it is
+    // uncapped (0). Without a known refresh rate keep the old safe fallback.
+    const sedici::LiveValues live = sedici::live_snapshot();
+    const double hz = display_refresh_hz();
+    double target = sedici::resolve_target_fps(live.target_fps, live.target_auto, hz);
+    if (target <= 0.0) target = sedici::auto_target_fps(hz);
+    if (target <= 0.0) target = std::max(1.0, hz - 3.0);
+    return target;
+}
+
+double Swapchain::display_refresh_hz() const noexcept
+{
+    double hz = 0.0;
+    try {
+        Microsoft::WRL::ComPtr<IDXGIOutput> output;
+        DXGI_OUTPUT_DESC desc{};
+        if (m_native && SUCCEEDED(m_native->GetContainingOutput(&output)) && output &&
+            SUCCEEDED(output->GetDesc(&desc))) {
+            DEVMODEW mode{};
+            mode.dmSize = sizeof(mode);
+            if (EnumDisplaySettingsW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &mode) &&
+                mode.dmDisplayFrequency > 1)
+                hz = static_cast<double>(mode.dmDisplayFrequency);
+        }
+    } catch (...) {}
+    if (hz <= 0.0 && m_presenter) hz = m_presenter->refresh_hz();
+    return hz;
+}
+
+void Swapchain::publish_output_context() noexcept
+{
+    const double ratio = !m_presenter ? 2.0
+        : m_schedule.adaptive() ? 1.0
+        : static_cast<double>(m_schedule.numerator()) / static_cast<double>(m_schedule.denominator());
+    const double hz = display_refresh_hz();
+    if (m_presenter && m_schedule.adaptive()) {
+        const double target = adaptive_target();
+        if (std::fabs(target - m_schedule.target()) > 1e-9) m_schedule.set_target(target);
+    }
+    if (sedici::live_set_output_context(ratio, hz)) limiter_on_config_changed();
+    try {
+        log_event(2, "fg: output context ratio=" + std::to_string(ratio) + " refresh_hz=" + std::to_string(hz) +
+                         " real_cap=" + std::to_string(sedici::live_limiter_fps()));
+    } catch (...) {}
+}
+
 void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
 {
     using Multiplier = sedici::FrameGenerationSettings::Multiplier;
@@ -579,6 +630,7 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
         if (choice.multiplier != Multiplier::X2)
             log_error(std::string("fg: multiplier \"") + sedici::multiplier_name(choice.multiplier) +
                       "\" needs present = \"vrr\"; presenting 2x");
+        publish_output_context();
         return;
     }
     switch (choice.multiplier) {
@@ -586,8 +638,7 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
     case Multiplier::X1_5: m_schedule.set_ratio(3, 2); break;
     case Multiplier::X1_25: m_schedule.set_ratio(5, 4); break;
     case Multiplier::Adaptive:
-        m_schedule.set_target(choice.targetFps > 0.0 ? choice.targetFps
-                                                      : std::max(1.0, m_presenter->refresh_hz() - 3.0));
+        m_schedule.set_target(adaptive_target());
         break;
     case Multiplier::X2: m_schedule.set_ratio(2, 1); break;
     }
@@ -597,6 +648,7 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
                                    : " ratio=" + std::to_string(m_schedule.numerator()) + "/" +
                                          std::to_string(m_schedule.denominator())));
     } catch (...) {}
+    publish_output_context();
 }
 
 HRESULT Swapchain::wait_slot(uint32_t slot) noexcept
@@ -1010,6 +1062,7 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     m_game_index = (m_game_index + 1) % static_cast<UINT>(m_buffers.size());
 
     if (++m_present_cycles % 300 == 0) {
+        publish_output_context();
         try {
             const double elapsed = now - m_rate_window_start;
             const double realFps = elapsed > 0.0 ? 300.0 / elapsed : 0.0;
@@ -1023,8 +1076,9 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
                 // The panel cannot show more than one frame per refresh; the
                 // presenter has to drop outputs and the game waits for it.
                 const double ratio = static_cast<double>(m_rate_window_outputs) / 300.0;
-                rates += " OVER_REFRESH: cap the real rate at " + std::to_string((refresh - 3.0) / ratio) +
-                         " fps ([limiter] fps)";
+                rates += " OVER_REFRESH: cap the real rate at " +
+                         std::to_string(sedici::auto_target_fps(refresh) / ratio) +
+                         " fps (set [fg] target_fps = \"auto\")";
                 if (!m_schedule.adaptive()) rates += " or use multiplier = \"adaptive\"";
             }
             log_event(1, "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +
@@ -1122,7 +1176,9 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
     if (FAILED(hr)) return hr;
     m_generated_ready = false;
     m_pacing = {};
-    return initialize_buffers();
+    hr = initialize_buffers();
+    publish_output_context();
+    return hr;
 }
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags)
 { return resize(n, w, h, f, flags, nullptr, nullptr, false); }

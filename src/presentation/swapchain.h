@@ -198,6 +198,12 @@ private:
     // "vrr": waits until the frame that last used `slot` has finished on the GPU.
     HRESULT wait_slot(uint32_t slot) noexcept;
     void configure_schedule(const PresentChoice& choice) noexcept;
+    // Tells the settings layer the output ratio and the monitor's refresh rate
+    // so the one target fps resolves to a real-frame cap (FR-05, K19). Called on
+    // configure, on resize and every 300 cycles, so a monitor change is picked up.
+    void publish_output_context() noexcept;
+    double display_refresh_hz() const noexcept;
+    double adaptive_target() const noexcept;
     // "vrr": copies the game's backbuffer into snapshot `slot` on the game queue.
     HRESULT snapshot_real(uint32_t slot) noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,

@@ -1,4 +1,4 @@
-﻿== exports
+== exports
 ffxConfigure
 ffxCreateContext
 ffxDestroyContext
@@ -17,6 +17,7 @@ sedici_abi_overlay-hotkey Passed
 sedici_abi_readonly-sedici Passed
 sedici_abi_session Passed
 sedici_abi_stale-forward Passed
+sedici_abi_target-auto Passed
 sedici_abi_unload Passed
 sedici_abi_window-replace Passed
 sedici_deploy_tools Passed
@@ -42,7 +43,7 @@ sedici_regression Passed
 sedici_settings_env_priority Passed
 sedici_settings_sedici_capability Passed
 sedici_settings_worker_lifetime Passed
-ctest-total 37
+ctest-total 38
 == fgcheck
 display 480x270, render 320x180, alpha 0.5, 40 iterations
 rightward pan      psnr  42.92 dB  ssim 0.9985
@@ -140,6 +141,7 @@ PASS fractional FPS survives patch
 PASS numbers rounding upward to integers can be saved
 PASS FPS semantic validation uses the rounded integer
 PASS scale semantic validation uses the rounded integer
+PASS target: auto is saved as the string "auto" and the comment is kept
 PASS settings: a valid candidate is applied and acknowledged with a new revision
 PASS settings: the live value follows the acknowledged snapshot
 PASS settings: an identical candidate changes nothing and keeps the revision
@@ -237,6 +239,24 @@ PASS settings I/O: the worker exits once the call returns
 PASS settings I/O: the stalled job's late result is discarded
 PASS settings I/O: a new job starts after recovery
 PASS settings I/O: the new job completes normally
+PASS target: auto is floor(Hz - Hz^2/3600) (59, 73, 116, 138, 157, 224, 324)
+PASS target: auto with an unknown or implausible refresh rate is uncapped
+PASS target: 0 and auto-without-refresh are uncapped
+PASS target: the real cap is the output target divided by the output ratio (at least 1)
+PASS target: a legacy limiter.fps becomes its output rate
+PASS target: with no output context the cap is the target
+PASS target: publishing 2x reports a change and halves the cap
+PASS target: publishing the same context reports no change
+PASS target: auto on 75 Hz at 2x caps real frames at 36.5
+PASS target: moving to a 144 Hz monitor re-resolves auto (K19)
+PASS target: auto with an unknown refresh rate falls back to uncapped
+PASS target: 0 is uncapped
+PASS ui: the slider works in half-fps units and clamps
+PASS ui: an untouched slider follows the live value
+PASS ui: a slow upward drag is never undone by the live value (K118)
+PASS ui: Apply returns the chosen value and clears the edit
+PASS ui: Alt+F4 passes through the Full menu to the game, other keys do not (K126)
+PASS ui: scale values from older files snap to 0.8, 0.9 or 1.0 (FR-04)
 PASS limiter: the first frame seeds the schedule and never waits
 PASS limiter: an early game is held to exactly one interval per frame
 PASS limiter: a late frame does not wait and keeps the schedule
@@ -259,7 +279,7 @@ PASS Full capture enters on the owning window thread
 PASS overlay failure immediately stops cursor suppression
 PASS disabled overlay cannot reopen Full
 PASS current window WM_NCDESTROY reaches the game procedure
-135 checks, 0 failed
+154 checks, 0 failed
 == regression observer
 PASS overlay Full costs the caller under 5 ms of CPU per frame
 1 checks, 0 failed

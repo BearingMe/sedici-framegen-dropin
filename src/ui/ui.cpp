@@ -15,6 +15,8 @@
 #include "diagnostics/timing.h"
 #include "abi/route.h"
 #include "ui/ui_input.h"
+#include "ui/ui_logic.h"
+#include "settings/target_rate.h"
 
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
@@ -43,6 +45,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <typeinfo>
 #include <stdexcept>
 #include <vector>
 
@@ -113,7 +116,7 @@ struct UiState {
 
     std::string save_status;
 
-    float last_nonzero_limit = 36.5f;
+    PendingTarget pending_target;
 
     // Client-area size Windows reports input in, and the output size ImGui
     // draws at. They differ when the game renders at a different resolution.
@@ -202,6 +205,8 @@ Hotkey parse_hotkey(const std::string& text)
     if (!hotkey.ctrl && !hotkey.alt && !hotkey.shift) hotkey.alt = true;
     return hotkey;
 }
+
+std::string current_exception_text() noexcept;
 
 bool is_consumed_input(UINT msg) noexcept
 {
@@ -298,7 +303,7 @@ LRESULT ui_window_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             return TRUE;
         }
         if (msg == WM_INPUT) return DefWindowProcW(hwnd, msg, wparam, lparam);
-        if (is_consumed_input(msg)) {
+        if (!ui_passes_to_game(msg, wparam, lparam) && is_consumed_input(msg)) {
             {
                 std::lock_guard<std::mutex> lock(g_message_mutex);
                 if (g_messages.size() >= kMaxQueuedMessages) g_messages.erase(g_messages.begin());
@@ -349,10 +354,11 @@ LRESULT CALLBACK ui_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                                 ((GetKeyState(VK_SHIFT) & 0x8000) != 0) == g_hotkey.shift;
             const LRESULT result = ui_window_message(hwnd, msg, wparam, lparam);
             if (msg == kHotkeyMessage || hotkey ||
-                (captured && (msg == WM_INPUT || msg == WM_SETCURSOR || is_consumed_input(msg))))
+                (captured && !ui_passes_to_game(msg, wparam, lparam) &&
+                 (msg == WM_INPUT || msg == WM_SETCURSOR || is_consumed_input(msg))))
                 return result;
         } catch (...) {
-            ui_disable("an exception was thrown while processing input");
+            { std::string why = "an exception was thrown while processing input (" + current_exception_text() + ")"; ui_disable(why.c_str()); }
             ui_input_leave(true);
         }
     }
@@ -395,6 +401,28 @@ void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
 void disable_overlay(const char* reason) noexcept
 {
     ui_disable(reason);
+}
+
+// K124: the type and message of the exception being handled, so a disabled
+// overlay says why. Call only from inside a catch block.
+std::string current_exception_text() noexcept
+{
+    try {
+        throw;
+    } catch (const std::exception& error) {
+        try { return std::string(typeid(error).name()) + ": " + error.what(); }
+        catch (...) { return "std::exception"; }
+    } catch (...) {
+        return "unknown exception";
+    }
+}
+
+void disable_overlay_with_exception(const char* where) noexcept
+{
+    std::string reason;
+    try { reason = std::string(where) + " (" + current_exception_text() + ")"; }
+    catch (...) { disable_overlay(where); return; }
+    disable_overlay(reason.c_str());
 }
 
 void shutdown_imgui()
@@ -769,31 +797,15 @@ void draw_graph(const char* label, const float* samples, size_t count, float sca
 
 void draw_scale_combo()
 {
-    static const float kScales[] = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
     static const char* kItems = "Auto\0"
-                                "0.50\0"
-                                "0.75\0"
-                                "1.00\0"
-                                "1.25\0"
-                                "1.50\0"
-                                "1.75\0"
-                                "2.00\0";
+                                "0.80\0"
+                                "0.90\0"
+                                "1.00\0";
 
     int index = 0;
     const LiveValues values = live_snapshot();
-    if (values.scale_mode == UiScaleMode::Fixed) {
-        const float value = values.ui_scale;
-        int best = 0;
-        float best_distance = 1e9f;
-        for (int i = 0; i < static_cast<int>(std::size(kScales)); ++i) {
-            const float distance = std::fabs(value - kScales[i]);
-            if (distance < best_distance) {
-                best_distance = distance;
-                best = i;
-            }
-        }
-        index = best + 1;
-    }
+    if (values.scale_mode == UiScaleMode::Fixed)
+        index = static_cast<int>(nearest_scale_choice(values.ui_scale)) + 1;
 
     if (ImGui::Combo("Menu scale", &index, kItems)) {
         report(settings_change_edit([&](LiveValues& v) {
@@ -801,7 +813,7 @@ void draw_scale_combo()
                 v.scale_mode = UiScaleMode::Auto;
             } else {
                 v.scale_mode = UiScaleMode::Fixed;
-                v.ui_scale = kScales[index - 1];
+                v.ui_scale = kScaleChoices[index - 1];
             }
         }));
     }
@@ -854,7 +866,9 @@ void draw_full()
     } else {
         ImGui::Text("Output %ux%u", output_width, output_height);
     }
-    ImGui::Text("Real %.1f fps  |  Output %.1f fps", real.fps, output.fps);
+    ImGui::Text("Real shown %.1f fps  |  Output %.1f fps", real.fps, output.fps);
+    ImGui::Text("Real frames dropped: %llu (not the game's count; the game renders shown + dropped)",
+                static_cast<unsigned long long>(stats_real_dropped()));
     ImGui::Text("Stalls: %llu  |  last %.1f ms",
                 static_cast<unsigned long long>(stats_stall_count()), stats_last_stall_ms());
 
@@ -874,39 +888,46 @@ void draw_full()
     // Do not accept edits until the worker establishes the file baseline, or
     // while a snapshot is being saved. Closing the menu remains available.
     ImGui::BeginDisabled(!g_ui.snapshot_valid || settings_io_busy());
-    ImGui::SeparatorText("FPS limit");
-    const bool limiter_env = settings().limiter.fps_source == Source::Env;
-    const double live_fps = live_limiter_fps();
-    bool limit_on = live_fps > 0.0;
-    if (limit_on) g_ui.last_nonzero_limit = static_cast<float>(live_fps);
+    ImGui::SeparatorText("Target FPS");
+    const bool target_env = settings().fg.target_fps_source == Source::Env;
+    const LiveValues target_values = live_snapshot();
+    int mode = target_values.target_auto ? 1 : (target_values.target_fps > 0.0 ? 2 : 0);
+    pending_follow_live(g_ui.pending_target, target_values.target_fps);
 
-    ImGui::BeginDisabled(limiter_env);
-    if (ImGui::Checkbox("Limit real frames", &limit_on)) {
-        if (!limit_on && live_fps > 0.0) g_ui.last_nonzero_limit = static_cast<float>(live_fps);
-        const double next = limit_on ? (g_ui.last_nonzero_limit > 0.0f ? g_ui.last_nonzero_limit : 36.5) : 0.0;
-        report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = next; }));
+    ImGui::BeginDisabled(target_env);
+    if (ImGui::Combo("Target", &mode, "Uncapped\0Auto (match the monitor)\0Fixed\0")) {
+        report(settings_change_edit([&](LiveValues& v) {
+            v.target_auto = mode == 1;
+            v.target_fps = mode == 2 ? target_fps_from_units(g_ui.pending_target.units) : 0.0;
+        }));
+        if (mode == 2) g_ui.pending_target.dirty = false;
     }
-    if (limit_on) {
-        float target = static_cast<float>(live_limiter_fps());
+    if (mode == 2) {
+        // Whole half-fps steps; the handle never re-reads the live value, so a
+        // drag upwards cannot be undone by the rounding (K118, FR-01).
+        int units = g_ui.pending_target.units;
         ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::SliderFloat("##limit_value", &target, 20.0f, 240.0f, "%.1f fps",
-                               ImGuiSliderFlags_AlwaysClamp)) {
-            target = std::round(target * 2.0f) / 2.0f;
-            g_ui.last_nonzero_limit = target;
-            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = target; }));
-        }
-        if (ImGui::Button("36.5")) {
-            g_ui.last_nonzero_limit = 36.5f;
-            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = 36.5; }));
-        }
+        if (ImGui::SliderInt("##target_units", &units, kTargetMinUnits, kTargetMaxUnits, "",
+                             ImGuiSliderFlags_AlwaysClamp))
+            pending_edit(g_ui.pending_target, units);
+        ImGui::Text("%.1f fps%s", target_fps_from_units(g_ui.pending_target.units),
+                    g_ui.pending_target.dirty ? " (not applied)" : "");
         ImGui::SameLine();
-        if (ImGui::Button("37")) {
-            g_ui.last_nonzero_limit = 37.0f;
-            report(settings_change_edit([&](LiveValues& v) { v.limiter_fps = 37.0; }));
+        ImGui::BeginDisabled(!g_ui.pending_target.dirty);
+        if (ImGui::Button("Apply")) {
+            const double next = pending_apply(g_ui.pending_target);
+            report(settings_change_edit([&](LiveValues& v) { v.target_fps = next; }));
         }
+        ImGui::EndDisabled();
     }
     ImGui::EndDisabled();
-    if (limiter_env) ImGui::TextDisabled("overridden by SEDICI_LIMIT_FPS");
+    if (target_env) ImGui::TextDisabled("overridden by SEDICI_FG_TARGET_FPS or SEDICI_LIMIT_FPS");
+    {
+        const double cap = live_limiter_fps();
+        const double hz = live_output_refresh_hz();
+        if (cap > 0.0) ImGui::TextDisabled("Real frames capped at %.1f fps (display %.0f Hz)", cap, hz);
+        else ImGui::TextDisabled("Uncapped");
+    }
 
     ImGui::SeparatorText("Logging");
     const bool log_env = settings().log.level_source == Source::Env;
@@ -1012,7 +1033,7 @@ bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
         if (before != D3D12_RESOURCE_STATE_RENDER_TARGET) {
             transition(command_list, output, D3D12_RESOURCE_STATE_RENDER_TARGET, before);
         }
-        disable_overlay("an exception was thrown while drawing");
+        disable_overlay_with_exception("an exception was thrown while drawing");
         return false;
     }
 
@@ -1121,7 +1142,7 @@ void ui_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
             else ++g_ui.real_draws;
         }
     } catch (...) {
-        disable_overlay("an exception was thrown while drawing");
+        disable_overlay_with_exception("an exception was thrown while drawing");
     }
 }
 

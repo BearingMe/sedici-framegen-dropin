@@ -45,8 +45,8 @@ LiveValues read_live() noexcept
 // Returns an empty string when valid.
 std::string validate(const LiveValues& v)
 {
-    if (!std::isfinite(v.limiter_fps) || v.limiter_fps < 0.0 || v.limiter_fps > 1000.0)
-        return "limiter.fps must be between 0 and 1000";
+    if (!std::isfinite(v.target_fps) || v.target_fps < 0.0 || v.target_fps > 1000.0)
+        return "fg.target_fps must be between 0 and 1000";
     if (v.log_level < 0 || v.log_level > 2) return "log.level must be 0, 1 or 2";
     if (v.scale_mode != UiScaleMode::Auto && v.scale_mode != UiScaleMode::Fixed)
         return "ui.scale_mode is not valid";
@@ -72,7 +72,8 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
     }
     const Settings& config = settings();
     const LiveValues before = read_live();
-    if ((config.limiter.fps_source == Source::Env && candidate.limiter_fps != before.limiter_fps) ||
+    if ((config.fg.target_fps_source == Source::Env &&
+         (candidate.target_fps != before.target_fps || candidate.target_auto != before.target_auto)) ||
         (config.log.level_source == Source::Env && candidate.log_level != before.log_level)) {
         result.status = ApplyStatus::Rejected;
         result.reason = "an environment override controls this setting";
@@ -89,7 +90,8 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
     live_apply(candidate);
     ++g_revision;
     result.revision = g_revision;
-    if (before.limiter_fps != candidate.limiter_fps) limiter_on_config_changed();
+    if (before.target_fps != candidate.target_fps || before.target_auto != candidate.target_auto)
+        limiter_on_config_changed();
     return result;
 }
 
@@ -294,9 +296,10 @@ static SaveResult settings_save_impl(const SettingsSaveTicket* ticket) noexcept
             savedRevision = g_revision;
             generation = g_edit_generation;
             const Settings& config = settings();
-            if (config.limiter.fps_source != Source::Env) {
-                file.write_limiter_fps = true;
-                file.limiter_fps = values.limiter_fps;
+            if (config.fg.target_fps_source != Source::Env) {
+                file.write_target_fps = true;
+                file.target_fps = values.target_fps;
+                file.target_auto = values.target_auto;
             }
             if (config.log.level_source != Source::Env) {
                 file.write_log = true;

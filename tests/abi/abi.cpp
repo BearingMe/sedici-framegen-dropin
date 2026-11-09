@@ -5,7 +5,7 @@
 //   sedici_abi <scenario> <sedici.dll> <stub.dll>
 //
 // Scenarios: see the foreach lists in CMakeLists.txt (exports, contract,
-// legacy-config, readonly-sedici, bad-config, session, window-replace,
+// legacy-config, target-auto, readonly-sedici, bad-config, session, window-replace,
 // destroy-inflight, log-failure, invalid-calls, overlay-hotkey, stale-forward,
 // unload, integrated).
 // Never touches game files and never downloads anything.
@@ -424,6 +424,26 @@ int run_contract(Harness& h)
 }
 
 
+int run_target_auto(Harness& h)
+{
+    // FR-05: fg.target_fps = "auto" loads, is reported as such, and is not an error.
+    uint64_t count = 0;
+    ffxQueryDescGetVersions versions{};
+    versions.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    versions.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    versions.outputCount = &count;
+    expect(h.ffx.query(nullptr, &versions.header) == FFX_API_RETURN_OK && count == 1,
+           "version query works with fg.target_fps = \"auto\"");
+    const std::string log = h.log();
+    expect(log.find("fg.target_fps") != std::string::npos && log.find("= \"auto\" [file]") != std::string::npos,
+           "the log reports fg.target_fps = \"auto\" from the file");
+    expect(log.find("effective: target fps auto") != std::string::npos,
+           "the effective line names the auto target");
+    expect(log.find("expected a number") == std::string::npos && log.find("unknown value") == std::string::npos,
+           "auto is not reported as a problem");
+    return 0;
+}
+
 int run_legacy_config(Harness& h)
 {
     // A sedici.toml from the forwarding era still loads. Its removed keys are
@@ -441,8 +461,9 @@ int run_legacy_config(Harness& h)
     expect(log.find("unknown key limiter.sped") != std::string::npos &&
                log.find("unknown section [hud]") != std::string::npos,
            "the log names an unknown key and an unknown section with their lines");
-    expect(log.find("limiter.fps") != std::string::npos && log.find("= 25") != std::string::npos,
-           "supported keys in the legacy file still apply");
+    expect(log.find("limiter.fps is deprecated") != std::string::npos &&
+               log.find("fg.target_fps = 50 output fps") != std::string::npos,
+           "a legacy limiter.fps still applies, read as the output target (25 x 2)");
     return 0;
 }
 
@@ -1424,6 +1445,7 @@ sped = 3
 scale = 2
 )toml",
          true, run_legacy_config},
+        {"target-auto", "[fg]\ntarget_fps = \"auto\"\n", true, run_target_auto},
         {"bad-config", "[fg\nmode = \n", true, run_bad_config},
         {"session",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"

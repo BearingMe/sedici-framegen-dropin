@@ -33,17 +33,10 @@ enum class Source {
 
 // `[limiter]`
 struct LimiterSettings {
-    // Target real-frame rate. 0 disables the limiter, which is the default and
-    // is exact milestone-1 behaviour. A fraction is allowed: with 2x frame
-    // generation, 36.5 gives 73 output fps, the usual target for a 75 Hz panel
-    // when VSync cannot be used.
-    double fps = 0.0;
-
     // Final busy-wait window before the deadline, in microseconds. The waitable
     // timer covers everything before this window.
     int spin_us = 1000;
 
-    Source fps_source = Source::Default;
     Source spin_us_source = Source::Default;
 };
 
@@ -128,8 +121,14 @@ struct FrameGenerationSettings {
 
     Multiplier multiplier = Multiplier::X2;
     Source multiplier_source = Source::Default;
-    // "adaptive" only. 0 = three below the display's refresh rate.
+    // The one frame-rate target (FR-05): output frames per second the screen
+    // should receive. 0 = uncapped (the default), N = capped, `target_auto` =
+    // match the monitor (settings/target_rate.h), uncapped if the refresh rate
+    // is unknown. With "adaptive" it is also the rate to aim for; 0 then
+    // behaves like auto. Replaces `[limiter] fps` (a real-frame cap), which is
+    // still read and converted (see `legacy_limiter_fps`).
     double target_fps = 0.0;
+    bool target_auto = false;
     Source target_fps_source = Source::Default;
     Present present = Present::Vrr;
     Source present_source = Source::Default;
@@ -147,6 +146,11 @@ struct Settings {
     LogSettings log;
     UiSettings ui;
     FrameGenerationSettings fg;
+
+    // `[limiter] fps` / SEDICI_LIMIT_FPS as found, or -1 when absent. They were
+    // real-frame caps; they are folded into `fg.target_fps` at load.
+    double legacy_limiter_fps = -1.0;
+    Source legacy_limiter_source = Source::Default;
 
     // Absolute path of the config file that was consulted, or empty when the
     // DLL directory could not be resolved.

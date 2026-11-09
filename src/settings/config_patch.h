@@ -23,8 +23,10 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept;
 bool config_same_stamp(const ConfigFileStamp& a, const ConfigFileStamp& b) noexcept;
 
 struct ConfigValues {
-    bool write_limiter_fps = false;
-    double limiter_fps = 0.0;
+    // `[fg] target_fps`: a number, or the string "auto".
+    bool write_target_fps = false;
+    double target_fps = 0.0;
+    bool target_auto = false;
 
     bool write_log = false;
     int log_level = 1;

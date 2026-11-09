@@ -341,13 +341,18 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             table->insert_or_assign(key, value);
         };
 
-        if (values.write_limiter_fps) {
-            apply_value(lines, "limiter", "fps", format_number(values.limiter_fps), eol);
-            // The patcher emits whole numbers as TOML integers.
-            const std::string number = format_number(values.limiter_fps);
-            if (number.find('.') == std::string::npos)
-                expect("limiter", "fps", static_cast<int64_t>(std::stoll(number)));
-            else expect("limiter", "fps", parse_number(number));
+        if (values.write_target_fps) {
+            if (values.target_auto) {
+                apply_value(lines, "fg", "target_fps", quoted("auto"), eol);
+                expect("fg", "target_fps", "auto");
+            } else {
+                apply_value(lines, "fg", "target_fps", format_number(values.target_fps), eol);
+                // The patcher emits whole numbers as TOML integers.
+                const std::string number = format_number(values.target_fps);
+                if (number.find('.') == std::string::npos)
+                    expect("fg", "target_fps", static_cast<int64_t>(std::stoll(number)));
+                else expect("fg", "target_fps", parse_number(number));
+            }
         }
         if (values.write_log) {
             apply_value(lines, "log", "level", std::to_string(values.log_level), eol);

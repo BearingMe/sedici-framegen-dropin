@@ -1,4 +1,5 @@
 #include "settings/config.h"
+#include "settings/target_rate.h"
 
 #include "settings/live.h"
 #include "diagnostics/log.h"
@@ -23,6 +24,7 @@
 #pragma warning(pop)
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <filesystem>
@@ -84,6 +86,23 @@ bool parse_decimal(std::string_view text, double& out) noexcept
     if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return false;
     if (!std::isfinite(value) || value < 0.0) return false;
     out = value;
+    return true;
+}
+
+// "auto" (any case) or a number within [0, 1000].
+bool parse_target(std::string_view text, double& number, bool& automatic) noexcept
+{
+    std::string lower(text);
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "auto") {
+        number = 0.0;
+        automatic = true;
+        return true;
+    }
+    double parsed = 0.0;
+    if (!parse_decimal(text, parsed) || parsed > 1000.0) return false;
+    number = parsed;
+    automatic = false;
     return true;
 }
 
@@ -270,8 +289,7 @@ bool parse_tear_guard(std::string_view text, FrameGenerationSettings::TearGuard&
     return true;
 }
 
-void read_limiter(const toml::table& root, LimiterSettings& limiter,
-                  std::vector<std::string>& problems, std::vector<std::string>& notes);
+void read_limiter(const toml::table& root, Settings& config, std::vector<std::string>& problems);
 void read_log(const toml::table& root, LogSettings& log, std::vector<std::string>& problems);
 void read_ui(const toml::table& root, UiSettings& ui, std::vector<std::string>& problems);
 
@@ -323,7 +341,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
     note_removed_keys(root, notes);
     note_unknown_keys(root, problems);
     read_fg(root, config.fg, problems);
-    read_limiter(root, config.limiter, problems, notes);
+    read_limiter(root, config, problems);
     read_log(root, config.log, problems);
     read_ui(root, config.ui, problems);
 }
@@ -439,25 +457,35 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     }
 
     {
-        double number = 0.0;
         entry = section_key(root, "fg", "target_fps");
-        switch (read_number(entry, number)) {
-        case Read::Missing:
-            break;
-        case Read::WrongType:
-            problem_at(problems, *entry, "fg.target_fps",
-                       std::string("expected a number, got ") + type_name(entry->type()) +
-                           " - using default 0 (three below the refresh rate)");
-            break;
-        case Read::Ok:
-            if (!std::isfinite(number) || number < 0.0 || number > 1000.0) {
-                problem_at(problems, *entry, "fg.target_fps",
-                           "must be within [0, 1000] (0 = three below the refresh rate) - using default 0");
+        if (entry) {
+            double number = 0.0;
+            bool automatic = false;
+            std::string text;
+            if (read_string(entry, text) == Read::Ok) {
+                if (parse_target(text, number, automatic)) {
+                    fg.target_fps = number;
+                    fg.target_auto = automatic;
+                    fg.target_fps_source = Source::File;
+                } else {
+                    problem_at(problems, *entry, "fg.target_fps",
+                               "unknown value \"" + text +
+                                   "\" (expected a number or \"auto\") - using default 0 (uncapped)");
+                }
+            } else if (read_number(entry, number) == Read::Ok) {
+                if (!std::isfinite(number) || number < 0.0 || number > 1000.0) {
+                    problem_at(problems, *entry, "fg.target_fps",
+                               "must be within [0, 1000] (0 = uncapped) - using default 0");
+                } else {
+                    fg.target_fps = number;
+                    fg.target_auto = false;
+                    fg.target_fps_source = Source::File;
+                }
             } else {
-                fg.target_fps = number;
-                fg.target_fps_source = Source::File;
+                problem_at(problems, *entry, "fg.target_fps",
+                           std::string("expected a number or \"auto\", got ") + type_name(entry->type()) +
+                               " - using default 0 (uncapped)");
             }
-            break;
         }
     }
 
@@ -483,9 +511,10 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     }
 }
 
-void read_limiter(const toml::table& root, LimiterSettings& limiter,
-                  std::vector<std::string>& problems, std::vector<std::string>& notes)
+void read_limiter(const toml::table& root, Settings& config,
+                  std::vector<std::string>& problems)
 {
+    LimiterSettings& limiter = config.limiter;
     check_section(root, "limiter", problems);
     // fps ---------------------------------------------------------------
     {
@@ -497,15 +526,15 @@ void read_limiter(const toml::table& root, LimiterSettings& limiter,
         case Read::WrongType:
             problem_at(problems, *entry, "limiter.fps",
                        std::string("expected a number, got ") + type_name(entry->type()) +
-                           " - using default 0 (off)");
+                           " - ignored (limiter.fps is replaced by fg.target_fps)");
             break;
         case Read::Ok:
             if (!std::isfinite(value) || value < 0.0 || value > 1000.0) {
                 problem_at(problems, *entry, "limiter.fps",
-                           "must be within [0, 1000] (0 = off) - using default 0");
+                           "must be within [0, 1000] (0 = off) - ignored");
             } else {
-                limiter.fps = value;
-                limiter.fps_source = Source::File;
+                config.legacy_limiter_fps = value;
+                config.legacy_limiter_source = Source::File;
             }
             break;
         }
@@ -532,17 +561,6 @@ void read_limiter(const toml::table& root, LimiterSettings& limiter,
                 limiter.spin_us_source = Source::File;
             }
             break;
-        }
-    }
-
-    if (limiter.fps > 0.0) {
-        const long interval_us = std::lround(1000000.0 / limiter.fps);
-        if (static_cast<double>(limiter.spin_us) >= static_cast<double>(interval_us)) {
-            notes.push_back(
-                "sedici.toml: limiter.spin_us: " + std::to_string(limiter.spin_us) +
-                " us is not shorter than the " + std::to_string(interval_us) +
-                " us frame interval; the timer wait is skipped and the limiter spins for the "
-                "whole wait");
         }
     }
 }
@@ -729,8 +747,8 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
     if (env_string("SEDICI_LIMIT_FPS", value)) {
         double parsed = 0.0;
         if (parse_decimal(value, parsed) && parsed <= 1000.0) {
-            config.limiter.fps = parsed;
-            config.limiter.fps_source = Source::Env;
+            config.legacy_limiter_fps = parsed;
+            config.legacy_limiter_source = Source::Env;
         } else {
             problems.push_back("SEDICI_LIMIT_FPS=\"" + value +
                                "\": expected a number within [0, 1000] (0 = off) - override "
@@ -762,12 +780,14 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
 
     if (env_string("SEDICI_FG_TARGET_FPS", value)) {
         double parsed = 0.0;
-        if (parse_decimal(value, parsed) && parsed <= 1000.0) {
+        bool automatic = false;
+        if (parse_target(value, parsed, automatic)) {
             config.fg.target_fps = parsed;
+            config.fg.target_auto = automatic;
             config.fg.target_fps_source = Source::Env;
         } else {
             problems.push_back("SEDICI_FG_TARGET_FPS=\"" + value +
-                               "\": expected a number within [0, 1000] - override ignored");
+                               "\": expected a number within [0, 1000] or \"auto\" - override ignored");
         }
     }
 
@@ -797,6 +817,63 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
 // ---------------------------------------------------------------------------
 // Once-at-load reporting
 // ---------------------------------------------------------------------------
+
+// Output frames per real frame of the nominal schedule, used to turn a legacy
+// real-frame cap into an output target.
+double nominal_output_ratio(const FrameGenerationSettings& fg) noexcept
+{
+    using M = FrameGenerationSettings::Multiplier;
+    if (fg.present != FrameGenerationSettings::Present::Vrr) return 2.0;
+    switch (fg.multiplier) {
+    case M::X1_75: return 1.75;
+    case M::X1_5: return 1.5;
+    case M::X1_25: return 1.25;
+    case M::Adaptive: return 1.0;
+    case M::X2: break;
+    }
+    return 2.0;
+}
+
+// Folds the legacy real-frame cap into the one target and notes the spin window.
+// Priority: SEDICI_FG_TARGET_FPS, SEDICI_LIMIT_FPS, fg.target_fps, limiter.fps.
+void finalize_target(Settings& config, std::vector<std::string>& notes)
+{
+    FrameGenerationSettings& fg = config.fg;
+    if (config.legacy_limiter_fps >= 0.0) {
+        const bool legacyEnv = config.legacy_limiter_source == Source::Env;
+        const char* name = legacyEnv ? "SEDICI_LIMIT_FPS" : "limiter.fps";
+        const bool wins = legacyEnv ? fg.target_fps_source != Source::Env
+                                    : fg.target_fps_source == Source::Default;
+        if (wins) {
+            const double ratio = nominal_output_ratio(fg);
+            fg.target_fps = legacy_limiter_to_target(config.legacy_limiter_fps, ratio);
+            fg.target_auto = false;
+            fg.target_fps_source = config.legacy_limiter_source;
+            notes.push_back(std::string("sedici: ") + name + " is deprecated (it capped real frames); read as "
+                            "fg.target_fps = " + format_number(fg.target_fps) + " output fps (" +
+                            format_number(config.legacy_limiter_fps) + " x " + format_number(ratio) +
+                            "). Use fg.target_fps, a number or \"auto\"");
+        } else {
+            notes.push_back(std::string("sedici: ") + name + " is ignored because fg.target_fps is set");
+        }
+    }
+    if (!fg.target_auto && fg.target_fps > 0.0) {
+        const double cap = fg.target_fps / nominal_output_ratio(fg);
+        const long interval_us = std::lround(1000000.0 / cap);
+        if (static_cast<double>(config.limiter.spin_us) >= static_cast<double>(interval_us)) {
+            notes.push_back(
+                "sedici.toml: limiter.spin_us: " + std::to_string(config.limiter.spin_us) +
+                " us is not shorter than the " + std::to_string(interval_us) +
+                " us frame interval; the timer wait is skipped and the limiter spins for the "
+                "whole wait");
+        }
+    }
+}
+
+std::string target_text(const FrameGenerationSettings& fg)
+{
+    return fg.target_auto ? std::string("\"auto\"") : format_number(fg.target_fps);
+}
 
 std::string format_float(float value)
 {
@@ -838,8 +915,7 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
          config.fg.tear_guard_source},
         {"fg.multiplier", std::string("\"") + multiplier_name(config.fg.multiplier) + "\"",
          config.fg.multiplier_source},
-        {"fg.target_fps", format_number(config.fg.target_fps), config.fg.target_fps_source},
-        {"limiter.fps", format_number(config.limiter.fps), config.limiter.fps_source},
+        {"fg.target_fps", target_text(config.fg), config.fg.target_fps_source},
         {"limiter.spin_us", std::to_string(config.limiter.spin_us),
          config.limiter.spin_us_source},
         {"ui.mode",
@@ -868,12 +944,15 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
     // One line that answers the only question that matters when reading a log
     // from a play session: is the fix on, and is anything being rewritten?
     std::ostringstream effective;
-    effective << "sedici: effective: real-frame limiter ";
-    if (config.limiter.fps > 0.0) {
-        effective << format_number(config.limiter.fps) << " fps (spin " << config.limiter.spin_us
-                  << " us)";
+    effective << "sedici: effective: target fps ";
+    if (config.fg.target_auto) {
+        effective << "auto (floor(Hz - Hz^2/3600) of the monitor, uncapped if unknown; spin "
+                  << config.limiter.spin_us << " us)";
+    } else if (config.fg.target_fps > 0.0) {
+        effective << format_number(config.fg.target_fps) << " output fps (spin "
+                  << config.limiter.spin_us << " us)";
     } else {
-        effective << "off";
+        effective << "uncapped";
     }
     log_raw(effective.str());
 }
@@ -932,6 +1011,7 @@ const Settings& settings() noexcept
         try {
             load_from_file(config, problems, notes);
             apply_env_overrides(config, problems);
+            finalize_target(config, notes);
         } catch (...) {
             // A parse or allocation failure must never reach the game. Anything
             // already applied stays; the rest stays at its default.

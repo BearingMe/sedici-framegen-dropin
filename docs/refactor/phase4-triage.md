@@ -25,7 +25,7 @@ obsolete, 1 retracted (136 entries).
 | K7 | fix or accept | P4.6 | offline | Presenter drops a real frame when a later output is due |
 | K8 | investigate | P4.6 | game | Frame-latency waitable object signalling |
 | K9 | fix | P4.6 | offline | vsync-path XFAILs in `sedici_fgcheck --present` |
-| K10 | fix | P4.2 | offline | Diagnostic wording and thresholds |
+| K10 | fix | P4.6 | offline then game | Moved from P4.2: diagnostic wording and thresholds belong with the presenter work |
 | K11 | fix | P4.3 | offline | Native chain recreation drops colour space and HDR metadata; failure leaves the game without a chain |
 | K12 | verify | P4.3 | offline | Suspected, no failing run: reference handover in vsync/game |
 | K13 | accept | P4.6 | game | RTSS limit is by design; keep the fallback |

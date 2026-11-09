@@ -32,6 +32,14 @@ cmake --build build --config Release
 
 Both must pass after every slice. Added or deleted source files fail the move check.
 
+## Phase 4 re-records
+
+`baseline.txt` is the Phase 2 record at the tag `phase2-baseline` for Phase 3. Phase 4 changes
+behaviour on purpose, so the file is re-recorded after each milestone, and only after a comparison
+showing that every previously passing line still passes and the differences are the additions that
+the milestone made. P4.2 added the target-fps checks and `sedici_abi_target-auto` (38 CTest entries,
+154 regression checks). `git show phase2-baseline:docs/dev/baseline.txt` is the original.
+
 ## Final result (P3.6)
 
 On 2026-11-09, after the last move, a fresh configure and build in an empty directory gave

@@ -69,10 +69,13 @@ std::string active_line_locked(const ffxCallbackDescFrameGenerationPresent& para
     const FfxApiResource& output = params.outputSwapChainBuffer;
     std::ostringstream out;
     out << "sedici: overlay present callback active"
-        << " device=" << pointer_text(params.device)
-        << " commandList=" << pointer_text(params.commandList)
-        << " output=" << pointer_text(output.resource)
-        << " size=" << output.description.width << 'x' << output.description.height
+        << " device=" << (params.device ? pointer_text(params.device) : std::string("n/a"))
+        << " commandList=" << (params.commandList ? pointer_text(params.commandList) : std::string("n/a"))
+        << " output=" << (output.resource ? pointer_text(output.resource) : std::string("n/a"))
+        << " size=";
+    if (output.resource) out << output.description.width << 'x' << output.description.height;
+    else out << "n/a";
+    out
         << " format=" << output.description.format
         << " state=" << output.state
         << " ui=" << (params.currentUI.resource ? "yes" : "no");

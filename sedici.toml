@@ -8,7 +8,7 @@
 # written out so the full set is visible in one place.
 #
 # Environment variables override this file:
-#   SEDICI_LIMIT_FPS=<number>    overrides [limiter] fps
+#   SEDICI_FG_TARGET_FPS=<number|auto>   overrides [fg] target_fps
 #   MFSRFG_LOG=0|1|2             overrides [log] level
 #
 # A malformed file is never fatal. Each bad key is reported in sedici.log with
@@ -53,8 +53,16 @@ present = "vrr"
 # Keep real FPS x multiplier under the refresh rate.
 multiplier = "2x"
 
-# Only used with multiplier = "adaptive": output frames per second to aim for.
-# 0 = three below the screen's refresh rate (72 on a 75 Hz screen).
+# The one frame-rate target: output frames per second the screen should get.
+# 0      - uncapped (the default; some games, e.g. Cyberpunk 2077, have their own
+#          cap).
+# 60     - capped. Sedici holds the game's real frames to target / multiplier
+#          (73 at 2x caps the game at 36.5), so the output lands on the target.
+# "auto" - match the monitor: floor(Hz - Hz^2/3600), the low-lag rule for VRR and
+#          v-sync (59 at 60 Hz, 73 at 75 Hz, 138 at 144 Hz, 224 at 240 Hz).
+#          Uncapped if the refresh rate cannot be read.
+# With multiplier = "adaptive" it is also the rate to aim for; 0 then acts as
+# "auto". Replaces [limiter] fps, which is still read (see below).
 target_fps = 0
 
 # Only used with present = "vrr". Stops a frame from being shown while the
@@ -67,15 +75,10 @@ target_fps = 0
 tear_guard = "scanline"
 
 [limiter]
-# Cap the game's real frames inside Sedici's Present hook, before the original
-# Present is called. The generated frames are presented inside Sedici's swapchain
-# and are not capped; with 2x frame generation the output lands at about twice
-# this rate. 0 = off (default, exact milestone-1 behaviour).
-#
-# Fractions are allowed. Example: 36.5 gives about 73 output fps with 2x frame
-# generation. On a 75 Hz panel with VRR (40-75 Hz) that is the usual target:
-# inside the VRR window and ~2 fps under the ceiling. 37 gives 74 output.
-fps = 0
+# The cap itself is set by [fg] target_fps. `fps` here is deprecated: it capped
+# real frames, and an old file that still has it is read as target_fps = fps x the
+# output ratio (25 at 2x becomes 50) with a note in the log. [fg] target_fps wins
+# when both are present.
 
 # Final busy-wait window before the deadline, in microseconds. The high
 # resolution waitable timer covers everything before this window; the spin
@@ -98,7 +101,8 @@ level = 1
 mode = "off"
 
 # "auto" scales from the output height (1080p = 1.0, clamped to 0.5-2.0), or a
-# fixed number in [0.5, 2.0].
+# fixed number in [0.5, 2.0]. The Full menu offers Auto, 0.8, 0.9 and 1.0; other
+# values in the file still load.
 scale = "auto"
 
 # Modifier+key. Alt+F10 cycles Off -> Mini -> Full -> Off.

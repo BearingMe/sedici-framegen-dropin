@@ -16,5 +16,10 @@ void stats_on_swapchain_event(const char* kind) noexcept;
 
 // Read-only view for the overlay. Locks internally; safe from any thread.
 uint64_t stats_stall_count() noexcept;
+
+// Real frames the presenter dropped because a later output was already due (K125).
+// The overlay's Real fps counts shown frames; this is the difference to the game's own count.
+void stats_on_real_dropped() noexcept;
+uint64_t stats_real_dropped() noexcept;
 double stats_last_stall_ms() noexcept;
 void stats_render_size(uint32_t& width, uint32_t& height) noexcept;

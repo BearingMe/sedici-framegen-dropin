@@ -26,12 +26,17 @@ The loader and upscaler DLLs are never touched.
 | Frame generation | Sedici's own generator and swapchain wrapper | always answered by Sedici; the game's own frame generation toggle still turns generation off; `[fg]` selects how frames are shown |
 | Output multiplier | `2x` | `fg.multiplier` |
 | Presentation | `vrr` with the `scanline` tear guard | `fg.present`, `fg.tear_guard` |
-| Real-frame limiter | **off** (`0`) | `limiter.fps = 37` or `SEDICI_LIMIT_FPS=37` |
+| Target frame rate | **uncapped** (`0`) | `fg.target_fps = 73`, `"auto"`, or `SEDICI_FG_TARGET_FPS` |
 | Limiter busy-wait window | `1000` us | `limiter.spin_us` |
 | Overlay menu | **off** until `Alt+F10` | `[ui] mode`, `[ui] hotkey` |
 | Log level | `1` | `log.level` or `MFSRFG_LOG` |
 
-With `limiter.fps = 0` the limiter adds no wait.
+The target is the output rate the screen receives: `0` is uncapped (no wait is added),
+`N` caps at N, and `"auto"` matches the monitor with the low-lag rule
+`floor(Hz - Hz^2 / 3600)` (59 at 60 Hz, 73 at 75 Hz, 116 at 120 Hz, 138 at 144 Hz, 224 at 240 Hz),
+uncapped if the refresh rate cannot be read. Sedici enforces it by capping real frames at
+target / output ratio (73 on a 75 Hz screen at 2x caps the game at 36.5). Some games, such as
+Cyberpunk 2077, have their own frame cap, which is why the default is uncapped.
 
 ### Why these defaults
 
@@ -115,11 +120,11 @@ Cyberpunk2077.exe
    size to Sedici's stage 1 (and later stage 2) generator; camera data in the descriptor is
    received but not used yet.
 5. **Cap, when asked.** The wrapper sees exactly one `Present` per real frame.
-   With `limiter.fps > 0`, it targets `previous_deadline + 1/fps`, waits on a
+   With a target fps set, it caps real frames at target / output ratio and targets `previous_deadline + 1/fps`, waits on a
    high-resolution waitable timer until `deadline - spin_us`, then spins on QPC to
    the deadline. A frame already past its deadline does not wait; one more than a
    full interval late reseeds the schedule instead of bursting. Capping the real
-   frames puts the output at about twice `limiter.fps` with 2x generation.
+   frames puts the output at about twice the cap with 2x generation, which is the target.
 6. **Observe.** Desc chains, return codes, cadence statistics and limiter
    statistics are written to `sedici.log`.
 
@@ -171,7 +176,7 @@ variables `SEDICI_PACING` and `SEDICI_ASYNC` are no longer read.
 |---|---|---|---|---|
 | `present` | string | `"vrr"` | `"vrr"`, `"vsync"` (alias `"vblank"`), `"game"` | how output frames are presented. `vrr` presents from a dedicated thread, timing each flip from when its image is finished on the GPU; it falls back to `vsync` while RTSS is running or when the native chain cannot be recreated. `vsync` presents with `SyncInterval=1` and no `ALLOW_TEARING`: tear-free, up to one refresh of latency, real rate at or below half the refresh. `game` passes the game's own sync interval and flags through, which is lowest latency but can tear |
 | `multiplier` | string | `"2x"` | `"2x"`, `"1.75x"`, `"1.5x"`, `"1.25x"`, `"adaptive"` | output frames per real frame; only `vrr` schedules anything but 2x. Keep real fps times the multiplier under the refresh rate |
-| `target_fps` | number | `0` | `0` or a positive number | only with `adaptive`; `0` means three below the refresh rate |
+| `target_fps` | number or `"auto"` | `0` | `0` to `1000`, or `"auto"` | the one frame-rate target, in output frames per second: `0` uncapped, `N` capped, `"auto"` = `floor(Hz - Hz^2/3600)` of the monitor (uncapped if unknown). With `adaptive` it is also the rate to aim for; `0` then behaves like `"auto"`. Replaces `limiter.fps` |
 | `tear_guard` | string | `"scanline"` | `"scanline"`, `"timer"`, `"off"` | only with `vrr`; how a flip is kept from landing while the panel draws the previous image |
 
 Sedici owns output pacing completely. A game's request to tune AMD's swapchain
@@ -185,10 +190,10 @@ the AMD backend was removed.
 
 | Key | Type | Default | Valid values | Effect |
 |---|---|---|---|---|
-| `fps` | number | `0` | `0` to `1000` | target real-frame rate; `0` disables the limiter; fractions allowed (`36.5` gives 73 output with 2x) |
+| `fps` | number | absent | `0` to `1000` | **deprecated**, replaced by `fg.target_fps`. It capped real frames; it is still read, multiplied by the output ratio (25 at 2x becomes `target_fps = 50`) and a note is logged. `fg.target_fps` wins when both are set |
 | `spin_us` | integer | `1000` | `0` to `100000` | final busy-wait window before the deadline, in microseconds |
 
-For a 75 Hz panel with VRR in the 40-75 Hz range, `fps = 36.5` gives 73 output
+For a 75 Hz panel with VRR in the 40-75 Hz range, `target_fps = "auto"` gives 73 output
 fps: inside the VRR window, with about 2 fps of headroom under the 75 Hz
 ceiling. That is the usual target when VSync cannot be used with FG. At 74 the
 cap sits on the ceiling, and the uneven real/generated split is more likely to
@@ -245,10 +250,10 @@ one configuration without editing anything.
 
 | Variable | Overrides | Values |
 |---|---|---|
-| `SEDICI_LIMIT_FPS` | `limiter.fps` | number `0` to `1000` |
+| `SEDICI_LIMIT_FPS` | `fg.target_fps` (deprecated; read as a real-frame cap and converted) | number `0` to `1000` |
 | `SEDICI_FG_PRESENT` | `fg.present` | as the file |
 | `SEDICI_FG_MULTIPLIER` | `fg.multiplier` | as the file |
-| `SEDICI_FG_TARGET_FPS` | `fg.target_fps` | as the file |
+| `SEDICI_FG_TARGET_FPS` | `fg.target_fps` | number `0` to `1000`, or `auto` |
 | `SEDICI_FG_TEAR_GUARD` | `fg.tear_guard` | as the file |
 | `MFSRFG_LOG` | `log.level` | `0`, `1`, `2` |
 
@@ -288,7 +293,7 @@ Per-key errors name the key and what was allowed:
 
 ```text
 sedici.toml:2:11: fg.present: unknown value "turbo" (expected "game", "vsync" or "vrr") - using default "vrr"
-sedici.toml:3:1: limiter.fps: must be within [0, 1000] - using default 0
+sedici.toml:3:1: fg.target_fps: must be within [0, 1000] (0 = uncapped) - using default 0
 ```
 
 ### Effective configuration log
@@ -297,13 +302,13 @@ The first call writes the effective settings once, with provenance:
 
 ```text
 sedici: read C:\...\bin\x64\sedici.toml (once, on the first ffx call)
-sedici:   limiter.fps                             = 0 [default]
+sedici:   fg.target_fps                           = 0 [default]
 sedici:   limiter.spin_us                         = 1000 [default]
 sedici:   ui.mode                                 = "off" [default]
 sedici:   ui.scale                                = "auto" [default]
 sedici:   ui.hotkey                               = "alt+f10" [default]
 sedici:   log.level                               = 1 [default]
-sedici: effective: real-frame limiter off
+sedici: effective: target fps uncapped
 ```
 
 `[default]`, `[file]` and `[env]` say where each value came from. A missing file
