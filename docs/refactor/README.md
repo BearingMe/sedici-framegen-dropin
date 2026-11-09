@@ -40,6 +40,7 @@ and model/LUT export remain offline, outside the shipped runtime.
 | [stage2-contract.md](stage2-contract.md) | Draft interface a residual network must meet: tensor layout, phase, colour, reset, padding, provenance, scratch and retirement |
 | [audit.md](audit.md) | Current code paths, ownership risks, evidence and prioritized P2.2 handoff |
 | [known-issues.md](known-issues.md) | Defects found and deliberately deferred until after the refactor, with evidence and owning milestone |
+| [feature-requests.md](feature-requests.md) | Owner and agent requests from the in-game QA runs; not scheduled |
 
 ## Decision status
 
@@ -103,4 +104,3 @@ In particular, the bundled-runtime proposal requires reconciling today's `.orig`
 fallback rule and deploy allowlist before implementation. Do not add a second
 milestone document or copy historical findings here. Evidence remains in
 [findings](../findings/), and license obligations remain in their attribution files.
-| [feature-requests.md](feature-requests.md) | Owner and agent requests from the in-game QA runs; not scheduled |

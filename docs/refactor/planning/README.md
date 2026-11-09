@@ -4,7 +4,7 @@
 > fallback entirely as long as Sedici stays a drop-in replacement. Text below that
 > proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or
 > backend fallback is kept as design history and no longer applies. The last commit
-> with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
+> with that code is the tag `pre-amd-removal`; [amd-binary.md](../amd-binary.md) keeps
 > what was learned about the binary.
 
 Status: planned documentation work before implementing the refactor. This records
