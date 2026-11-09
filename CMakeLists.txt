@@ -191,7 +191,15 @@ endif()
 # GPU time; --images also writes the two frames as PPM.
 option(SEDICI_BUILD_FGCHECK "Build the offline frame generation acceptance host" OFF)
 if(SEDICI_BUILD_FGCHECK)
-    add_executable(sedici_fgcheck tests/integration/fgcheck.cpp $<TARGET_OBJECTS:sedici_core>)
+    add_executable(sedici_fgcheck
+        tests/integration/fgcheck.cpp
+        tests/integration/fgcheck_quality.cpp
+        tests/integration/fgcheck_pacing.cpp
+        tests/integration/fgcheck_present.cpp
+        tests/integration/fgcheck_routing.cpp
+        tests/integration/fgcheck_retention.cpp
+        $<TARGET_OBJECTS:sedici_core>)
+    target_include_directories(sedici_fgcheck PRIVATE tests/integration)
     target_link_libraries(sedici_fgcheck PRIVATE sedici_core)
     set_target_properties(sedici_fgcheck PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
