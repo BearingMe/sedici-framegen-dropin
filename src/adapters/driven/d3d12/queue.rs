@@ -29,6 +29,12 @@ impl D3d12Queue {
         &self.queue
     }
 
+    /// Adopts a queue the game owns. The FFX contract keeps it alive for the context's lifetime;
+    /// the wrapper takes a COM reference so it never depends on the caller's slot.
+    pub fn from_adopted(queue: &ID3D12CommandQueue) -> Self {
+        Self { queue: queue.clone() }
+    }
+
     /// Executes the lists. The caller guarantees every list is closed and fully recorded.
     pub fn execute_raw(&self, lists: &[&ID3D12GraphicsCommandList]) -> Result<(), GpuError> {
         let mut base = Vec::with_capacity(lists.len());

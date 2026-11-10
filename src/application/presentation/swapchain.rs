@@ -276,6 +276,10 @@ where
     scratch: Mutex<Scratch<D>>,
     sink: Mutex<Option<GeneratorSink<C>>>,
     untracked: Mutex<Option<GeneratorSink<C>>>,
+    /// The probe a session-owned generation source registers its submissions against. The wrapper's
+    /// own fence is a `D::Fence`; the composition root wraps the same timeline in a
+    /// [`crate::application::context::Retirement`] and installs it here.
+    sink_retirement: Mutex<Option<Arc<dyn crate::application::context::Retirement>>>,
     generator_closed: AtomicBool,
     present_hook: Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>,
     overlay: Mutex<Arc<O>>,
@@ -387,6 +391,7 @@ where
                 height: desc.height,
             }),
             sink: Mutex::new(None),
+            sink_retirement: Mutex::new(None),
             untracked: Mutex::new(None),
             generator_closed: AtomicBool::new(false),
             present_hook: Mutex::new(None),
@@ -487,6 +492,27 @@ where
         self.presenter.is_some()
     }
 
+    /// Installs the probe a session-owned generation source registers submissions against.
+    ///
+    /// The wrapper's own queue fence is a `D::Fence`; the composition root wraps **that same fence**
+    /// in a [`crate::application::context::Retirement`] through `make`, so a session context's
+    /// retirement is the wrapper's timeline rather than a second, never-signalled one. A `None`
+    /// from `make` leaves admission closed (K37) instead of claiming a token the context never
+    /// received.
+    pub fn install_retirement(
+        &self,
+        make: impl FnOnce(&D::Fence) -> Option<Arc<dyn crate::application::context::Retirement>>,
+    ) {
+        if let Some(probe) = make(&self.fence) {
+            *lock(&self.sink_retirement) = Some(probe);
+        }
+    }
+
+    /// The probe installed by [`Swapchain::install_retirement`].
+    pub fn sink_retirement(&self) -> Option<Arc<dyn crate::application::context::Retirement>> {
+        lock(&self.sink_retirement).clone()
+    }
+
     /// Installs the frame generation context. Without one the wrapper presents real frames only.
     /// False after [`Swapchain::close_generator`]: a destroyed owner may not be reattached.
     pub fn set_generator(&self, sink: Option<GeneratorSink<C>>) -> bool {
@@ -562,9 +588,68 @@ where
         self.buffers.get(index as usize)
     }
 
+    // -- Names the COM-surface adapter uses, so it never collides with a trait method it must
+    // implement under the same name ----------------------------------------------------------
+
+    /// [`Swapchain::present`], under a name the COM adapter can call from its own `present`.
+    pub fn present_chain(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: Option<&PresentParams>,
+    ) -> Result<(), SwapchainError> {
+        self.present(sync, flags, params)
+    }
+
+    /// [`Swapchain::resize`], under a name the COM adapter can call from its own `resize`.
+    pub fn resize_chain(
+        &self,
+        count: u32,
+        width: u32,
+        height: u32,
+        format: Option<PixelFormat>,
+        flags: u32,
+    ) -> Result<(), SwapchainError> {
+        self.resize(count, width, height, format, flags)
+    }
+
+    /// [`Swapchain::resize_buffers1`], under a name the COM adapter can call.
+    pub fn resize_chain1(
+        &self,
+        count: u32,
+        width: u32,
+        height: u32,
+        format: Option<PixelFormat>,
+        flags: u32,
+        node_masks: &[u32],
+    ) -> Result<(), SwapchainError> {
+        self.resize_buffers1(count, width, height, format, flags, node_masks)
+    }
+
+    /// [`Swapchain::current_back_buffer_index`], under a name the COM adapter can call.
+    pub fn game_buffer_index(&self) -> u32 {
+        self.current_back_buffer_index()
+    }
+
+    /// [`Swapchain::back_buffer`], under a name the COM adapter can call.
+    pub fn private_back_buffer(&self, index: u32) -> Option<&D::Texture> {
+        self.back_buffer(index)
+    }
+
+    /// [`Swapchain::drain`], under a name the COM adapter's `before_fullscreen_change` can call.
+    pub fn drain_chain(&self) -> Result<(), SwapchainError> {
+        self.drain()
+    }
+
     /// The chain format and size the private buffers were made with.
     pub fn buffer_count(&self) -> u32 {
         self.buffers.len() as u32
+    }
+
+    /// The native chain the wrapper presents through, for the adapter that must write its handle
+    /// into the game's output slot.
+    pub fn native(&self) -> &Arc<N> {
+        &self.native
     }
 
     /// The interpolation scratch texture (P4.8, K131). Nothing recorded into it is presented. The

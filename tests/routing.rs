@@ -325,7 +325,7 @@ struct FakeWrapper {
 }
 
 impl Wrapper for FakeWrapper {
-    fn set_generator(&self, sink: Arc<dyn ContextHandle>) -> bool {
+    fn set_generator(&self, _owner: usize, sink: Arc<dyn ContextHandle>) -> bool {
         if self.closed.load(Ordering::Acquire) {
             return false;
         }
@@ -353,6 +353,7 @@ impl SwapchainFactory for FakeSwapchains {
         &self,
         _: &CreateContextDesc,
         _: WrapOrigin,
+        _owner: usize,
     ) -> Result<(usize, Arc<dyn Wrapper>), amd_fidelityfx_framegeneration_dx12::application::ffx_model::Rejection> {
         Ok((0x5000, Arc::new(FakeWrapper::default())))
     }

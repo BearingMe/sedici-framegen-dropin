@@ -111,6 +111,22 @@ pub fn running_as_dll() -> bool {
     false
 }
 
+/// True when a Present-hooking overlay (RTSS) is loaded.
+///
+/// "vrr" refuses to start with RTSS injected unless `SEDICI_FG_ALLOW_RTSS` is set: RTSS draws into
+/// the back buffer from whichever queue it last saw, not the chain's present queue (K13).
+#[cfg(windows)]
+pub fn rtss_loaded() -> bool {
+    // SAFETY: a null module name by string only reads the loader's module table; no reference is
+    // taken and nothing is released.
+    unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!("RTSSHooks64.dll")) }.is_ok()
+}
+
+#[cfg(not(windows))]
+pub fn rtss_loaded() -> bool {
+    false
+}
+
 /// True when `module` lives under the Windows or System directory. An unknown path counts as
 /// system: the scan leaves it alone rather than risk patching a protected module.
 pub fn is_system_module(module: Module) -> bool {

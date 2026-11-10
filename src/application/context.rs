@@ -141,6 +141,16 @@ pub trait ContextHandle: Send + Sync {
     fn needs_submission(&self) -> bool;
 
     fn abandoned(&self);
+
+    /// True while a prepare is recorded and not yet consumed by a generation.
+    fn prepared(&self) -> bool;
+
+    /// A bounded wait for the last registered submission; never unbounded. `false` when nothing
+    /// was submitted or the wait expired.
+    fn wait_for_retirement(&self, timeout: Duration) -> bool;
+
+    /// The state the wrapper's generated output is in when recording starts.
+    fn output_state(&self) -> ResourceState;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1002,7 +1012,27 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
     fn abandoned(&self) {
         self.lock().abandon_generation();
     }
+
+    fn prepared(&self) -> bool {
+        self.lock().pending()
+    }
+
+    fn wait_for_retirement(&self, timeout: Duration) -> bool {
+        let timeout_ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        self.lock().wait_for_retirement(timeout_ms)
+    }
+
+    fn output_state(&self) -> ResourceState {
+        GENERATED_OUTPUT_STATE
+    }
 }
+
+/// The state the wrapper's generated images are created in.
+///
+/// Both `wrap` entry points create them in `COPY_SOURCE`; the generator restores the state it was
+/// given (`m_generated_state` in `record_generated`, and the per-phase
+/// `D3D12_RESOURCE_STATE_COPY_SOURCE` on the "vrr" path).
+pub const GENERATED_OUTPUT_STATE: ResourceState = ResourceState::COPY_SOURCE;
 
 
 

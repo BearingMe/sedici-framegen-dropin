@@ -343,6 +343,30 @@ pub fn window_procedure(window: WindowHandle) -> isize {
     unsafe { GetWindowLongPtrW(hwnd_of(window), GWLP_WNDPROC) }
 }
 
+/// Subclasses `window` for the overlay's hotkey and cursor handling (ports `ui_capture_window`).
+///
+/// The C++ installed the subclass from `ffxCreateContext` once a swapchain create succeeded, so the
+/// overlay was bound to the game's window without the game cooperating. The Rust composition root
+/// calls this from its swapchain factory (K141). The overlay's window procedure is the last slice;
+/// until it lands the window is recorded here and nothing is consumed, so the game keeps its own
+/// procedure (K156).
+pub fn capture_window_global(window: HWND) {
+    if window.0.is_null() {
+        return;
+    }
+    let handle = WindowHandle(window.0 as isize);
+    if CAPTURED_WINDOW.swap(handle.0, std::sync::atomic::Ordering::AcqRel) != handle.0 {
+        tracing::info!("sedici: overlay window captured");
+    }
+}
+
+/// The window the overlay is bound to, if a swapchain create named one.
+pub fn captured_window() -> WindowHandle {
+    WindowHandle(CAPTURED_WINDOW.load(std::sync::atomic::Ordering::Acquire))
+}
+
+static CAPTURED_WINDOW: AtomicIsize = AtomicIsize::new(0);
+
 #[cfg(test)]
 mod tests {
     use super::*;
