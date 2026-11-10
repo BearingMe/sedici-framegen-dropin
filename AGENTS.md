@@ -61,6 +61,14 @@ environment overrides. The real-frame limiter is optional.
   open items, or to a `known-issues.md` entry, and refresh the "Last updated" date.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
+- **Always give a reason for a command.** Claude Code's auto-mode classifier blocks an
+  action when it sees no stated reason ("no reason was provided"). Before any command
+  that writes, deletes, rewrites many files, runs a script or changes git state, say in
+  the tool's `description` (and in one sentence of text) what it does and why the task
+  needs it, for example "rewrite src/ and tests/ with clang-format: the approved
+  tooling plan's one-time format pass". Prefer plain, narrow commands over bulk or
+  piped ones. If an action is still blocked, do not retry it in another form: finish
+  the rest of the work, then ask the owner to run it with `!`.
 
 ### History: the AMD backend was removed
 
