@@ -323,7 +323,8 @@ void enqueue(std::string_view message, bool limited) noexcept
                 const int n = std::snprintf(note, sizeof(note), " [+%u similar suppressed]", repeats);
                 const size_t room = kLineMax - 1 - length;
                 if (n > 0) {
-                    const size_t add = std::min(static_cast<size_t>(n), room);
+                    // K141: snprintf returns the length it wanted, not what fit in note[].
+                    const size_t add = std::min({static_cast<size_t>(n), room, sizeof(note) - 1});
                     std::memcpy(slot.text + length, note, add);
                     length += add;
                 }

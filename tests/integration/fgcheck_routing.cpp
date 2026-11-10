@@ -314,6 +314,7 @@ bool check_routing(Device& state, bool wrapFirst)
             std::atomic<bool> go{false};
             std::atomic<int> answered{0};
             std::vector<std::thread> threads;
+            threads.reserve(4);
             for (int t = 0; t < 4; ++t) {
                 threads.emplace_back([&, t] {
                     while (!go.load()) std::this_thread::yield();

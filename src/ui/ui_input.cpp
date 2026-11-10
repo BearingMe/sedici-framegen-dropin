@@ -83,6 +83,8 @@ bool is_system_module(HMODULE module) noexcept
     wchar_t windows[MAX_PATH]{};
     if (!GetModuleFileNameW(module, path, MAX_PATH)) return true; // unknown: leave it alone
     const UINT systemLength = GetSystemDirectoryW(system, MAX_PATH);
+    // /analyze cannot see that the lambda below examines windowsLength (C28193): false positive.
+#pragma warning(suppress : 28193)
     const UINT windowsLength = GetWindowsDirectoryW(windows, MAX_PATH);
     const auto under = [&](const wchar_t* root, UINT length) {
         return length != 0 && length < MAX_PATH && _wcsnicmp(path, root, length) == 0;
