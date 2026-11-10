@@ -442,7 +442,7 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
         let Some(color_format) = color_format_of(frame_generation.back_buffer_format.0) else {
             return Err(self.fail(reasons::UNSUPPORTED_BACK_BUFFER));
         };
-        if desc.backend_dx12.map_or(true, |backend| backend.device == 0) {
+        if desc.backend_dx12.is_none_or(|backend| backend.device == 0) {
             return Err(self.fail(reasons::CREATE_WITHOUT_DEVICE));
         }
         if frame_generation.display_size.width == 0 || frame_generation.display_size.height == 0 {

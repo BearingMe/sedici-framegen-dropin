@@ -139,12 +139,7 @@ impl Default for Bucket {
 /// an unused bucket.
 fn message_key(message: &str) -> u64 {
     let mut hash: u64 = 1_469_598_103_934_665_603;
-    let mut taken = 0;
-    for c in message.chars() {
-        if taken >= KEY_CHARS {
-            break;
-        }
-        taken += 1;
+    for c in message.chars().take(KEY_CHARS) {
         if c.is_ascii_digit() {
             continue;
         }

@@ -2,7 +2,7 @@
 name = "sedici"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 license = "MIT"
 description = "Drop-in replacement for amd_fidelityfx_framegeneration_dx12.dll with Sedici's own frame generation"
 publish = false

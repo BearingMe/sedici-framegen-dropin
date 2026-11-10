@@ -65,6 +65,9 @@ pub const DXGI_ERROR_WAS_STILL_DRAWING: u32 = 0x887A_000A;
 
 const PHASE_OUTPUTS: usize = MAX_PHASES as usize;
 
+/// Called with the frame's present id after each successful Present.
+type PresentHook = Arc<dyn Fn(u64) + Send + Sync>;
+
 /// How many older frames may still be presenting while the game renders the next one. One frame in
 /// flight blocked the game on most frames at ~40 fps in adaptive mode (finding 009).
 pub const IN_FLIGHT: usize = PRESENTER_QUEUE_CAPACITY - 1;
@@ -281,7 +284,7 @@ where
     /// [`crate::application::context::Retirement`] and installs it here.
     sink_retirement: Mutex<Option<Arc<dyn crate::application::context::Retirement>>>,
     generator_closed: AtomicBool,
-    present_hook: Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>,
+    present_hook: Mutex<Option<PresentHook>>,
     overlay: Mutex<Arc<O>>,
     pacer: Mutex<Pacer>,
     schedule: Mutex<OutputSchedule>,
@@ -1057,7 +1060,7 @@ where
         let images: Vec<D::Texture> = {
             let slots = lock(&self.vrr_slots);
             let Some(entry) = slots.get(slot as usize) else { return Err(SwapchainError::InvalidCall) };
-            let wanted = alphas.len().min(PHASE_OUTPUTS).max(1);
+            let wanted = alphas.len().clamp(1, PHASE_OUTPUTS);
             entry.phase_outputs.iter().take(wanted).cloned().collect()
         };
         let phases: Vec<GeneratePhase<'_, D::Texture>> = images
@@ -1374,11 +1377,11 @@ where
 
     fn wait_until_seconds(&self, deadline: f64, max_wait: f64) {
         let now = self.seconds();
-        if !deadline.is_finite() || !(max_wait > 0.0) {
+        if !deadline.is_finite() || max_wait.is_nan() || max_wait <= 0.0 {
             return;
         }
         let remaining = (deadline - now).clamp(0.0, max_wait.min(0.05));
-        if !(remaining > 0.0) {
+        if remaining.is_nan() || remaining <= 0.0 {
             return;
         }
         let frequency = self.clock.frequency();
@@ -1411,7 +1414,7 @@ where
 pub fn scanline_lead_us() -> Option<f64> {
     let text = std::env::var("SEDICI_FG_SCANLINE_LEAD_US").ok()?;
     let value: f64 = text.trim().parse().ok()?;
-    (value >= 0.0 && value <= 5000.0).then_some(value)
+    (0.0..=5000.0).contains(&value).then_some(value)
 }
 
 fn create_back_buffers<D: GpuDevice>(device: &D, desc: &SwapChainDesc) -> Result<Vec<D::Texture>, GpuError> {

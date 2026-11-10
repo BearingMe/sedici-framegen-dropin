@@ -329,7 +329,7 @@ impl NativeSwapchain for FakeNative {
     type Buffer = FakeTexture;
 
     fn back_buffer(&self, index: u32) -> Result<Self::Buffer, GpuError> {
-        self.buffers.get(index as usize).map(Clone::clone).ok_or_else(|| GpuError::failed("buffer", 0x887A_0001))
+        self.buffers.get(index as usize).cloned().ok_or_else(|| GpuError::failed("buffer", 0x887A_0001))
     }
 
     fn buffer_reference_count(&self, index: u32) -> Option<u32> {

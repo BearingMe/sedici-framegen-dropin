@@ -218,11 +218,10 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
 
         // A consumed hotkey key-down also consumes its matching key-up, even if modifiers or mode
         // changed between the two. Never consume an unrelated key-up.
-        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk {
-            if self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk
+            && self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
                 return Dispatch::Consumed(LRESULT(0));
             }
-        }
         if msg == WM_KILLFOCUS || msg == WM_NCDESTROY {
             let _ = self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
         }
@@ -234,8 +233,8 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         }
 
         // Hotkey press.
-        if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
-            if wparam.0 as u32 == self.hotkey.vk {
+        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            && wparam.0 as u32 == self.hotkey.vk {
                 let modifiers = current_modifiers();
                 if self.hotkey.matches(modifiers) {
                     // Bit 30 of lparam is the previous key state; ignore auto-repeat.
@@ -246,7 +245,6 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
                     return Dispatch::Consumed(LRESULT(0));
                 }
             }
-        }
 
         // Otherwise the Full menu consumes input while it owns the cursor, except Alt+F4 (K126).
         if !self.disabled.load(Ordering::Acquire) && self.host.cursor_active() {
@@ -301,11 +299,10 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         }
         // A consumed hotkey key-down also consumes its matching key-up, even if modifiers or the
         // mode changed between the two. Never consume an unrelated key-up.
-        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk {
-            if self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk
+            && self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
                 return Dispatch::Consumed(LRESULT(0));
             }
-        }
         if msg == WM_KILLFOCUS || msg == WM_NCDESTROY {
             let _ = self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
         }
@@ -317,8 +314,8 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             // Full capture retries after the window regains focus (the C++ posted kHotkeyMessage).
             post_capture_message(window);
         }
-        if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
-            if wparam.0 as u32 == self.hotkey.vk && self.hotkey.matches(current_modifiers()) {
+        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            && wparam.0 as u32 == self.hotkey.vk && self.hotkey.matches(current_modifiers()) {
                 // Bit 30 of lparam is the previous key state; ignore auto-repeat.
                 if (lparam.0 as u64 >> 30) & 1 == 0 {
                     self.hotkey_down_window.store(window.0, Ordering::Release);
@@ -326,7 +323,6 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
                 }
                 return Dispatch::Consumed(LRESULT(0));
             }
-        }
         // The Full menu owns the cursor: consume the game's input, except Alt+F4 (K126).
         if !self.disabled.load(Ordering::Acquire) && host.cursor_active() {
             if msg == WM_SETCURSOR {
@@ -727,7 +723,7 @@ mod tests {
         host.active.store(true, Ordering::Release);
         assert_eq!(input.dispatch(WINDOW, WM_MOUSEMOVE, WPARAM(0), LPARAM(0)), Dispatch::Consumed(LRESULT(0)));
         assert_eq!(input.take_queued().len(), 1, "the mouse move reaches the overlay");
-        assert!(host.inputs.lock().unwrap().len() >= 1);
+        assert!(!host.inputs.lock().unwrap().is_empty());
     }
 
     #[test]

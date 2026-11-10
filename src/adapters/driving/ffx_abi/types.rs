@@ -627,7 +627,7 @@ pub const FFX_API_RESOURCE_TYPE_TEXTURE_CUBE: u32 = 3;
 pub const FFX_API_RESOURCE_TYPE_TEXTURE3D: u32 = 4;
 
 /// The FFX frame generation and swapchain versions the C++ reports.
-pub const FFX_FRAMEGENERATION_VERSION: u32 = 4 << 22 | 0 << 12 | 2;
+pub const FFX_FRAMEGENERATION_VERSION: u32 = (4 << 22) | 2;
 
 // -------------------------------------------------------------------------------------------------
 // Layout assertions, derived from the headers.
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn version_constant_matches_the_header_macro() {
-        assert_eq!(FFX_FRAMEGENERATION_VERSION, (4u32 << 22) | (0u32 << 12) | 2);
+        assert_eq!(FFX_FRAMEGENERATION_VERSION, (4u32 << 22) | 2);
         assert_eq!(FFX_API_RETURN_OK, 0);
         assert_eq!(FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE, 2);
         assert_eq!(FFX_API_RETURN_ERROR_PARAMETER, 6);

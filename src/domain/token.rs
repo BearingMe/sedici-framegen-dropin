@@ -32,7 +32,7 @@ impl TokenNamespace {
             return false;
         }
         let delta = token - self.base;
-        delta % self.stride == 0 && delta / self.stride < self.issued
+        delta.is_multiple_of(self.stride) && delta / self.stride < self.issued
     }
 }
 

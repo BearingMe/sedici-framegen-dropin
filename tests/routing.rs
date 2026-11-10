@@ -28,7 +28,7 @@ use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
     TextureInfo,
 };
 use amd_fidelityfx_framegeneration_dx12::application::router::{
-    AddressReservation, DeviceResolver, MemoryTokens, Router, SwapchainFactory, DISPATCH_FRAMEGENERATION_PREPARE,
+    DeviceResolver, MemoryTokens, Router, SwapchainFactory, DISPATCH_FRAMEGENERATION_PREPARE,
 };
 use amd_fidelityfx_framegeneration_dx12::application::session::{WrapOrigin, Wrapper};
 use amd_fidelityfx_framegeneration_dx12::application::context::ContextHandle;
@@ -39,7 +39,9 @@ use rstest::rstest;
 // Fake GPU device
 // ---------------------------------------------------------------------------------------------
 
+/// The third field records the resource state a fake was created in; nothing asserts on it yet.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct FakeTexture(usize, TextureInfo, ResourceState);
 
 impl GpuTexture for FakeTexture {
@@ -200,7 +202,6 @@ struct FakeGenerator {
     generated: u32,
     discarded: u32,
     released: u32,
-    fail_create: bool,
 }
 
 impl FrameGenerator<FakeDevice> for FakeGenerator {
@@ -359,14 +360,6 @@ impl SwapchainFactory for FakeSwapchains {
         _owner: usize,
     ) -> Result<(usize, Arc<dyn Wrapper>), amd_fidelityfx_framegeneration_dx12::application::ffx_model::Rejection> {
         Ok((0x5000, Arc::new(FakeWrapper::default())))
-    }
-}
-
-/// An address reserver that always succeeds at a fixed base.
-struct FixedReservation(usize);
-impl AddressReservation for FixedReservation {
-    fn reserve(&self, _: usize) -> Option<usize> {
-        Some(self.0)
     }
 }
 

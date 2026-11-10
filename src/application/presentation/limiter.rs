@@ -60,6 +60,7 @@ impl Window {
     }
 }
 
+#[derive(Default)]
 struct LimiterState {
     initialized: bool,
     disabled: bool,
@@ -74,23 +75,6 @@ struct LimiterState {
     window: Window,
 }
 
-impl Default for LimiterState {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            disabled: false,
-            interval: 0,
-            spin: 0,
-            have_deadline: false,
-            deadline: 0,
-            have_last_actual: false,
-            last_actual: 0,
-            logged_mode: false,
-            logged_fg: false,
-            window: Window::default(),
-        }
-    }
-}
 
 /// The limiter over a [`Clock`] and an fps source. Construct one per DLL lifetime.
 pub struct Limiter<C: Clock> {
@@ -169,7 +153,7 @@ impl<C: Clock> Limiter<C> {
     /// Never panics and never returns a game-facing error: bookkeeping failures just leave the
     /// game uncapped.
     pub fn before_present(&self, now: u64, config: LimiterConfig, fg_active: bool) -> FrameOutcome {
-        if !(config.fps > 0.0) {
+        if config.fps.is_nan() || config.fps <= 0.0 {
             return FrameOutcome::default();
         }
 

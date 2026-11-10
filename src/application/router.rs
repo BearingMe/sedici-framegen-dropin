@@ -843,7 +843,7 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         let mut body = owner.lock();
         body.dead = true;
         let ok = if owner.kind == OwnerKind::Session {
-            body.session.as_mut().map_or(true, |session| session.destroy())
+            body.session.as_mut().is_none_or(|session| session.destroy())
         } else {
             if let Some(wrapper) = body.wrap.as_ref() {
                 wrapper.close_generator();

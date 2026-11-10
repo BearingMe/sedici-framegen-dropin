@@ -19,7 +19,7 @@ const SAMPLE_CAP: f64 = 0.1;
 pub const MAX_PLANNED_OUTPUTS: usize = 3;
 
 fn clamp_interval(interval: f64) -> f64 {
-    if !(interval > 0.0) {
+    if interval.is_nan() || interval <= 0.0 {
         return 1.0 / 60.0; // also rejects NaN
     }
     interval.clamp(MIN_INTERVAL, MAX_INTERVAL)
@@ -458,7 +458,7 @@ mod tests {
         let mut recovered = true;
         let mut outputs = 0u32;
         for cycle in 0..20_000u32 {
-            let enabled = cycle < 5000 || cycle >= 5100;
+            let enabled = !(5000..5100).contains(&cycle);
             if cycle == 5000 || cycle == 5100 {
                 pacing = PacingState::new();
             }

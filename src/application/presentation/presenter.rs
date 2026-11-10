@@ -331,7 +331,7 @@ pub fn guard_floor(
     guard: TearGuard,
     scanline_available: bool,
 ) -> f64 {
-    if !(last_flip > 0.0) {
+    if last_flip.is_nan() || last_flip <= 0.0 {
         return 0.0;
     }
     let timer_guard = guard == TearGuard::Timer || (guard == TearGuard::Scanline && !scanline_available);
@@ -734,7 +734,7 @@ fn wait_until(clock: &dyn Clock, deadline: f64) {
     }
     let now = clock.now();
     let remaining = deadline - now as f64 / frequency as f64;
-    if !(remaining > 0.0) {
+    if remaining.is_nan() || remaining <= 0.0 {
         return;
     }
     let remaining = remaining.min(0.1);

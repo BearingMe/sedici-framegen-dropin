@@ -14,7 +14,7 @@ use std::time::Duration;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::device::D3d12Device;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12CommandList;
 use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
-    GpuBuffer, GpuCommandAllocator, GpuCommandList, GpuDevice, GpuFence, GpuQueue, GpuTexture,
+    GpuCommandAllocator, GpuDevice, GpuFence, GpuQueue, GpuTexture,
     PixelFormat, QueueKind, QueuePriority, ResourceState, TextureDesc, TextureFlags,
 };
 
@@ -274,6 +274,7 @@ impl Host {
     }
 
     /// Uploads rows through a staging buffer and leaves the texture in `final_state`.
+    #[allow(clippy::too_many_arguments)] // texture geometry, pitch and state are all needed by the copy
     pub fn upload_into(
         &self,
         texture: &<D3d12Device as GpuDevice>::Texture,

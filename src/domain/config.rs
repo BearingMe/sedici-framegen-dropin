@@ -785,9 +785,11 @@ mod tests {
 
     #[test]
     fn legacy_limiter_becomes_an_output_target_at_the_nominal_ratio() {
-        let mut config = Settings::default();
-        config.legacy_limiter_fps = 25.0;
-        config.legacy_limiter_source = Source::File;
+        let mut config = Settings {
+            legacy_limiter_fps: 25.0,
+            legacy_limiter_source: Source::File,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         finalize_target(&mut config, &mut notes);
         assert_eq!(config.fg.target_fps, 50.0);

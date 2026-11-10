@@ -28,7 +28,7 @@ use amd_fidelityfx_framegeneration_dx12::application::ports::generator::{
     FrameGenerator, GeneratePhase, InputFrame,
 };
 use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
-    GpuDevice, PixelFormat, ResourceState, TextureFlags,
+    PixelFormat, ResourceState, TextureFlags,
 };
 use amd_fidelityfx_framegeneration_dx12::domain::frame::{ColorFormat, FrameParams, MIDPOINT_ALPHA};
 

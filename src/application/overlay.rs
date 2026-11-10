@@ -351,17 +351,14 @@ pub struct ActionOutcome {
 /// for the frame output a test inspects, not for the per-frame path.
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
+#[derive(Default)]
 pub enum OverlayView {
+    #[default]
     Off,
     Mini(MiniView),
     Full(FullView),
 }
 
-impl Default for OverlayView {
-    fn default() -> Self {
-        Self::Off
-    }
-}
 
 /// The menu's own state. One instance per DLL, behind the render lock.
 pub struct OverlayState {

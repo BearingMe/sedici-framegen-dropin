@@ -458,8 +458,10 @@ fn private_bytes() -> u64 {
     use windows::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
     };
-    let mut counters = PROCESS_MEMORY_COUNTERS_EX::default();
-    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
     // SAFETY: the out-struct is owned and sized; the call only fills it.
     let ok = unsafe {
         GetProcessMemoryInfo(

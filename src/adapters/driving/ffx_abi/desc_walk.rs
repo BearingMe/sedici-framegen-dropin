@@ -663,78 +663,6 @@ fn read_texture(slot: usize) -> Option<FfxApiResource> {
     // SAFETY: the address was just found readable for a whole FfxApiResource.
     Some(unsafe { std::ptr::read_unaligned(slot as *const FfxApiResource) })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::super::types::*;
-    use super::*;
-
-    fn header(type_: u64, p_next: *mut ffxApiHeader) -> ffxApiHeader {
-        ffxApiHeader { type_, pNext: p_next }
-    }
-
-    #[test]
-    fn a_null_chain_yields_nothing() {
-        assert!(walk_chain(std::ptr::null(), |_| {}).is_empty());
-        assert!(!convert_create(std::ptr::null()).names_a_sedici_context());
-        assert!(convert_configure(std::ptr::null()).null_descriptor);
-        assert!(convert_dispatch(std::ptr::null()).null_descriptor);
-        assert!(convert_query(std::ptr::null()).null_descriptor);
-    }
-
-    #[test]
-    #[allow(unused_assignments)] // the cycle is built by patching a node the walk will follow
-    fn a_cycle_stops_at_the_first_repeat() {
-        let mut tail = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS, std::ptr::null_mut());
-        let mut head = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, &mut tail);
-        tail.pNext = &mut head;
-        let types = walk_chain(&head, |_| {});
-        assert_eq!(
-            types,
-            [FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS]
-        );
-    }
-
-    #[test]
-    fn unknown_types_are_collected_but_name_no_context() {
-        let mut unknown = header(0x7fff_fffe, std::ptr::null_mut());
-        let root = header(0x7fff_fffd, &mut unknown);
-        let desc = convert_create(&root);
-        assert!(!desc.names_a_sedici_context());
-        assert_eq!(desc.unknown_types, [0x7fff_fffd, 0x7fff_fffe]);
-    }
-
-    #[test]
-    fn a_known_chain_flattens_into_the_safe_model() {
-        let mut fg: ffxCreateContextDescFrameGeneration = unsafe { std::mem::zeroed() };
-        fg.header.type_ = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
-        fg.flags = 1 << 5;
-        fg.displaySize = FfxApiDimensions2D { width: 1920, height: 1080 };
-        fg.maxRenderSize = FfxApiDimensions2D { width: 1280, height: 720 };
-        fg.backBufferFormat = 14;
-        let desc = convert_create(&fg.header);
-        assert!(desc.names_a_sedici_context());
-        let fg = desc.frame_generation.expect("frame generation desc");
-        assert_eq!(fg.display_size, model::Dimensions { width: 1920, height: 1080 });
-        assert_eq!(fg.max_render_size, model::Dimensions { width: 1280, height: 720 });
-        assert_eq!(fg.back_buffer_format, model::SurfaceFormat(14));
-    }
-
-    #[test]
-    fn the_chain_walk_is_bounded() {
-        let mut nodes: Vec<ffxApiHeader> = (0..MAX_CHAIN_ITEMS + 8)
-            .map(|_| header(FFX_API_DESC_TYPE_OVERRIDE_VERSION, std::ptr::null_mut()))
-            .collect();
-        for i in 1..nodes.len() {
-            // Reborrowing through a raw pointer keeps the vector alive and stable for the walk.
-            let previous = &mut nodes[i - 1] as *mut ffxApiHeader;
-            nodes[i].pNext = std::ptr::null_mut();
-            unsafe { (*previous).pNext = &mut nodes[i] };
-        }
-        let types = walk_chain(&nodes[0], |_| {});
-        assert_eq!(types.len(), MAX_CHAIN_ITEMS);
-    }
-}
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 
@@ -1823,4 +1751,75 @@ pub fn apply_created(context: *mut ffxContext, root: *mut ffxApiHeader, created:
         return false;
     }
     write_pointer(context as usize, created.context)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn header(type_: u64, p_next: *mut ffxApiHeader) -> ffxApiHeader {
+        ffxApiHeader { type_, pNext: p_next }
+    }
+
+    #[test]
+    fn a_null_chain_yields_nothing() {
+        assert!(walk_chain(std::ptr::null(), |_| {}).is_empty());
+        assert!(!convert_create(std::ptr::null()).names_a_sedici_context());
+        assert!(convert_configure(std::ptr::null()).null_descriptor);
+        assert!(convert_dispatch(std::ptr::null()).null_descriptor);
+        assert!(convert_query(std::ptr::null()).null_descriptor);
+    }
+
+    #[test]
+    #[allow(unused_assignments)] // the cycle is built by patching a node the walk will follow
+    fn a_cycle_stops_at_the_first_repeat() {
+        let mut tail = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS, std::ptr::null_mut());
+        let mut head = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, &mut tail);
+        tail.pNext = &mut head;
+        let types = walk_chain(&head, |_| {});
+        assert_eq!(
+            types,
+            [FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS]
+        );
+    }
+
+    #[test]
+    fn unknown_types_are_collected_but_name_no_context() {
+        let mut unknown = header(0x7fff_fffe, std::ptr::null_mut());
+        let root = header(0x7fff_fffd, &mut unknown);
+        let desc = convert_create(&root);
+        assert!(!desc.names_a_sedici_context());
+        assert_eq!(desc.unknown_types, [0x7fff_fffd, 0x7fff_fffe]);
+    }
+
+    #[test]
+    fn a_known_chain_flattens_into_the_safe_model() {
+        let mut fg: ffxCreateContextDescFrameGeneration = unsafe { std::mem::zeroed() };
+        fg.header.type_ = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+        fg.flags = 1 << 5;
+        fg.displaySize = FfxApiDimensions2D { width: 1920, height: 1080 };
+        fg.maxRenderSize = FfxApiDimensions2D { width: 1280, height: 720 };
+        fg.backBufferFormat = 14;
+        let desc = convert_create(&fg.header);
+        assert!(desc.names_a_sedici_context());
+        let fg = desc.frame_generation.expect("frame generation desc");
+        assert_eq!(fg.display_size, model::Dimensions { width: 1920, height: 1080 });
+        assert_eq!(fg.max_render_size, model::Dimensions { width: 1280, height: 720 });
+        assert_eq!(fg.back_buffer_format, model::SurfaceFormat(14));
+    }
+
+    #[test]
+    fn the_chain_walk_is_bounded() {
+        let mut nodes: Vec<ffxApiHeader> = (0..MAX_CHAIN_ITEMS + 8)
+            .map(|_| header(FFX_API_DESC_TYPE_OVERRIDE_VERSION, std::ptr::null_mut()))
+            .collect();
+        for i in 1..nodes.len() {
+            // Reborrowing through a raw pointer keeps the vector alive and stable for the walk.
+            let previous = &mut nodes[i - 1] as *mut ffxApiHeader;
+            nodes[i].pNext = std::ptr::null_mut();
+            unsafe { (*previous).pNext = &mut nodes[i] };
+        }
+        let types = walk_chain(&nodes[0], |_| {});
+        assert_eq!(types.len(), MAX_CHAIN_ITEMS);
+    }
 }
