@@ -100,6 +100,50 @@ scores reproduce the C++ baseline: 42.92 / 40.60 / 45.99 dB and the fast bar at 
 0.9985 / 0.9975 / 0.9984, phases 42.95 / 42.92 dB, HUD 100%. The C++ `Context::prepare` negates the
 FFX motion scale before Stage 1 sees it; the test does the same, and that sign is load-bearing.
 
+## Presentation and swapchain slice (done)
+
+Landed on `experiment/rust`: `application/ports/{swapchain,overlay}.rs`,
+`application/presentation/{swapchain,presenter}.rs`, `adapters/driving/dxgi_wrapper.rs`,
+`adapters/driven/{dxgi_native,overlay_compose}.rs`, and the offline suite `tests/presentation.rs`.
+The C++ build and the five exports are unaffected.
+
+**Ports other slices program against.**
+
+- `swapchain::NativeSwapchain` — associated `Buffer: GpuTexture`; `back_buffer(index)`,
+  `buffer_reference_count(index)` (`None` when the adapter cannot count, which is why resize keeps
+  its drain guard), `desc`, `current_back_buffer_index`, `present`, `present1`, `resize_buffers`,
+  `resize_buffers1`, `frame_statistics`, `last_present_count`, `maximum_frame_latency`,
+  `set_maximum_frame_latency`, `has_waitable_object`, `containing_output`, `set_fullscreen_state`,
+  `fullscreen`, `is_temporary_mono_supported`, `wait_for_retirement`. Plain types: `PresentFlags`,
+  `PresentParams`/`Rect`/`Offset`, `SwapChainDesc`, `FrameStatistics`, `OutputDesc`, `Scanline`.
+  `SwapChainDesc::supported_format` is the C++ `supported_color_format`: RGBA8 and RGB10A2 only.
+- `overlay::OverlayHook<T>` — `draw(&dyn GpuCommandList<T>, &T, generated)` and
+  `presented(generated)`, called from whichever thread presents; `NoOverlay` is the default.
+
+**The wrapper's contract for the context slice.** `application::presentation::swapchain` defines
+`PresentedContext` (`Texture = D::Texture`, `List`), so `application::{context,session}` implement it
+without importing the wrapper: `prepared`, `generate_phases(list, real, phases, reset)`,
+`note_ordered_submission`, `track_submission(fence_value)`, `abandon_generation`,
+`has_untracked_work`, `wait_for_retirement(timeout)`, `output_state`. `GeneratorSink<C>` pairs a
+context with its owner key and an optional lease; `set_generator`/`clear_generator_if_owner`/
+`close_generator` mirror the C++ sink lifecycle, including the untracked holder that keeps an owner
+with unregistered work alive until a queue fence is accepted (K103).
+
+**Entry point.**
+`Swapchain::wrap(native: Arc<N>, device: Arc<D>, queue: Arc<D::Queue>, clock: Arc<dyn Clock>,
+choice: PresentChoice, queues: Arc<SharedPresentQueues<D>>, overlay: Arc<O>, environment:
+WrapEnvironment, handed_refs: u32, report: &mut WrapReport) -> Result<Self, SwapchainError>`. It
+takes no `make_list`: the command lists come from the `GpuDevice`, and `RecordingList`'s reset/close
+is the `ListLifecycle` trait the D3D12 adapter implements. `WrapEnvironment` carries what the layer
+may not read itself (`scanline`, `rtss_loaded`, `lead_seconds`, `force_sync_override`,
+`align_vblank`); the composition root reads the environment variables.
+
+**Test.** `tests/presentation.rs` ports `fgcheck_present`/`fgcheck_retention`/`fgcheck_pacing`
+against fakes: one midpoint per cycle and the buffer-index advance, the three injected generation
+faults stopping admission, the Present1 metadata retry, removed-device retirement, resize refusal
+while a buffer is taken, the format and mask rules, the "vrr" fallback, the scratch texture/list,
+and the pacing/schedule figures. Nothing skips.
+
 **Build note.** `Cargo.toml` declares `crate-type = ["rlib"]` so `cargo test` links the library
 directly; with `cdylib` in the list the test binary links the DLL through `exports.def` and fails on
 the five not-yet-exported symbols (K141). The `cdylib` entry and the `exports.def` link argument come

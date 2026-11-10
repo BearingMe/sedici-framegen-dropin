@@ -195,7 +195,8 @@ impl OutputPlan {
         }
     }
 
-    fn real_only(entry: f64) -> Self {
+    /// The real frame alone; used when nothing usable was generated.
+    pub fn real_only(entry: f64) -> Self {
         let mut plan = Self::default();
         plan.push(PlannedOutput { alpha: 1.0, real: true, content: entry });
         plan

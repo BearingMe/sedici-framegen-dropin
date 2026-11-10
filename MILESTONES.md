@@ -274,8 +274,8 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-09, branch `phase-4` (K141, K142 recorded on `experiment/rust`);
-everything below is committed. Latest full CTest run: 37 of 37 passed on an idle GPU (with the owner's Pathtracer using the GPU at about 90%, sedici_fgcheck_present failed, K112) (offline GPU
+status, evidence or open items. Last updated: 2026-11-10, branch `experiment/rust` (presentation and
+the swapchain wrapper ported; K148-K150 recorded); everything below is committed. Latest full CTest run: 37 of 37 passed on an idle GPU (with the owner's Pathtracer using the GPU at about 90%, sedici_fgcheck_present failed, K112) (offline GPU
 suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
