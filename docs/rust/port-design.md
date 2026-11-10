@@ -348,3 +348,16 @@ presenter's Present answered `E_INVALIDARG` instead of `DXGI_ERROR_INVALID_CALL`
 interpolation-list ask reset an open list's allocator and failed every time), and K169 (the FFX
 resource seam adopted the game's handles and then AddRef'd them again, which leaked the game's
 reference and dereferenced freed memory on the second borrow).
+
+## Deployment decision (owner, 2026-11-10)
+
+The owner decided to deploy the Rust build (`targeteleasemd_fidelityfx_framegeneration_dx12.dll`,
+branch `experiment/rust`) to **Cyberpunk 2077** with `tools/deploy.ps1 -Game cp2077`, before any in-game
+validation of the Rust port. This is an owner decision, not a result of the offline tests: the port
+has only run through the offline suite (522 tests) and a hidden-window swapchain smoke test, and never
+inside a game. Deployment is not launch authorization: the game is not launched by the agent, and
+`restore.ps1` puts the original back.
+
+Status: **not deployed yet.** The agent's attempt was refused by the auto-mode classifier (no reason
+given), so the owner runs the deploy themselves or adds a permission rule. The first in-game run, once
+the owner launches the game, should be read with `tools/analyze_log.ps1` and recorded under `tests/qa/`.
