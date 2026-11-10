@@ -20,11 +20,11 @@ use windows::core::Interface;
 
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::backend::build_service;
 use amd_fidelityfx_framegeneration_dx12::application::faults::Faults;
-use amd_fidelityfx_framegeneration_dx12::application::ffx_model::{
-    CommandListQuery, CreateContextDesc, Dimensions, FrameGenerationCreate, QueryDesc,
-    QueryReply, ResourceKind, SurfaceFormat, SwapchainDesc, SwapchainNew, TextureQuery,
-};
 use amd_fidelityfx_framegeneration_dx12::application::ffx_model::FfxService;
+use amd_fidelityfx_framegeneration_dx12::application::ffx_model::{
+    CommandListQuery, CreateContextDesc, Dimensions, FrameGenerationCreate, QueryDesc, QueryReply,
+    ResourceKind, SurfaceFormat, SwapchainDesc, SwapchainNew, TextureQuery,
+};
 
 /// A hidden window plus the D3D12 device, queue and factory the game would own.
 struct Fixture {
@@ -43,7 +43,10 @@ impl Drop for Fixture {
         // because a fixture is dropped once.
         unsafe {
             let _ = DestroyWindow(self.window);
-            let _ = UnregisterClassW(windows::core::w!("SediciRustSmokeWindow"), Some(self.instance));
+            let _ = UnregisterClassW(
+                windows::core::w!("SediciRustSmokeWindow"),
+                Some(self.instance),
+            );
         }
     }
 }
@@ -69,34 +72,52 @@ fn fixture() -> Option<Fixture> {
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory2};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WS_POPUP, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WNDCLASSW,
+        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
+        WS_POPUP,
     };
 
     // SAFETY: every call below uses fully initialised locals and checks its result; a failure at any
     // step returns `None`, which skips the test rather than failing it.
     unsafe {
         let mut device: Option<ID3D12Device> = None;
-        if D3D12CreateDevice(None::<&windows::core::IUnknown>, D3D_FEATURE_LEVEL_11_0, &mut device).is_err() {
+        if D3D12CreateDevice(
+            None::<&windows::core::IUnknown>,
+            D3D_FEATURE_LEVEL_11_0,
+            &mut device,
+        )
+        .is_err()
+        {
             eprintln!("swapchain smoke: D3D12CreateDevice failed");
             return None;
         }
         let device = device?;
-        let queue = match device
-            .CreateCommandQueue::<ID3D12CommandQueue>(&D3D12_COMMAND_QUEUE_DESC {
+        let queue =
+            match device.CreateCommandQueue::<ID3D12CommandQueue>(&D3D12_COMMAND_QUEUE_DESC {
                 Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
                 Priority: 0,
                 Flags: D3D12_COMMAND_QUEUE_FLAG_NONE,
                 NodeMask: 0,
             }) {
-            Ok(q) => q,
-            Err(e) => { eprintln!("swapchain smoke: CreateCommandQueue failed {e:?}"); return None; }
-        };
+                Ok(q) => q,
+                Err(e) => {
+                    eprintln!("swapchain smoke: CreateCommandQueue failed {e:?}");
+                    return None;
+                }
+            };
         let factory: IDXGIFactory2 = match CreateDXGIFactory1() {
             Ok(f) => f,
-            Err(e) => { eprintln!("swapchain smoke: CreateDXGIFactory1 failed {e:?}"); return None; }
+            Err(e) => {
+                eprintln!("swapchain smoke: CreateDXGIFactory1 failed {e:?}");
+                return None;
+            }
         };
-        let instance = match GetModuleHandleW(None) { Ok(i) => i, Err(e) => { eprintln!("swapchain smoke: GetModuleHandleW failed {e:?}"); return None; } };
+        let instance = match GetModuleHandleW(None) {
+            Ok(i) => i,
+            Err(e) => {
+                eprintln!("swapchain smoke: GetModuleHandleW failed {e:?}");
+                return None;
+            }
+        };
         let class = WNDCLASSW {
             lpfnWndProc: Some(default_proc),
             hInstance: HINSTANCE(instance.0),
@@ -119,9 +140,21 @@ fn fixture() -> Option<Fixture> {
             None,
             Some(HINSTANCE(instance.0)),
             None,
-        ) { Ok(w) => w, Err(e) => { eprintln!("swapchain smoke: CreateWindowExW failed {e:?}"); return None; } };
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("swapchain smoke: CreateWindowExW failed {e:?}");
+                return None;
+            }
+        };
         let _ = (WPARAM(0), LPARAM(0), LRESULT(0));
-        Some(Fixture { window, _device: device, queue, factory, instance: HINSTANCE(instance.0) })
+        Some(Fixture {
+            window,
+            _device: device,
+            queue,
+            factory,
+            instance: HINSTANCE(instance.0),
+        })
     }
 }
 
@@ -179,7 +212,11 @@ fn a_swapchain_new_create_queries_presents_and_destroys_through_the_router() {
         }
     };
     assert_ne!(created.context, 0, "a context token was issued");
-    assert_ne!(created.swapchain, Some(0), "the game receives a chain handle");
+    assert_ne!(
+        created.swapchain,
+        Some(0),
+        "the game receives a chain handle"
+    );
     assert_ne!(created.swapchain.unwrap_or(0), 0);
 
     // The interpolation queries Alan Wake 2 makes (K131).
@@ -195,7 +232,9 @@ fn a_swapchain_new_create_queries_presents_and_destroys_through_the_router() {
         },
     );
     match list_reply {
-        Ok(QueryReply::CommandList(handle)) => assert_ne!(handle, 0, "the game receives a command list"),
+        Ok(QueryReply::CommandList(handle)) => {
+            assert_ne!(handle, 0, "the game receives a command list")
+        }
         other => panic!("interpolation list: {other:?}"),
     }
 
@@ -211,7 +250,10 @@ fn a_swapchain_new_create_queries_presents_and_destroys_through_the_router() {
     );
     match texture_reply {
         Ok(QueryReply::Texture(resource)) => {
-            assert_ne!(resource.handle, 0, "the game receives an interpolation texture")
+            assert_ne!(
+                resource.handle, 0,
+                "the game receives an interpolation texture"
+            )
         }
         other => panic!("interpolation texture: {other:?}"),
     }
@@ -221,7 +263,7 @@ fn a_swapchain_new_create_queries_presents_and_destroys_through_the_router() {
     // it and releases it exactly once, after the presents.
     let chain = unsafe {
         windows::Win32::Graphics::Dxgi::IDXGISwapChain4::from_raw(
-            created.swapchain.unwrap() as *mut std::ffi::c_void,
+            created.swapchain.unwrap() as *mut std::ffi::c_void
         )
     };
     let mut presented = 0;
@@ -234,7 +276,10 @@ fn a_swapchain_new_create_queries_presents_and_destroys_through_the_router() {
             windows::Win32::Graphics::Dxgi::IDXGISwapChain::Present(&chain, 0, Default::default())
         };
         if hr.is_err() {
-            eprintln!("swapchain smoke: Present refused by the host ({:#010x}); stopping", hr.0);
+            eprintln!(
+                "swapchain smoke: Present refused by the host ({:#010x}); stopping",
+                hr.0
+            );
             break;
         }
         presented += 1;

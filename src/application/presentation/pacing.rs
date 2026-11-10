@@ -116,7 +116,13 @@ mod tests {
     #[case(false, 1.0, 0.1, 9.0, false)]
     #[case(true, 1.0, 0.125, 1.124, false)]
     #[case(true, 1.0, 0.125, 1.125, true)]
-    fn superseded_policy(#[case] has_later: bool, #[case] content: f64, #[case] latency: f64, #[case] now: f64, #[case] due: bool) {
+    fn superseded_policy(
+        #[case] has_later: bool,
+        #[case] content: f64,
+        #[case] latency: f64,
+        #[case] now: f64,
+        #[case] due: bool,
+    ) {
         assert_eq!(superseded(has_later, content, latency, now), due);
     }
 }

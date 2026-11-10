@@ -33,8 +33,8 @@ use crate::adapters::driven::d3d12::device::D3d12Device;
 use crate::adapters::driven::settings_worker::NativeWorkerHost;
 use crate::adapters::driving::window_input::{client_size, post_capture_message};
 use crate::application::overlay::{
-    active_line, cycle_mode, ActionPlan, OverlayAction, OverlayFrame, OverlayState, OverlayTiming,
-    OverlayView, OutputCadence,
+    active_line, cycle_mode, ActionPlan, OutputCadence, OverlayAction, OverlayFrame, OverlayState,
+    OverlayTiming, OverlayView,
 };
 use crate::application::ports::clock::Clock;
 use crate::application::ports::gpu::{GpuCommandList, GpuTexture};
@@ -254,7 +254,9 @@ impl OverlayHost {
     pub fn hotkey(&self) -> Hotkey {
         self.services
             .as_ref()
-            .map_or_else(Hotkey::default, |services| Hotkey::parse(&services.tx.config().ui.hotkey))
+            .map_or_else(Hotkey::default, |services| {
+                Hotkey::parse(&services.tx.config().ui.hotkey)
+            })
     }
 
     pub fn window(&self) -> WindowHandle {
@@ -270,7 +272,10 @@ impl OverlayHost {
     /// The counters the status query reads, `((real, generated) draws, (real, generated) presents)`.
     pub fn counters(&self) -> ((u64, u64), (u64, u64)) {
         (
-            (self.draws_real.load(Ordering::Relaxed), self.draws_generated.load(Ordering::Relaxed)),
+            (
+                self.draws_real.load(Ordering::Relaxed),
+                self.draws_generated.load(Ordering::Relaxed),
+            ),
             (
                 self.presented_real.load(Ordering::Relaxed),
                 self.presented_generated.load(Ordering::Relaxed),
@@ -324,7 +329,9 @@ impl OverlayHost {
 
     /// The mode the live settings hold.
     pub fn mode(&self) -> UiMode {
-        self.services.as_ref().map_or(UiMode::Off, |services| services.live.ui_mode())
+        self.services
+            .as_ref()
+            .map_or(UiMode::Off, |services| services.live.ui_mode())
     }
 
     /// Installs the window subclass over this host's window (ports `ui_capture_window`).
@@ -388,7 +395,9 @@ impl OverlayHost {
 
     /// Applies the actions one drawn menu produced, in click order.
     fn apply_actions(&self, actions: Vec<OverlayAction>, mode: UiMode) {
-        let Some(services) = &self.services else { return };
+        let Some(services) = &self.services else {
+            return;
+        };
         for action in actions {
             let plan: ActionPlan = {
                 let mut menu = lock(&self.menu);
@@ -457,8 +466,12 @@ impl OverlayHost {
         if self.disabled() {
             return false;
         }
-        let Some(services) = &self.services else { return false };
-        let Some(target) = self.target(list, back_buffer, generated) else { return false };
+        let Some(services) = &self.services else {
+            return false;
+        };
+        let Some(target) = self.target(list, back_buffer, generated) else {
+            return false;
+        };
         let window = self.window();
         let (client_width, client_height) = client_size(window);
         let delta = self.frame_delta(services);
@@ -470,7 +483,9 @@ impl OverlayHost {
             delta_seconds: delta,
         };
         let mode = services.live.ui_mode();
-        let Some(view) = self.frame(&target, frame) else { return false };
+        let Some(view) = self.frame(&target, frame) else {
+            return false;
+        };
         {
             let mut menu = lock(&self.menu);
             menu.last_draw = Some(LastDraw {
@@ -514,9 +529,11 @@ impl OverlayHost {
         let after = renderer.draw_counts();
         drop(renderer);
         if generated {
-            self.draws_generated.fetch_add(after.1.saturating_sub(before.1), Ordering::Relaxed);
+            self.draws_generated
+                .fetch_add(after.1.saturating_sub(before.1), Ordering::Relaxed);
         } else {
-            self.draws_real.fetch_add(after.0.saturating_sub(before.0), Ordering::Relaxed);
+            self.draws_real
+                .fetch_add(after.0.saturating_sub(before.0), Ordering::Relaxed);
         }
         self.apply_actions(actions, mode);
         after != before
@@ -549,7 +566,9 @@ impl OverlayHost {
     /// One presented output: the output timing ring, the cadence window and the report lines
     /// (ports `record_present`).
     fn record_present(&self, generated: bool) {
-        let Some(services) = &self.services else { return };
+        let Some(services) = &self.services else {
+            return;
+        };
         let now = services.clock.now();
         let frequency = services.clock.frequency();
         lock(&services.timing).on_output_present(now, frequency);
@@ -606,7 +625,9 @@ impl OverlayHost {
 
     /// Asks the window thread to (re)evaluate capture; rate limited, as the C++ render-path retry.
     fn request_capture(&self, window: WindowHandle) {
-        let Some(services) = &self.services else { return };
+        let Some(services) = &self.services else {
+            return;
+        };
         let now_ms = services.clock.ticks_to_ms(services.clock.now());
         {
             let mut menu = lock(&self.menu);
@@ -623,7 +644,9 @@ impl OverlayHost {
         if event.action != KeyAction::Pressed || self.disabled() {
             return;
         }
-        let Some(services) = &self.services else { return };
+        let Some(services) = &self.services else {
+            return;
+        };
         let next = cycle_mode(services.live.ui_mode());
         services.live.set_ui_mode(next);
         post_capture_message(event.window);
@@ -700,7 +723,8 @@ impl crate::adapters::driving::window_input::WindowInputHost for OverlayHost {
 }
 
 /// Whether `window` is the foreground window; a plain query, never fatal.
-fn foreground_is(window: WindowHandle) -> bool {    if window.is_none() {
+fn foreground_is(window: WindowHandle) -> bool {
+    if window.is_none() {
         return false;
     }
     use windows::Win32::Foundation::HWND;
@@ -721,5 +745,7 @@ fn dxgi_format(format: crate::application::ports::gpu::PixelFormat) -> u32 {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

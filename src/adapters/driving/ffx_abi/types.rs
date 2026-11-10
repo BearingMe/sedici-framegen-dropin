@@ -280,10 +280,18 @@ pub struct ffxCreateBackendDX12AllocationCallbacksDesc {
 // Frame generation descriptors (ffx_framegeneration.h)
 // -------------------------------------------------------------------------------------------------
 
-pub type FfxApiPresentCallbackFunc =
-    Option<unsafe extern "C" fn(*mut ffxCallbackDescFrameGenerationPresent, *mut std::ffi::c_void) -> ffxReturnCode_t>;
-pub type FfxApiFrameGenerationDispatchFunc =
-    Option<unsafe extern "C" fn(*mut ffxDispatchDescFrameGeneration, *mut std::ffi::c_void) -> ffxReturnCode_t>;
+pub type FfxApiPresentCallbackFunc = Option<
+    unsafe extern "C" fn(
+        *mut ffxCallbackDescFrameGenerationPresent,
+        *mut std::ffi::c_void,
+    ) -> ffxReturnCode_t,
+>;
+pub type FfxApiFrameGenerationDispatchFunc = Option<
+    unsafe extern "C" fn(
+        *mut ffxDispatchDescFrameGeneration,
+        *mut std::ffi::c_void,
+    ) -> ffxReturnCode_t,
+>;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -583,7 +591,8 @@ pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS: u64 = 0x0002
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION: u64 = 0x0002_000e;
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12: u64 = 0x0003_0001;
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12: u64 = 0x0003_0005;
-pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12: u64 = 0x0003_0006;
+pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12: u64 =
+    0x0003_0006;
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12: u64 = 0x0003_000b;
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12: u64 = 0x0000_0002;
 pub const FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS: u64 = 0x0000_0003;
@@ -591,7 +600,8 @@ pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION: u64 = 0x0002_0002;
 pub const FFX_API_FRAME_GENERATION_CONFIG: u64 = 0x0002_000f;
 pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE: u64 = 0x0002_0006;
 pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE: u64 = 0x0002_0008;
-pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12: u64 = 0x0003_0002;
+pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12: u64 =
+    0x0003_0002;
 pub const FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12: u64 = 0x0003_0008;
 pub const FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG: u64 = 7;
 pub const FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG1: u64 = 1;
@@ -600,17 +610,21 @@ pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE: u64 = 0x0002_0004;
 pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: u64 = 0x0002_000c;
 pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO: u64 = 0x0002_000a;
 pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION: u64 = 0x0002_0003;
-pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12: u64 = 0x0003_0007;
+pub const FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12: u64 =
+    0x0003_0007;
 pub const FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT: u64 = 0x0002_0005;
 pub const FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA: u64 = 0x0002_000d;
 pub const FFX_API_QUERY_DESC_TYPE_GET_VERSIONS: u64 = 4;
 pub const FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION: u64 = 6;
 pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE: u64 = 0x0002_0007;
 pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2: u64 = 0x0002_000b;
-pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12: u64 = 0x0003_0003;
-pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12: u64 = 0x0003_0004;
+pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12: u64 =
+    0x0003_0003;
+pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12: u64 =
+    0x0003_0004;
 pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12: u64 = 0x0003_0009;
-pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2: u64 = 0x0003_000a;
+pub const FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2: u64 =
+    0x0003_000a;
 
 /// Frame generation configure keys (`FfxApiConfigureFrameGenerationKey`).
 pub const FFX_API_CONFIGURE_FRAMEGENERATION_KEY_DEBUG_VIEW_MODE: u64 = 0;
@@ -637,14 +651,20 @@ macro_rules! assert_layout {
     ($t:ty, $size:expr, $align:expr) => {
         const _: () = {
             assert!(size_of::<$t>() == $size, concat!(stringify!($t), ": size"));
-            assert!(align_of::<$t>() == $align, concat!(stringify!($t), ": align"));
+            assert!(
+                align_of::<$t>() == $align,
+                concat!(stringify!($t), ": align")
+            );
         };
     };
 }
 
 macro_rules! assert_offset {
     ($t:ty, $field:ident, $offset:expr) => {
-        const _: () = assert!(offset_of!($t, $field) == $offset, concat!(stringify!($t), ".", stringify!($field)));
+        const _: () = assert!(
+            offset_of!($t, $field) == $offset,
+            concat!(stringify!($t), ".", stringify!($field))
+        );
     };
 }
 
@@ -691,7 +711,11 @@ assert_layout!(FfxApiEffectMemoryUsage, 16, 8);
 assert_layout!(FfxApiSwapchainFramePacingTuning, 20, 4);
 assert_offset!(FfxApiSwapchainFramePacingTuning, allowHybridSpin, 8);
 assert_offset!(FfxApiSwapchainFramePacingTuning, hybridSpinTime, 12);
-assert_offset!(FfxApiSwapchainFramePacingTuning, allowWaitForSingleObjectOnFence, 16);
+assert_offset!(
+    FfxApiSwapchainFramePacingTuning,
+    allowWaitForSingleObjectOnFence,
+    16
+);
 
 // dxgi.h (x64)
 assert_layout!(DXGI_RATIONAL, 8, 4);
@@ -737,9 +761,17 @@ assert_offset!(ffxDispatchDescFrameGeneration, frameID, 304);
 assert_layout!(ffxConfigureDescFrameGeneration, 144, 8);
 assert_offset!(ffxConfigureDescFrameGeneration, swapChain, 16);
 assert_offset!(ffxConfigureDescFrameGeneration, presentCallback, 24);
-assert_offset!(ffxConfigureDescFrameGeneration, presentCallbackUserContext, 32);
+assert_offset!(
+    ffxConfigureDescFrameGeneration,
+    presentCallbackUserContext,
+    32
+);
 assert_offset!(ffxConfigureDescFrameGeneration, frameGenerationCallback, 40);
-assert_offset!(ffxConfigureDescFrameGeneration, frameGenerationCallbackUserContext, 48);
+assert_offset!(
+    ffxConfigureDescFrameGeneration,
+    frameGenerationCallbackUserContext,
+    48
+);
 assert_offset!(ffxConfigureDescFrameGeneration, frameGenerationEnabled, 56);
 assert_offset!(ffxConfigureDescFrameGeneration, allowAsyncWorkloads, 57);
 assert_offset!(ffxConfigureDescFrameGeneration, HUDLessColor, 64);
@@ -754,7 +786,11 @@ assert_offset!(ffxDispatchDescFrameGenerationPrepare, depth, 88);
 assert_offset!(ffxDispatchDescFrameGenerationPrepare, motionVectors, 136);
 assert_layout!(ffxConfigureDescFrameGenerationKeyValue, 40, 8);
 assert_layout!(ffxQueryDescFrameGenerationGetGPUMemoryUsage, 24, 8);
-assert_layout!(ffxConfigureDescFrameGenerationRegisterDistortionFieldResource, 64, 8);
+assert_layout!(
+    ffxConfigureDescFrameGenerationRegisterDistortionFieldResource,
+    64,
+    8
+);
 assert_layout!(ffxCreateContextDescFrameGenerationHudless, 24, 8);
 assert_layout!(ffxDispatchDescFrameGenerationPrepareCameraInfo, 64, 8);
 assert_layout!(ffxQueryDescFrameGenerationGetGPUMemoryUsageV2, 64, 8);
@@ -767,18 +803,54 @@ assert_layout!(FfxFrameGenerationConfig, 152, 8);
 
 // ffx_api_framegeneration_dx12.h
 assert_layout!(ffxCreateContextDescFrameGenerationSwapChainWrapDX12, 32, 8);
-assert_offset!(ffxCreateContextDescFrameGenerationSwapChainWrapDX12, swapchain, 16);
-assert_offset!(ffxCreateContextDescFrameGenerationSwapChainWrapDX12, gameQueue, 24);
+assert_offset!(
+    ffxCreateContextDescFrameGenerationSwapChainWrapDX12,
+    swapchain,
+    16
+);
+assert_offset!(
+    ffxCreateContextDescFrameGenerationSwapChainWrapDX12,
+    gameQueue,
+    24
+);
 assert_layout!(ffxCreateContextDescFrameGenerationSwapChainNewDX12, 48, 8);
-assert_layout!(ffxCreateContextDescFrameGenerationSwapChainForHwndDX12, 64, 8);
-assert_layout!(ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12, 72, 8);
-assert_layout!(ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12, 24, 8);
-assert_layout!(ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12, 24, 8);
-assert_layout!(ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12, 16, 8);
+assert_layout!(
+    ffxCreateContextDescFrameGenerationSwapChainForHwndDX12,
+    64,
+    8
+);
+assert_layout!(
+    ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12,
+    72,
+    8
+);
+assert_layout!(
+    ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12,
+    24,
+    8
+);
+assert_layout!(
+    ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12,
+    24,
+    8
+);
+assert_layout!(
+    ffxDispatchDescFrameGenerationSwapChainWaitForPresentsDX12,
+    16,
+    8
+);
 assert_layout!(ffxConfigureDescFrameGenerationSwapChainKeyValueDX12, 40, 8);
 assert_layout!(ffxQueryFrameGenerationSwapChainGetGPUMemoryUsageDX12, 24, 8);
-assert_layout!(ffxQueryFrameGenerationSwapChainGetGPUMemoryUsageDX12V2, 64, 8);
-assert_layout!(ffxCreateContextDescFrameGenerationSwapChainVersionDX12, 24, 8);
+assert_layout!(
+    ffxQueryFrameGenerationSwapChainGetGPUMemoryUsageDX12V2,
+    64,
+    8
+);
+assert_layout!(
+    ffxCreateContextDescFrameGenerationSwapChainVersionDX12,
+    24,
+    8
+);
 
 #[cfg(test)]
 mod tests {
@@ -793,31 +865,79 @@ mod tests {
         const BACKEND_MASK: u64 = 0xff00_0000;
         let effect = |id: u64, sub: u64| (id & EFFECT_MASK) | (sub & !EFFECT_MASK);
         let backend_effect = |backend: u64, id: u64, sub: u64| {
-            (sub & !EFFECT_MASK) | (id & EFFECT_MASK) | (backend & BACKEND_MASK) | (sub & !(BACKEND_MASK | EFFECT_MASK))
+            (sub & !EFFECT_MASK)
+                | (id & EFFECT_MASK)
+                | (backend & BACKEND_MASK)
+                | (sub & !(BACKEND_MASK | EFFECT_MASK))
         };
         const GENERAL: u64 = 0x0000_0000;
         const FG: u64 = 0x0002_0000;
         const SWAP: u64 = 0x0003_0000;
         const DX12: u64 = 0x0000_0000;
 
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, effect(FG, 0x01));
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS, effect(FG, 0x09));
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION, effect(FG, 0x0e));
-        assert_eq!(FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION, effect(FG, 0x02));
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION,
+            effect(FG, 0x01)
+        );
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS,
+            effect(FG, 0x09)
+        );
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION,
+            effect(FG, 0x0e)
+        );
+        assert_eq!(
+            FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION,
+            effect(FG, 0x02)
+        );
         assert_eq!(FFX_API_FRAME_GENERATION_CONFIG, effect(FG, 0x0f));
-        assert_eq!(FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE, effect(FG, 0x06));
-        assert_eq!(FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE, effect(FG, 0x08));
-        assert_eq!(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE, effect(FG, 0x04));
-        assert_eq!(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2, effect(FG, 0x0c));
-        assert_eq!(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO, effect(FG, 0x0a));
+        assert_eq!(
+            FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE,
+            effect(FG, 0x06)
+        );
+        assert_eq!(
+            FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE,
+            effect(FG, 0x08)
+        );
+        assert_eq!(
+            FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE,
+            effect(FG, 0x04)
+        );
+        assert_eq!(
+            FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2,
+            effect(FG, 0x0c)
+        );
+        assert_eq!(
+            FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO,
+            effect(FG, 0x0a)
+        );
         assert_eq!(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION, effect(FG, 0x03));
-        assert_eq!(FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT, effect(FG, 0x05));
-        assert_eq!(FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA, effect(FG, 0x0d));
-        assert_eq!(FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE, effect(FG, 0x07));
-        assert_eq!(FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2, effect(FG, 0x0b));
+        assert_eq!(
+            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT,
+            effect(FG, 0x05)
+        );
+        assert_eq!(
+            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA,
+            effect(FG, 0x0d)
+        );
+        assert_eq!(
+            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE,
+            effect(FG, 0x07)
+        );
+        assert_eq!(
+            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2,
+            effect(FG, 0x0b)
+        );
 
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, backend_effect(DX12, SWAP, 0x01));
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12, backend_effect(DX12, SWAP, 0x05));
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12,
+            backend_effect(DX12, SWAP, 0x01)
+        );
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12,
+            backend_effect(DX12, SWAP, 0x05)
+        );
         assert_eq!(
             FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12,
             backend_effect(DX12, SWAP, 0x06)
@@ -854,8 +974,14 @@ mod tests {
             FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2,
             backend_effect(DX12, SWAP, 0x0a)
         );
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12, backend_effect(DX12, GENERAL, 0x02));
-        assert_eq!(FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS, backend_effect(DX12, GENERAL, 0x03));
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12,
+            backend_effect(DX12, GENERAL, 0x02)
+        );
+        assert_eq!(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS,
+            backend_effect(DX12, GENERAL, 0x03)
+        );
 
         assert_eq!(FFX_API_QUERY_DESC_TYPE_GET_VERSIONS, 4);
         assert_eq!(FFX_API_DESC_TYPE_OVERRIDE_VERSION, 5);

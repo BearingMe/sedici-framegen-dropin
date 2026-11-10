@@ -72,11 +72,17 @@ pub struct Rejection {
 impl Rejection {
     pub fn new(reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        Self { code: ErrorCode::classify(&reason), reason }
+        Self {
+            code: ErrorCode::classify(&reason),
+            reason,
+        }
     }
 
     pub fn with_code(code: ErrorCode, reason: impl Into<String>) -> Self {
-        Self { code, reason: reason.into() }
+        Self {
+            code,
+            reason: reason.into(),
+        }
     }
 }
 
@@ -97,6 +103,9 @@ mod tests {
 
     #[test]
     fn rejection_display_carries_code() {
-        assert_eq!(Rejection::new("null descriptor").to_string(), "null descriptor [code=E_NULL_DESCRIPTOR]");
+        assert_eq!(
+            Rejection::new("null descriptor").to_string(),
+            "null descriptor [code=E_NULL_DESCRIPTOR]"
+        );
     }
 }

@@ -54,12 +54,15 @@ fn ensure_dll_built(path: &Path) {
     }
     let manifest = env!("CARGO_MANIFEST_DIR");
     let profile = std::env::var("PROFILE").unwrap_or_default();
-    let mut command = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+    let mut command =
+        std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     command.current_dir(manifest).arg("build");
     if profile == "release" {
         command.arg("--release");
     }
-    let output = command.output().expect("run cargo build for the export check");
+    let output = command
+        .output()
+        .expect("run cargo build for the export check");
     if !output.status.success() {
         panic!(
             "could not build {} for the export check:\n{}",
@@ -78,10 +81,14 @@ fn ensure_dll_built(path: &Path) {
 /// the file bytes, and a malformed image returns an empty list rather than panicking.
 fn read_exports(bytes: &[u8]) -> Vec<String> {
     fn u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
-        bytes.get(offset..offset + 2).map(|s| u16::from_le_bytes([s[0], s[1]]))
+        bytes
+            .get(offset..offset + 2)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]))
     }
     fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
-        bytes.get(offset..offset + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        bytes
+            .get(offset..offset + 4)
+            .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
     }
     fn name_at(bytes: &[u8], offset: usize) -> Option<String> {
         let rest = bytes.get(offset..)?;
@@ -91,21 +98,35 @@ fn read_exports(bytes: &[u8]) -> Vec<String> {
 
     let mut out = Vec::new();
     // DOS header: e_lfanew at 0x3c.
-    let Some(pe) = u32_at(bytes, 0x3c).map(|v| v as usize) else { return out };
+    let Some(pe) = u32_at(bytes, 0x3c).map(|v| v as usize) else {
+        return out;
+    };
     if bytes.get(pe..pe + 4) != Some(b"PE\0\0") {
         return out;
     }
     let coff = pe + 4;
-    let Some(sections) = u16_at(bytes, coff + 2).map(usize::from) else { return out };
-    let Some(optional_header_size) = u16_at(bytes, coff + 16).map(usize::from) else { return out };
+    let Some(sections) = u16_at(bytes, coff + 2).map(usize::from) else {
+        return out;
+    };
+    let Some(optional_header_size) = u16_at(bytes, coff + 16).map(usize::from) else {
+        return out;
+    };
     // The optional header follows the 20-byte COFF header; it is not a pointed-to offset.
     let optional = coff + 20;
     // PE32+ (magic 0x20b) keeps the export directory at data-directory index 0; the directory
     // array starts 112 bytes into the optional header.
     let magic = u16_at(bytes, optional).unwrap_or(0);
-    let directories = if magic == 0x20b { optional + 112 } else { optional + 96 };
-    let Some(export_rva) = u32_at(bytes, directories) else { return out };
-    let Some(export_size) = u32_at(bytes, directories + 4) else { return out };
+    let directories = if magic == 0x20b {
+        optional + 112
+    } else {
+        optional + 96
+    };
+    let Some(export_rva) = u32_at(bytes, directories) else {
+        return out;
+    };
+    let Some(export_size) = u32_at(bytes, directories + 4) else {
+        return out;
+    };
     if export_rva == 0 || export_size == 0 {
         return out;
     }
@@ -115,10 +136,18 @@ fn read_exports(bytes: &[u8]) -> Vec<String> {
     let mut export_offset = None;
     for index in 0..sections {
         let section = section_table + index * 40;
-        let Some(virtual_size) = u32_at(bytes, section + 8) else { return out };
-        let Some(virtual_address) = u32_at(bytes, section + 12) else { return out };
-        let Some(raw_size) = u32_at(bytes, section + 16) else { return out };
-        let Some(raw_pointer) = u32_at(bytes, section + 20) else { return out };
+        let Some(virtual_size) = u32_at(bytes, section + 8) else {
+            return out;
+        };
+        let Some(virtual_address) = u32_at(bytes, section + 12) else {
+            return out;
+        };
+        let Some(raw_size) = u32_at(bytes, section + 16) else {
+            return out;
+        };
+        let Some(raw_pointer) = u32_at(bytes, section + 20) else {
+            return out;
+        };
         let span = virtual_size.max(raw_size);
         let start = virtual_address;
         if export_rva >= start && export_rva < start.saturating_add(span) {
@@ -126,14 +155,26 @@ fn read_exports(bytes: &[u8]) -> Vec<String> {
             break;
         }
     }
-    let Some(directory) = export_offset else { return out };
+    let Some(directory) = export_offset else {
+        return out;
+    };
 
-    let Some(name_count) = u32_at(bytes, directory + 24) else { return out };
-    let Some(names_rva) = u32_at(bytes, directory + 32) else { return out };
-    let Some(names) = map_rva(bytes, sections, section_table, names_rva) else { return out };
+    let Some(name_count) = u32_at(bytes, directory + 24) else {
+        return out;
+    };
+    let Some(names_rva) = u32_at(bytes, directory + 32) else {
+        return out;
+    };
+    let Some(names) = map_rva(bytes, sections, section_table, names_rva) else {
+        return out;
+    };
     for index in 0..name_count as usize {
-        let Some(name_rva) = u32_at(bytes, names + index * 4).map(|v| v as usize) else { break };
-        let Some(offset) = map_rva(bytes, sections, section_table, name_rva as u32) else { continue };
+        let Some(name_rva) = u32_at(bytes, names + index * 4).map(|v| v as usize) else {
+            break;
+        };
+        let Some(offset) = map_rva(bytes, sections, section_table, name_rva as u32) else {
+            continue;
+        };
         if let Some(name) = name_at(bytes, offset) {
             out.push(name);
         }
@@ -173,7 +214,10 @@ fn the_built_dll_exports_exactly_the_five_entry_points() {
     exports.sort();
     let mut expected: Vec<String> = EXPORTS.iter().map(|name| (*name).to_owned()).collect();
     expected.sort();
-    assert_eq!(exports, expected, "the DLL must export exactly the five ffx entry points");
+    assert_eq!(
+        exports, expected,
+        "the DLL must export exactly the five ffx entry points"
+    );
 }
 
 #[test]
@@ -183,7 +227,12 @@ fn exports_def_names_the_same_five() {
     let mut named: Vec<String> = def
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with(';') && !line.starts_with("LIBRARY") && !line.starts_with("EXPORTS"))
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with(';')
+                && !line.starts_with("LIBRARY")
+                && !line.starts_with("EXPORTS")
+        })
         .map(|line| line.split_whitespace().next().unwrap_or("").to_owned())
         .collect();
     named.sort();
@@ -220,11 +269,15 @@ fn unissued_context() -> usize {
     0x10
 }
 
-fn as_desc(header: *const Header) -> *const amd_fidelityfx_framegeneration_dx12::adapters::driving::ffx_abi::types::ffxApiHeader {
+fn as_desc(
+    header: *const Header,
+) -> *const amd_fidelityfx_framegeneration_dx12::adapters::driving::ffx_abi::types::ffxApiHeader {
     header.cast()
 }
 
-fn as_desc_mut(header: *const Header) -> *mut amd_fidelityfx_framegeneration_dx12::adapters::driving::ffx_abi::types::ffxApiHeader {
+fn as_desc_mut(
+    header: *const Header,
+) -> *mut amd_fidelityfx_framegeneration_dx12::adapters::driving::ffx_abi::types::ffxApiHeader {
     header.cast_mut().cast()
 }
 
@@ -244,25 +297,44 @@ fn chain_cases_never_crash_and_answer_a_documented_code(#[case] scenario: u8) {
             // SAFETY: the context slot is owned by this test; the descriptor is null, which every
             // export checks before touching game memory.
             let code = unsafe { ffxConfigure(context, std::ptr::null()) };
-            assert_eq!(code, 1, "a null configure desc on a Sedici context is FFX_API_RETURN_ERROR");
+            assert_eq!(
+                code, 1,
+                "a null configure desc on a Sedici context is FFX_API_RETURN_ERROR"
+            );
         }
         2 => {
             // Two headers pointing at each other: the walk must stop at the first repeat.
-            let mut tail = Header { type_: UNKNOWN_TYPE, p_next: std::ptr::null() };
-            let head = Header { type_: UNKNOWN_TYPE, p_next: &tail };
+            let mut tail = Header {
+                type_: UNKNOWN_TYPE,
+                p_next: std::ptr::null(),
+            };
+            let head = Header {
+                type_: UNKNOWN_TYPE,
+                p_next: &tail,
+            };
             tail.p_next = &head;
             assert_eq!(tail.p_next, &head as *const Header); // the cycle exists before the call
-            // SAFETY: both headers live in this frame for the whole call, and the export only
-            // reads them.
+                                                             // SAFETY: both headers live in this frame for the whole call, and the export only
+                                                             // reads them.
             let code = unsafe { ffxDispatch(context, as_desc(&head)) };
-            assert_eq!(code, 1, "a dispatch on an unissued context is FFX_API_RETURN_ERROR");
+            assert_eq!(
+                code, 1,
+                "a dispatch on an unissued context is FFX_API_RETURN_ERROR"
+            );
         }
         _ => {
-            let chain = Header { type_: UNKNOWN_TYPE, p_next: std::ptr::null() };
+            let chain = Header {
+                type_: UNKNOWN_TYPE,
+                p_next: std::ptr::null(),
+            };
             let mut handle: *mut std::ffi::c_void = std::ptr::null_mut();
             // SAFETY: `handle` is owned and writable; the chain is one live readable header.
-            let code = unsafe { ffxCreateContext(&mut handle, as_desc_mut(&chain), std::ptr::null()) };
-            assert_eq!(code, 2, "an unrecognised create chain is FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE");
+            let code =
+                unsafe { ffxCreateContext(&mut handle, as_desc_mut(&chain), std::ptr::null()) };
+            assert_eq!(
+                code, 2,
+                "an unrecognised create chain is FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE"
+            );
             assert!(handle.is_null());
         }
     }
@@ -273,12 +345,18 @@ fn chain_cases_never_crash_and_answer_a_documented_code(#[case] scenario: u8) {
 #[case::query_on_null(2)]
 fn null_handles_are_parameter_errors(#[case] scenario: u8) {
     let context: ContextSlot = std::ptr::null_mut();
-    let chain = Header { type_: FG_CREATE, p_next: std::ptr::null() };
+    let chain = Header {
+        type_: FG_CREATE,
+        p_next: std::ptr::null(),
+    };
     // SAFETY: a null context and one readable header; the exports reject before any game write.
     unsafe {
         match scenario {
             1 => {
-                assert_eq!(ffxCreateContext(context, as_desc_mut(&chain), std::ptr::null()), 6);
+                assert_eq!(
+                    ffxCreateContext(context, as_desc_mut(&chain), std::ptr::null()),
+                    6
+                );
                 assert_eq!(ffxDestroyContext(context, std::ptr::null()), 6);
             }
             _ => assert_eq!(ffxQuery(context, as_desc_mut(&chain)), 6),
@@ -299,7 +377,10 @@ fn a_recognised_create_chain_is_a_local_error_until_the_router_is_installed() {
         format: u32,
     }
     let chain = FgCreate {
-        header: Header { type_: FG_CREATE, p_next: std::ptr::null() },
+        header: Header {
+            type_: FG_CREATE,
+            p_next: std::ptr::null(),
+        },
         flags: 1 << 5,
         display: [1920, 1080],
         max_render: [1280, 720],
@@ -307,7 +388,8 @@ fn a_recognised_create_chain_is_a_local_error_until_the_router_is_installed() {
     };
     let mut handle: *mut std::ffi::c_void = std::ptr::null_mut();
     // SAFETY: `handle` is owned and writable and `chain` is a live, correctly shaped descriptor.
-    let code = unsafe { ffxCreateContext(&mut handle, as_desc_mut(&chain.header), std::ptr::null()) };
+    let code =
+        unsafe { ffxCreateContext(&mut handle, as_desc_mut(&chain.header), std::ptr::null()) };
     assert_eq!(code, 1);
     assert!(handle.is_null());
 }

@@ -14,9 +14,17 @@ pub struct LimiterStep {
 
 /// First frame seeds and never waits; later frames target `previous + interval` so the average
 /// rate is exact; a frame over one interval late reseeds at `now` rather than bursting.
-pub fn limiter_step(now: u64, previous_deadline: u64, have_previous: bool, interval: u64) -> LimiterStep {
+pub fn limiter_step(
+    now: u64,
+    previous_deadline: u64,
+    have_previous: bool,
+    interval: u64,
+) -> LimiterStep {
     if !have_previous || interval == 0 {
-        return LimiterStep { deadline: now, ..Default::default() };
+        return LimiterStep {
+            deadline: now,
+            ..Default::default()
+        };
     }
     let mut deadline = previous_deadline.saturating_add(interval);
     let mut reset = false;
@@ -25,7 +33,12 @@ pub fn limiter_step(now: u64, previous_deadline: u64, have_previous: bool, inter
         reset = true;
     }
     let late = now >= deadline;
-    LimiterStep { deadline, wait: !late, late, reset }
+    LimiterStep {
+        deadline,
+        wait: !late,
+        late,
+        reset,
+    }
 }
 
 /// Monitor-matching cap: `floor(Hz - Hz^2 / 3600)`; 0 when the refresh rate is unknown.
@@ -38,18 +51,34 @@ pub fn auto_target_fps(refresh_hz: f64) -> f64 {
 
 /// The output rate asked for, or 0 for uncapped.
 pub fn resolve_target_fps(target_fps: f64, automatic: bool, refresh_hz: f64) -> f64 {
-    let value = if automatic { auto_target_fps(refresh_hz) } else { target_fps };
-    if value.is_finite() && value > 0.0 { value } else { 0.0 }
+    let value = if automatic {
+        auto_target_fps(refresh_hz)
+    } else {
+        target_fps
+    };
+    if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        0.0
+    }
 }
 
 fn sane_ratio(ratio: f64) -> f64 {
-    if ratio.is_finite() && ratio >= 1.0 { ratio } else { 1.0 }
+    if ratio.is_finite() && ratio >= 1.0 {
+        ratio
+    } else {
+        1.0
+    }
 }
 
 /// The real-frame cap the limiter enforces for an output target; 0 is uncapped.
 pub fn resolve_real_cap(target_fps: f64, automatic: bool, refresh_hz: f64, ratio: f64) -> f64 {
     let output = resolve_target_fps(target_fps, automatic, refresh_hz);
-    if output <= 0.0 { 0.0 } else { output / sane_ratio(ratio) }
+    if output <= 0.0 {
+        0.0
+    } else {
+        output / sane_ratio(ratio)
+    }
 }
 
 /// A legacy `limiter.fps` capped real frames; as an output target it is that cap times the ratio.
@@ -80,7 +109,10 @@ mod tests {
         #[case] reset: bool,
     ) {
         let s = limiter_step(now, 100, true, 10);
-        assert_eq!((s.deadline, s.wait, s.late, s.reset), (deadline, wait, late, reset));
+        assert_eq!(
+            (s.deadline, s.wait, s.late, s.reset),
+            (deadline, wait, late, reset)
+        );
     }
 
     #[rstest]

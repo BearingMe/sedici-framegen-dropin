@@ -166,7 +166,12 @@ pub fn translate(
 }
 
 fn pointer_button(pos: Pos2, button: PointerButton, pressed: bool) -> Event {
-    Event::PointerButton { pos, button, pressed, modifiers: Modifiers::default() }
+    Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: Modifiers::default(),
+    }
 }
 
 /// The egui key for a Win32 virtual-key code. Only the keys a menu needs; anything else is ignored
@@ -197,17 +202,48 @@ pub fn key_for(vk: u32) -> Option<Key> {
 fn letter_key(vk: u32) -> Key {
     // The `Key` enum exposes letters as `Key::A` .. `Key::Z`.
     const LETTERS: [Key; 26] = [
-        Key::A, Key::B, Key::C, Key::D, Key::E, Key::F, Key::G, Key::H, Key::I, Key::J, Key::K,
-        Key::L, Key::M, Key::N, Key::O, Key::P, Key::Q, Key::R, Key::S, Key::T, Key::U, Key::V,
-        Key::W, Key::X, Key::Y, Key::Z,
+        Key::A,
+        Key::B,
+        Key::C,
+        Key::D,
+        Key::E,
+        Key::F,
+        Key::G,
+        Key::H,
+        Key::I,
+        Key::J,
+        Key::K,
+        Key::L,
+        Key::M,
+        Key::N,
+        Key::O,
+        Key::P,
+        Key::Q,
+        Key::R,
+        Key::S,
+        Key::T,
+        Key::U,
+        Key::V,
+        Key::W,
+        Key::X,
+        Key::Y,
+        Key::Z,
     ];
     LETTERS[(vk - 0x41) as usize]
 }
 
 fn digit_key(vk: u32) -> Key {
     const DIGITS: [Key; 10] = [
-        Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7,
-        Key::Num8, Key::Num9,
+        Key::Num0,
+        Key::Num1,
+        Key::Num2,
+        Key::Num3,
+        Key::Num4,
+        Key::Num5,
+        Key::Num6,
+        Key::Num7,
+        Key::Num8,
+        Key::Num9,
     ];
     DIGITS[(vk - 0x30) as usize]
 }
@@ -222,7 +258,18 @@ mod tests {
         let mut events = Vec::new();
         // Client point (320, 180) in a 640x360 client on a 1280x720 output.
         let lparam = ((180i64) << 16) | 320;
-        translate(&UiInput { msg: WM_MOUSEMOVE, wparam: 0, lparam }, 640, 360, 1280, 720, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_MOUSEMOVE,
+                wparam: 0,
+                lparam,
+            },
+            640,
+            360,
+            1280,
+            720,
+            &mut events,
+        );
         assert_eq!(events, vec![Event::PointerMoved(Pos2::new(640.0, 360.0))]);
     }
 
@@ -230,12 +277,27 @@ mod tests {
     fn a_click_feeds_the_position_first() {
         let mut events = Vec::new();
         let lparam = ((10i64) << 16) | 20;
-        translate(&UiInput { msg: WM_LBUTTONDOWN, wparam: 0, lparam }, 640, 360, 1280, 720, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_LBUTTONDOWN,
+                wparam: 0,
+                lparam,
+            },
+            640,
+            360,
+            1280,
+            720,
+            &mut events,
+        );
         assert_eq!(events.len(), 2, "{events:?}");
         assert!(matches!(events[0], Event::PointerMoved(_)));
         assert!(matches!(
             events[1],
-            Event::PointerButton { pressed: true, button: PointerButton::Primary, .. }
+            Event::PointerButton {
+                pressed: true,
+                button: PointerButton::Primary,
+                ..
+            }
         ));
     }
 
@@ -243,7 +305,18 @@ mod tests {
     fn alt_f4_never_reaches_egui() {
         let mut events = Vec::new();
         // WM_SYSKEYDOWN with VK_F4 and lparam bit 29 set (Alt held).
-        translate(&UiInput { msg: WM_SYSKEYDOWN, wparam: 0x73, lparam: 1 << 29 }, 640, 360, 1280, 720, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_SYSKEYDOWN,
+                wparam: 0x73,
+                lparam: 1 << 29,
+            },
+            640,
+            360,
+            1280,
+            720,
+            &mut events,
+        );
         // `translate` itself translates; the pass-through filter sits in `raw_input`. A direct call
         // still maps F4 to nothing, because `key_for` only covers the menu's keys.
         assert!(events.is_empty(), "{events:?}");
@@ -252,7 +325,11 @@ mod tests {
     #[test]
     fn raw_input_filters_the_passthrough_key() {
         let raw = raw_input(
-            &[UiInput { msg: WM_SYSKEYDOWN, wparam: 0x73, lparam: 1 << 29 }],
+            &[UiInput {
+                msg: WM_SYSKEYDOWN,
+                wparam: 0x73,
+                lparam: 1 << 29,
+            }],
             egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0)),
             640,
             360,
@@ -266,10 +343,32 @@ mod tests {
     #[test]
     fn typing_a_character_becomes_text_but_a_control_code_does_not() {
         let mut events = Vec::new();
-        translate(&UiInput { msg: WM_CHAR, wparam: u64::from(b'a'), lparam: 0 }, 0, 0, 0, 0, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_CHAR,
+                wparam: u64::from(b'a'),
+                lparam: 0,
+            },
+            0,
+            0,
+            0,
+            0,
+            &mut events,
+        );
         assert_eq!(events, vec![Event::Text("a".to_owned())]);
         events.clear();
-        translate(&UiInput { msg: WM_CHAR, wparam: 13, lparam: 0 }, 0, 0, 0, 0, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_CHAR,
+                wparam: 13,
+                lparam: 0,
+            },
+            0,
+            0,
+            0,
+            0,
+            &mut events,
+        );
         assert!(events.is_empty());
     }
 
@@ -290,7 +389,18 @@ mod tests {
         let mut events = Vec::new();
         // One notch down: high word 120 (0xFF88 would be up).
         let wparam = 120u64 << 16;
-        translate(&UiInput { msg: WM_MOUSEWHEEL, wparam, lparam: 0 }, 0, 0, 0, 0, &mut events);
+        translate(
+            &UiInput {
+                msg: WM_MOUSEWHEEL,
+                wparam,
+                lparam: 0,
+            },
+            0,
+            0,
+            0,
+            0,
+            &mut events,
+        );
         match &events[0] {
             Event::MouseWheel { unit, delta, .. } => {
                 assert_eq!(*unit, egui::MouseWheelUnit::Point);

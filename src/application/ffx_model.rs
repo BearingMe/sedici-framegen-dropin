@@ -69,11 +69,19 @@ pub struct Rejection {
 impl Rejection {
     pub fn new(ffx: ReturnCode, reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        Self { ffx, code: ErrorCode::classify(&reason), reason }
+        Self {
+            ffx,
+            code: ErrorCode::classify(&reason),
+            reason,
+        }
     }
 
     pub fn with_code(ffx: ReturnCode, code: ErrorCode, reason: impl Into<String>) -> Self {
-        Self { ffx, code, reason: reason.into() }
+        Self {
+            ffx,
+            code,
+            reason: reason.into(),
+        }
     }
 
     pub fn error(reason: impl Into<String>) -> Self {
@@ -629,9 +637,16 @@ pub struct QueryDesc {
 #[derive(Clone, Debug, PartialEq)]
 pub enum QueryReply {
     /// `GetVersions`: exactly one provider for a recognised create type.
-    Versions { count: u64, id: Option<u64>, name: Option<&'static CStr> },
+    Versions {
+        count: u64,
+        id: Option<u64>,
+        name: Option<&'static CStr>,
+    },
     /// `GetProviderVersion`.
-    ProviderVersion { id: u64, name: Option<&'static CStr> },
+    ProviderVersion {
+        id: u64,
+        name: Option<&'static CStr>,
+    },
     /// `InterpolationCommandListDX12`: a scratch list the game may record into.
     CommandList(OpaqueHandle),
     /// `InterpolationTextureDX12`: a scratch texture the game may render into.
@@ -664,8 +679,16 @@ pub trait FfxService: Send + Sync {
     fn create(&self, desc: &CreateContextDesc) -> Result<CreatedContext, Rejection>;
     fn destroy(&self, context: ContextToken) -> Result<(), Rejection>;
     fn configure(&self, context: ContextToken, desc: &ConfigureDesc) -> Result<(), Rejection>;
-    fn query(&self, context: Option<ContextToken>, desc: &QueryDesc) -> Result<QueryReply, Rejection>;
-    fn dispatch(&self, context: ContextToken, desc: &DispatchDesc) -> Result<DispatchReply, Rejection>;
+    fn query(
+        &self,
+        context: Option<ContextToken>,
+        desc: &QueryDesc,
+    ) -> Result<QueryReply, Rejection>;
+    fn dispatch(
+        &self,
+        context: ContextToken,
+        desc: &DispatchDesc,
+    ) -> Result<DispatchReply, Rejection>;
 
     /// `route_any_generation_enabled()`: whether a live session was last configured with frame
     /// generation on, for the menu's first line. A service that keeps no sessions says no.
@@ -684,7 +707,9 @@ static SERVICE: OnceLock<Box<dyn FfxService>> = OnceLock::new();
 
 /// Installs the router. The first caller wins; later calls never replace it.
 pub fn install(service: impl FfxService + 'static) -> Result<(), ServiceAlreadyInstalled> {
-    SERVICE.set(Box::new(service)).map_err(|_| ServiceAlreadyInstalled)
+    SERVICE
+        .set(Box::new(service))
+        .map_err(|_| ServiceAlreadyInstalled)
 }
 
 /// The installed router, if the composition root has run.
@@ -706,7 +731,11 @@ mod tests {
             (ReturnCode::NoProvider, 4, "NO_PROVIDER"),
             (ReturnCode::ErrorMemory, 5, "ERROR_MEMORY"),
             (ReturnCode::ErrorParameter, 6, "ERROR_PARAMETER"),
-            (ReturnCode::ProviderNoSupportNewDesctype, 7, "PROVIDER_NO_SUPPORT_NEW_DESCTYPE"),
+            (
+                ReturnCode::ProviderNoSupportNewDesctype,
+                7,
+                "PROVIDER_NO_SUPPORT_NEW_DESCTYPE",
+            ),
         ];
         for (code, value, name) in all {
             assert_eq!(code.as_u32(), value);

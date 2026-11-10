@@ -13,12 +13,12 @@ use windows::Win32::Graphics::Direct3D12::{
     ID3D12DescriptorHeap, ID3D12Resource, ID3D12RootSignature,
 };
 
-use crate::application::ports::gpu::{
-    GpuCommandList, GpuDevice, GpuTexture, PixelFormat, ResourceState, TextureFlags, TextureInfo,
-};
 use crate::application::ports::generator::{
     FrameGenerator, GeneratePhase, GeneratorError, HudSource, InputFrame, PassMark, Stage1Pass,
     MAX_PHASES,
+};
+use crate::application::ports::gpu::{
+    GpuCommandList, GpuDevice, GpuTexture, PixelFormat, ResourceState, TextureFlags, TextureInfo,
 };
 use crate::domain::frame::{FrameParams, MIDPOINT_ALPHA};
 
@@ -37,7 +37,10 @@ pub(crate) struct Target {
 
 impl Default for Target {
     fn default() -> Self {
-        Self { texture: None, state: Cell::new(ResourceState::COMMON) }
+        Self {
+            texture: None,
+            state: Cell::new(ResourceState::COMMON),
+        }
     }
 }
 
@@ -64,7 +67,10 @@ fn create_target(
 ) -> Result<Target, GeneratorError> {
     let desc = crate::application::ports::gpu::TextureDesc::texture2d(width, height, format, flags);
     let texture = device.create_texture(&desc)?;
-    Ok(Target { texture: Some(texture), state: Cell::new(ResourceState::COMMON) })
+    Ok(Target {
+        texture: Some(texture),
+        state: Cell::new(ResourceState::COMMON),
+    })
 }
 
 /// The Stage 1 generator. Not `Sync` (it owns `Cell`-tracked target states and mutable history).
@@ -178,7 +184,8 @@ impl Stage1 {
 
         for index in 0..2 {
             self.depth[index] = create_target(&self.device, PixelFormat::R32Float, rw, rh, uav)?;
-            self.motion[index] = create_target(&self.device, PixelFormat::R16G16Float, rw, rh, uav)?;
+            self.motion[index] =
+                create_target(&self.device, PixelFormat::R16G16Float, rw, rh, uav)?;
             self.color[index] = create_target(&self.device, color, dw, dh, read_only)?;
         }
         self.reprojection = create_target(&self.device, PixelFormat::R32Uint, rw, rh, uav)?;
@@ -340,9 +347,17 @@ impl Stage1 {
         blocks.write_uav(1, motion_target_texture, PixelFormat::R16G16Float);
 
         // Borrow the long-lived objects rather than AddRef/Release them on every generated frame.
-        let state = self.root_signature.as_ref().ok_or(GeneratorError::NotInitialized)?;
+        let state = self
+            .root_signature
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?;
         let heap = self.heap.as_ref().ok_or(GeneratorError::NotInitialized)?;
-        let prepare = &self.pipelines.as_ref().ok_or(GeneratorError::NotInitialized)?.prepare.state;
+        let prepare = &self
+            .pipelines
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?
+            .prepare
+            .state;
         self.dispatch(
             list,
             Stage1Pass::Prepare,
@@ -358,7 +373,11 @@ impl Stage1 {
         self.uav_barrier(list, depth_target);
         self.uav_barrier(list, motion_target);
         self.transition(list, depth_target, ResourceState::NON_PIXEL_SHADER_RESOURCE);
-        self.transition(list, motion_target, ResourceState::NON_PIXEL_SHADER_RESOURCE);
+        self.transition(
+            list,
+            motion_target,
+            ResourceState::NON_PIXEL_SHADER_RESOURCE,
+        );
         self.transition_external(
             list,
             depth,
@@ -388,11 +407,20 @@ impl Stage1 {
         mark: &mut Option<PassMark<'_>>,
     ) -> Result<(), GeneratorError> {
         self.alpha = alpha;
-        let state = self.root_signature.as_ref().ok_or(GeneratorError::NotInitialized)?;
+        let state = self
+            .root_signature
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?;
         let heap = self.heap.as_ref().ok_or(GeneratorError::NotInitialized)?;
-        let pipelines = self.pipelines.as_ref().ok_or(GeneratorError::NotInitialized)?;
+        let pipelines = self
+            .pipelines
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?;
         let color = PixelFormat::from(self.params.color_format);
-        let (gw, gh) = (groups(self.params.render_width), groups(self.params.render_height));
+        let (gw, gh) = (
+            groups(self.params.render_width),
+            groups(self.params.render_height),
+        );
 
         // 3. Clear, splat, fill.
         self.transition(list, &self.reprojection, ResourceState::UNORDERED_ACCESS);
@@ -400,7 +428,9 @@ impl Stage1 {
         blocks.begin(block);
         blocks.write_uav(
             0,
-            self.reprojection.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.reprojection
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Uint,
         );
         self.dispatch(
@@ -420,22 +450,30 @@ impl Stage1 {
         blocks.begin(block + 1);
         blocks.write_srv(
             0,
-            self.depth[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.depth[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Float,
         );
         blocks.write_srv(
             1,
-            self.motion[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.motion[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R16G16Float,
         );
         blocks.write_srv(
             2,
-            self.motion[previous].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.motion[previous]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R16G16Float,
         );
         blocks.write_uav(
             0,
-            self.reprojection.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.reprojection
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Uint,
         );
         self.dispatch(
@@ -450,19 +488,27 @@ impl Stage1 {
             mark,
         );
         self.uav_barrier(list, &self.reprojection);
-        self.transition(list, &self.reprojection, ResourceState::NON_PIXEL_SHADER_RESOURCE);
+        self.transition(
+            list,
+            &self.reprojection,
+            ResourceState::NON_PIXEL_SHADER_RESOURCE,
+        );
 
         self.transition(list, &self.filled, ResourceState::UNORDERED_ACCESS);
         let mut blocks = self.blocks();
         blocks.begin(block + 2);
         blocks.write_srv(
             0,
-            self.reprojection.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.reprojection
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Uint,
         );
         blocks.write_uav(
             0,
-            self.filled.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.filled
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Uint,
         );
         self.dispatch(
@@ -484,46 +530,65 @@ impl Stage1 {
         let mut blocks = self.blocks();
         blocks.begin(block + 3);
         blocks.write_lut_srv(
-            self.lut.as_ref().map(D3d12Buffer::raw).ok_or(GeneratorError::NotInitialized)?,
+            self.lut
+                .as_ref()
+                .map(D3d12Buffer::raw)
+                .ok_or(GeneratorError::NotInitialized)?,
         );
         blocks.write_srv(
             0,
-            self.filled.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.filled
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Uint,
         );
         blocks.write_srv(
             1,
-            self.color[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.color[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             color,
         );
         blocks.write_srv(
             2,
-            self.color[previous].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.color[previous]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             color,
         );
         blocks.write_srv(
             3,
-            self.depth[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.depth[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Float,
         );
         blocks.write_srv(
             4,
-            self.depth[previous].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.depth[previous]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R32Float,
         );
         blocks.write_srv(
             5,
-            self.motion[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.motion[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R16G16Float,
         );
         blocks.write_srv(
             6,
-            self.motion[previous].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.motion[previous]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             PixelFormat::R16G16Float,
         );
         blocks.write_uav(
             0,
-            self.midpoint.resource().ok_or(GeneratorError::NotConfigured)?,
+            self.midpoint
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             color,
         );
         self.dispatch(
@@ -538,7 +603,11 @@ impl Stage1 {
             mark,
         );
         self.uav_barrier(list, &self.midpoint);
-        self.transition(list, &self.midpoint, ResourceState::NON_PIXEL_SHADER_RESOURCE);
+        self.transition(
+            list,
+            &self.midpoint,
+            ResourceState::NON_PIXEL_SHADER_RESOURCE,
+        );
         Ok(())
     }
 
@@ -552,9 +621,15 @@ impl Stage1 {
         block: u32,
         mark: &mut Option<PassMark<'_>>,
     ) -> Result<(), GeneratorError> {
-        let state = self.root_signature.as_ref().ok_or(GeneratorError::NotInitialized)?;
+        let state = self
+            .root_signature
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?;
         let heap = self.heap.as_ref().ok_or(GeneratorError::NotInitialized)?;
-        let pipelines = self.pipelines.as_ref().ok_or(GeneratorError::NotInitialized)?;
+        let pipelines = self
+            .pipelines
+            .as_ref()
+            .ok_or(GeneratorError::NotInitialized)?;
         let color = PixelFormat::from(self.params.color_format);
 
         let hud_texture = hud.as_ref().map(|source| source.real);
@@ -574,7 +649,10 @@ impl Stage1 {
             ResourceState::UNORDERED_ACCESS,
         );
 
-        let midpoint = self.midpoint.resource().ok_or(GeneratorError::NotConfigured)?;
+        let midpoint = self
+            .midpoint
+            .resource()
+            .ok_or(GeneratorError::NotConfigured)?;
         let hud_resource = hud_texture.map(D3d12Texture::raw).unwrap_or(midpoint);
         let mut blocks = self.blocks();
         blocks.begin(block);
@@ -582,7 +660,9 @@ impl Stage1 {
         blocks.write_srv(1, hud_resource, color);
         blocks.write_srv(
             2,
-            self.color[current].resource().ok_or(GeneratorError::NotConfigured)?,
+            self.color[current]
+                .resource()
+                .ok_or(GeneratorError::NotConfigured)?,
             color,
         );
         blocks.write_uav(0, phase.output.raw(), color);
@@ -631,29 +711,41 @@ impl Stage1 {
             return Err(GeneratorError::NotConfigured);
         }
         let Some(color) = frame.color else {
-            return Err(GeneratorError::FrameRejected("generate without a colour resource"));
+            return Err(GeneratorError::FrameRejected(
+                "generate without a colour resource",
+            ));
         };
         if phases.is_empty() || phases.len() > MAX_PHASES as usize {
-            return Err(GeneratorError::FrameRejected("generate with an unsupported phase count"));
+            return Err(GeneratorError::FrameRejected(
+                "generate with an unsupported phase count",
+            ));
         }
 
         let display = (self.params.display_width, self.params.display_height);
         if !matches_size(color.info(), display.0, display.1) {
-            return Err(GeneratorError::FrameRejected("colour resource has the wrong geometry"));
+            return Err(GeneratorError::FrameRejected(
+                "colour resource has the wrong geometry",
+            ));
         }
         if color.info().format != PixelFormat::from(self.params.color_format) {
-            return Err(GeneratorError::FrameRejected("colour resource has the wrong format"));
+            return Err(GeneratorError::FrameRejected(
+                "colour resource has the wrong format",
+            ));
         }
 
         for (index, phase) in phases.iter().enumerate() {
             let info = phase.output.info();
             if !matches_size(info, display.0, display.1) {
-                return Err(GeneratorError::FrameRejected("output has the wrong geometry"));
+                return Err(GeneratorError::FrameRejected(
+                    "output has the wrong geometry",
+                ));
             }
             if info.format != PixelFormat::from(self.params.color_format)
                 || !info.flags.contains(TextureFlags::ALLOW_UNORDERED_ACCESS)
             {
-                return Err(GeneratorError::FrameRejected("output cannot be written as a UAV"));
+                return Err(GeneratorError::FrameRejected(
+                    "output cannot be written as a UAV",
+                ));
             }
             let identity = phase.output.identity();
             if [frame.color, frame.depth, frame.motion]
@@ -663,13 +755,21 @@ impl Stage1 {
             {
                 return Err(GeneratorError::FrameRejected("output aliases an input"));
             }
-            if hud.as_ref().is_some_and(|source| source.real.identity() == identity) {
-                return Err(GeneratorError::FrameRejected("output aliases the HUD source"));
+            if hud
+                .as_ref()
+                .is_some_and(|source| source.real.identity() == identity)
+            {
+                return Err(GeneratorError::FrameRejected(
+                    "output aliases the HUD source",
+                ));
             }
             if !(phase.alpha > 0.0 && phase.alpha < 1.0) {
                 return Err(GeneratorError::FrameRejected("phase alpha outside (0, 1)"));
             }
-            if phases[..index].iter().any(|earlier| earlier.output.identity() == identity) {
+            if phases[..index]
+                .iter()
+                .any(|earlier| earlier.output.identity() == identity)
+            {
                 return Err(GeneratorError::FrameRejected("two phases share an output"));
             }
         }
@@ -679,7 +779,9 @@ impl Stage1 {
                 || !info.is_single_sample_2d()
                 || info.format != PixelFormat::from(self.params.color_format)
             {
-                return Err(GeneratorError::FrameRejected("HUD source has the wrong shape or format"));
+                return Err(GeneratorError::FrameRejected(
+                    "HUD source has the wrong shape or format",
+                ));
             }
         }
 
@@ -695,10 +797,16 @@ impl Stage1 {
         self.transition_external(list, color, frame.color_state, ResourceState::COPY_SOURCE);
         self.transition(list, &self.color[current], ResourceState::COPY_DEST);
         list.copy_resource(
-            self.color[current].get().ok_or(GeneratorError::NotConfigured)?,
+            self.color[current]
+                .get()
+                .ok_or(GeneratorError::NotConfigured)?,
             color,
         );
-        self.transition(list, &self.color[current], ResourceState::NON_PIXEL_SHADER_RESOURCE);
+        self.transition(
+            list,
+            &self.color[current],
+            ResourceState::NON_PIXEL_SHADER_RESOURCE,
+        );
         self.transition_external(list, color, ResourceState::COPY_SOURCE, frame.color_state);
 
         if reset_history || !self.history_valid {
@@ -734,7 +842,9 @@ impl Stage1 {
                     }
                     None => list.copy_resource(
                         phase.output,
-                        self.color[current].get().ok_or(GeneratorError::NotConfigured)?,
+                        self.color[current]
+                            .get()
+                            .ok_or(GeneratorError::NotConfigured)?,
                     ),
                 }
                 self.transition_external(
@@ -744,7 +854,11 @@ impl Stage1 {
                     phase.output_state,
                 );
             }
-            self.transition(list, &self.color[current], ResourceState::NON_PIXEL_SHADER_RESOURCE);
+            self.transition(
+                list,
+                &self.color[current],
+                ResourceState::NON_PIXEL_SHADER_RESOURCE,
+            );
             self.current = previous as u32;
             self.history_valid = true;
             self.prepared = false;

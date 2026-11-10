@@ -10,10 +10,9 @@ use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
     DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16_FLOAT,
-    DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32_FLOAT,
-    DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R32_UINT,
-    DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN,
-    DXGI_SAMPLE_DESC,
+    DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G8X24_TYPELESS,
+    DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, DXGI_FORMAT_R32_TYPELESS,
+    DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
 };
 
 use crate::application::ports::gpu::{
@@ -23,9 +22,7 @@ use crate::domain::gpu_policy::E_FAIL;
 
 use super::fence::{create_event, D3d12Fence};
 use super::queue::D3d12Queue;
-use super::resources::{
-    D3d12Buffer, D3d12CommandAllocator, D3d12CommandList, D3d12Texture,
-};
+use super::resources::{D3d12Buffer, D3d12CommandAllocator, D3d12CommandList, D3d12Texture};
 
 /// `D3D12GetDebugInterface` is optional; a missing debug layer is not an error.
 pub fn enable_debug_layer() {
@@ -44,7 +41,11 @@ pub fn create_default_device() -> Result<Option<D3d12Device>, GpuError> {
     let mut device: Option<ID3D12Device> = None;
     // SAFETY: `None` selects the default adapter; the out pointer is a valid local.
     let result = unsafe {
-        D3D12CreateDevice(None::<&windows::core::IUnknown>, D3D_FEATURE_LEVEL_11_0, &mut device)
+        D3D12CreateDevice(
+            None::<&windows::core::IUnknown>,
+            D3D_FEATURE_LEVEL_11_0,
+            &mut device,
+        )
     };
     match (result, device) {
         (Ok(()), Some(device)) => Ok(Some(D3d12Device { device })),
@@ -75,7 +76,9 @@ impl D3d12Device {
 
     /// Wraps an existing device (the game's) without taking ownership beyond a reference.
     pub fn from_raw(device: &ID3D12Device) -> Self {
-        Self { device: device.clone() }
+        Self {
+            device: device.clone(),
+        }
     }
 
     pub fn raw(&self) -> &ID3D12Device {
@@ -85,7 +88,10 @@ impl D3d12Device {
     /// The descriptor increment for a CBV/SRV/UAV heap.
     pub fn descriptor_increment(&self) -> u32 {
         // SAFETY: a pure query on a live device.
-        unsafe { self.device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) }
+        unsafe {
+            self.device
+                .GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+        }
     }
 
     /// The device's removed reason, or `None` while it is healthy.
@@ -108,10 +114,16 @@ impl D3d12Device {
     }
 
     /// Creates the root signature from serialized bytes.
-    pub fn create_root_signature(&self, serialized: &[u8]) -> Result<ID3D12RootSignature, GpuError> {
+    pub fn create_root_signature(
+        &self,
+        serialized: &[u8],
+    ) -> Result<ID3D12RootSignature, GpuError> {
         // SAFETY: `serialized` is a valid byte slice for the duration of the call, which copies it.
-        unsafe { self.device.CreateRootSignature::<ID3D12RootSignature>(0, serialized) }
-            .map_err(|error| GpuError::failed("root signature creation", error.code().0 as u32))
+        unsafe {
+            self.device
+                .CreateRootSignature::<ID3D12RootSignature>(0, serialized)
+        }
+        .map_err(|error| GpuError::failed("root signature creation", error.code().0 as u32))
     }
 
     /// Creates a shader-visible CBV/SRV/UAV descriptor heap.
@@ -123,8 +135,11 @@ impl D3d12Device {
             NodeMask: 0,
         };
         // SAFETY: `desc` is fully initialized and outlives the call.
-        unsafe { self.device.CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc) }
-            .map_err(|error| GpuError::failed("descriptor heap creation", error.code().0 as u32))
+        unsafe {
+            self.device
+                .CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc)
+        }
+        .map_err(|error| GpuError::failed("descriptor heap creation", error.code().0 as u32))
     }
 
     /// Creates a compute pipeline from compiled bytecode.
@@ -143,8 +158,11 @@ impl D3d12Device {
             ..Default::default()
         };
         // SAFETY: the root signature is live and `bytecode` outlives the call.
-        unsafe { self.device.CreateComputePipelineState::<ID3D12PipelineState>(&desc) }
-            .map_err(|error| GpuError::failed("compute pipeline creation", error.code().0 as u32))
+        unsafe {
+            self.device
+                .CreateComputePipelineState::<ID3D12PipelineState>(&desc)
+        }
+        .map_err(|error| GpuError::failed("compute pipeline creation", error.code().0 as u32))
     }
 
     /// Creates a committed buffer. `heap` is D3D12_HEAP_TYPE_UPLOAD or READBACK.
@@ -154,7 +172,10 @@ impl D3d12Device {
         heap_type: D3D12_HEAP_TYPE,
         initial_state: D3D12_RESOURCE_STATES,
     ) -> Result<D3d12Buffer, GpuError> {
-        let heap = D3D12_HEAP_PROPERTIES { Type: heap_type, ..Default::default() };
+        let heap = D3D12_HEAP_PROPERTIES {
+            Type: heap_type,
+            ..Default::default()
+        };
         let desc = D3D12_RESOURCE_DESC {
             Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
             Alignment: 0,
@@ -164,7 +185,10 @@ impl D3d12Device {
             MipLevels: 1,
             Format: DXGI_FORMAT_UNKNOWN,
             // D3D12 requires a sample count of 1 even for buffers; the derived default is 0.
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
             Flags: D3D12_RESOURCE_FLAG_NONE,
         };
@@ -207,7 +231,10 @@ impl GpuDevice for D3d12Device {
             DepthOrArraySize: 1,
             MipLevels: 1,
             Format: dxgi_format(desc.format),
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
             Flags: D3D12_RESOURCE_FLAGS(desc.flags.0 as i32),
         };
@@ -233,11 +260,19 @@ impl GpuDevice for D3d12Device {
     }
 
     fn create_upload_buffer(&self, size: u64) -> Result<Self::Buffer, GpuError> {
-        self.create_buffer(size, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ)
+        self.create_buffer(
+            size,
+            D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+        )
     }
 
     fn create_readback_buffer(&self, size: u64) -> Result<Self::Buffer, GpuError> {
-        self.create_buffer(size, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST)
+        self.create_buffer(
+            size,
+            D3D12_HEAP_TYPE_READBACK,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+        )
     }
 
     fn write_buffer(&self, buffer: &Self::Buffer, data: &[u8]) -> Result<(), GpuError> {
@@ -248,10 +283,14 @@ impl GpuDevice for D3d12Device {
         buffer.read()
     }
 
-    fn create_command_allocator(&self, kind: QueueKind) -> Result<Self::CommandAllocator, GpuError> {
+    fn create_command_allocator(
+        &self,
+        kind: QueueKind,
+    ) -> Result<Self::CommandAllocator, GpuError> {
         // SAFETY: the enum value comes from a closed set; the allocator owns its allocation.
         let allocator = unsafe {
-            self.device.CreateCommandAllocator::<ID3D12CommandAllocator>(command_list_type(kind))
+            self.device
+                .CreateCommandAllocator::<ID3D12CommandAllocator>(command_list_type(kind))
         }
         .map_err(|error| GpuError::failed("command allocator creation", error.code().0 as u32))?;
         Ok(D3d12CommandAllocator { allocator })
@@ -263,12 +302,13 @@ impl GpuDevice for D3d12Device {
     ) -> Result<Self::CommandList, GpuError> {
         // SAFETY: the allocator is live and outlives the call; the list keeps its own reference.
         let list = unsafe {
-            self.device.CreateCommandList::<_, _, ID3D12GraphicsCommandList>(
-                0,
-                D3D12_COMMAND_LIST_TYPE_DIRECT,
-                &allocator.allocator,
-                None,
-            )
+            self.device
+                .CreateCommandList::<_, _, ID3D12GraphicsCommandList>(
+                    0,
+                    D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    &allocator.allocator,
+                    None,
+                )
         }
         .map_err(|error| GpuError::failed("command list creation", error.code().0 as u32))?;
         // A new list starts open; close it so the caller resets before recording, as the C++ does.
@@ -280,7 +320,8 @@ impl GpuDevice for D3d12Device {
     fn create_fence(&self, initial_value: u64) -> Result<Self::Fence, GpuError> {
         // SAFETY: a plain fence with no flags; the event is created for the bounded wait.
         let fence = unsafe {
-            self.device.CreateFence::<ID3D12Fence>(initial_value, D3D12_FENCE_FLAG_NONE)
+            self.device
+                .CreateFence::<ID3D12Fence>(initial_value, D3D12_FENCE_FLAG_NONE)
         }
         .map_err(|error| GpuError::failed("fence creation", error.code().0 as u32))?;
         let event = create_event()?;

@@ -157,8 +157,11 @@ pub trait FrameGenerator<D: GpuDevice> {
     /// the application can recycle its input textures. Generation must execute after this command
     /// list on the same queue, or with an explicit queue dependency. One outstanding pair per
     /// generator.
-    fn prepare(&mut self, list: &Self::List, frame: &InputFrame<'_, D::Texture>)
-        -> Result<(), GeneratorError>;
+    fn prepare(
+        &mut self,
+        list: &Self::List,
+        frame: &InputFrame<'_, D::Texture>,
+    ) -> Result<(), GeneratorError>;
 
     /// Only after all recorded work has retired. Keeps resources and state tracking, but abandons
     /// the snapshot and forces the next generated frame to seed history.
@@ -237,7 +240,10 @@ mod tests {
 
     impl FakeFence {
         fn new(value: u64) -> Self {
-            Self { completed: Cell::new(value), waits: Cell::new(0) }
+            Self {
+                completed: Cell::new(value),
+                waits: Cell::new(0),
+            }
         }
     }
 
@@ -255,14 +261,20 @@ mod tests {
     #[test]
     fn retired_wait_skips_a_completed_fence() {
         let fence = FakeFence::new(7);
-        assert_eq!(wait_retired(&fence, 5, Duration::from_millis(1), || None), Ok(true));
+        assert_eq!(
+            wait_retired(&fence, 5, Duration::from_millis(1), || None),
+            Ok(true)
+        );
         assert_eq!(fence.waits.get(), 0);
     }
 
     #[test]
     fn retired_wait_reports_timeout_without_failing() {
         let fence = FakeFence::new(3);
-        assert_eq!(wait_retired(&fence, 5, Duration::from_millis(1), || None), Ok(false));
+        assert_eq!(
+            wait_retired(&fence, 5, Duration::from_millis(1), || None),
+            Ok(false)
+        );
         assert_eq!(fence.waits.get(), 1);
     }
 
@@ -271,7 +283,9 @@ mod tests {
         let fence = FakeFence::new(u64::MAX);
         assert_eq!(
             wait_retired(&fence, 5, Duration::from_millis(1), || None),
-            Err(GpuError::DeviceRemoved { reason: DEVICE_REMOVED })
+            Err(GpuError::DeviceRemoved {
+                reason: DEVICE_REMOVED
+            })
         );
         assert_eq!(fence.waits.get(), 0);
     }
@@ -280,7 +294,10 @@ mod tests {
     fn retired_wait_counts_work_on_a_removed_device_as_retired() {
         // A timed-out wait on a removed device is not a live slot: the GPU will never signal.
         let fence = FakeFence::new(3);
-        assert_eq!(wait_retired(&fence, 5, Duration::from_millis(1), || Some(0x887A_0005)), Ok(true));
+        assert_eq!(
+            wait_retired(&fence, 5, Duration::from_millis(1), || Some(0x887A_0005)),
+            Ok(true)
+        );
     }
 
     #[test]
@@ -296,6 +313,9 @@ mod tests {
         .iter()
         .map(|pass| pass.name())
         .collect();
-        assert_eq!(names, ["prepare", "clear", "reproject", "fill", "warp", "composite"]);
+        assert_eq!(
+            names,
+            ["prepare", "clear", "reproject", "fill", "warp", "composite"]
+        );
     }
 }

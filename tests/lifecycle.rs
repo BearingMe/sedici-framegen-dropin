@@ -59,7 +59,10 @@ impl Drop for Fixture {
         // SAFETY: every handle belongs to this test; a fixture is dropped once.
         unsafe {
             let _ = DestroyWindow(self.window);
-            let _ = UnregisterClassW(windows::core::w!("SediciRustLifecycleWindow"), Some(self.instance));
+            let _ = UnregisterClassW(
+                windows::core::w!("SediciRustLifecycleWindow"),
+                Some(self.instance),
+            );
         }
     }
 }
@@ -83,33 +86,38 @@ fn fixture() -> Option<Fixture> {
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WS_POPUP, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WNDCLASSW,
+        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
+        WS_POPUP,
     };
 
     // SAFETY: every call uses initialised locals and checks its result; a failure returns `None`,
     // which skips the test instead of failing it.
     unsafe {
         let mut device: Option<ID3D12Device> = None;
-        if D3D12CreateDevice(None::<&windows::core::IUnknown>, D3D_FEATURE_LEVEL_11_0, &mut device)
-            .is_err()
+        if D3D12CreateDevice(
+            None::<&windows::core::IUnknown>,
+            D3D_FEATURE_LEVEL_11_0,
+            &mut device,
+        )
+        .is_err()
         {
             eprintln!("lifecycle: D3D12CreateDevice failed");
             return None;
         }
         let device = device?;
-        let queue = match device.CreateCommandQueue::<ID3D12CommandQueue>(&D3D12_COMMAND_QUEUE_DESC {
-            Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
-            Priority: 0,
-            Flags: D3D12_COMMAND_QUEUE_FLAG_NONE,
-            NodeMask: 0,
-        }) {
-            Ok(queue) => queue,
-            Err(error) => {
-                eprintln!("lifecycle: CreateCommandQueue failed {error:?}");
-                return None;
-            }
-        };
+        let queue =
+            match device.CreateCommandQueue::<ID3D12CommandQueue>(&D3D12_COMMAND_QUEUE_DESC {
+                Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
+                Priority: 0,
+                Flags: D3D12_COMMAND_QUEUE_FLAG_NONE,
+                NodeMask: 0,
+            }) {
+                Ok(queue) => queue,
+                Err(error) => {
+                    eprintln!("lifecycle: CreateCommandQueue failed {error:?}");
+                    return None;
+                }
+            };
         let factory: IDXGIFactory2 = match CreateDXGIFactory1() {
             Ok(factory) => factory,
             Err(error) => {
@@ -151,7 +159,13 @@ fn fixture() -> Option<Fixture> {
                 return None;
             }
         };
-        Some(Fixture { window, device, queue, factory, instance: HINSTANCE(instance.0) })
+        Some(Fixture {
+            window,
+            device,
+            queue,
+            factory,
+            instance: HINSTANCE(instance.0),
+        })
     }
 }
 
@@ -231,8 +245,14 @@ fn ten_bit_frame_generation() -> FrameGenerationCreate {
     FrameGenerationCreate {
         // HDR | async workloads, exactly the AW2 create flags.
         flags: (1 << 5) | (1 << 0),
-        display_size: Dimensions { width: WIDTH, height: HEIGHT },
-        max_render_size: Dimensions { width: WIDTH, height: HEIGHT },
+        display_size: Dimensions {
+            width: WIDTH,
+            height: HEIGHT,
+        },
+        max_render_size: Dimensions {
+            width: WIDTH,
+            height: HEIGHT,
+        },
         back_buffer_format: SurfaceFormat(17), // FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM
     }
 }
@@ -299,7 +319,9 @@ fn the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries() {
         )
         .expect("interpolation list again")
     {
-        QueryReply::CommandList(handle) => assert_eq!(handle, first_list, "the same list is returned"),
+        QueryReply::CommandList(handle) => {
+            assert_eq!(handle, first_list, "the same list is returned")
+        }
         other => panic!("second list: {other:?}"),
     }
     // The interpolation list handle is borrowed: the wrapper owns the list for the game, so the
@@ -309,7 +331,9 @@ fn the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries() {
     // SAFETY: a live list the wrapper created and keeps open across this query.
     let raw_list: *mut std::ffi::c_void = first_list as *mut _;
     let list = unsafe {
-        windows::Win32::Graphics::Direct3D12::ID3D12GraphicsCommandList::from_raw_borrowed(&raw_list)
+        windows::Win32::Graphics::Direct3D12::ID3D12GraphicsCommandList::from_raw_borrowed(
+            &raw_list,
+        )
     }
     .expect("the list handle is live");
     // SAFETY: `GetDevice` is a pure query on that live list, so a broken handle would be caught
@@ -331,10 +355,17 @@ fn the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries() {
         .expect("interpolation texture")
     {
         QueryReply::Texture(resource) => {
-            assert_ne!(resource.handle, 0, "the game receives an interpolation texture");
+            assert_ne!(
+                resource.handle, 0,
+                "the game receives an interpolation texture"
+            );
             assert_eq!(resource.description.width, WIDTH);
             assert_eq!(resource.description.height, HEIGHT);
-            assert_eq!(resource.description.format, SurfaceFormat(17), "the texture is 10-bit");
+            assert_eq!(
+                resource.description.format,
+                SurfaceFormat(17),
+                "the texture is 10-bit"
+            );
         }
         other => panic!("interpolation texture: {other:?}"),
     }
@@ -343,7 +374,10 @@ fn the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries() {
         service
             .query(
                 Some(created.context),
-                &QueryDesc { swapchain_gpu_memory_usage: Some(Default::default()), ..Default::default() },
+                &QueryDesc {
+                    swapchain_gpu_memory_usage: Some(Default::default()),
+                    ..Default::default()
+                },
             )
             .is_err(),
         "other swapchain queries stay refused"
@@ -351,7 +385,8 @@ fn the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries() {
 
     assert!(service.destroy(created.context).is_ok(), "destroy");
     // SAFETY: a pure query on the test's live device.
-    let removal = unsafe { fixture.device.GetDeviceRemovedReason() }.map_err(|error| error.message());
+    let removal =
+        unsafe { fixture.device.GetDeviceRemovedReason() }.map_err(|error| error.message());
     assert_eq!(removal, Ok(()), "the device stays healthy");
     drop(chain);
 }
@@ -372,10 +407,14 @@ fn repeated_alan_wake_2_lifecycles_do_not_grow_memory() {
         let created = service
             .create(&new_create(&fixture))
             .map_err(|rejection| format!("create: {rejection}"))?;
-        let handle = created.swapchain.ok_or_else(|| "no chain handle".to_owned())?;
+        let handle = created
+            .swapchain
+            .ok_or_else(|| "no chain handle".to_owned())?;
         // SAFETY: the create produced one reference; adopting and dropping it releases that one.
         let chain = unsafe {
-            windows::Win32::Graphics::Dxgi::IDXGISwapChain4::from_raw(handle as *mut std::ffi::c_void)
+            windows::Win32::Graphics::Dxgi::IDXGISwapChain4::from_raw(
+                handle as *mut std::ffi::c_void,
+            )
         };
         let mut list_slot: usize = 0;
         let mut texture_slot: usize = 0;
@@ -412,8 +451,12 @@ fn repeated_alan_wake_2_lifecycles_do_not_grow_memory() {
             .map(|created| created.context)
             .map_err(|rejection| format!("session: {rejection}"))?;
         drop(chain);
-        service.destroy(session).map_err(|rejection| format!("session destroy: {rejection}"))?;
-        service.destroy(created.context).map_err(|rejection| format!("swapchain destroy: {rejection}"))?;
+        service
+            .destroy(session)
+            .map_err(|rejection| format!("session destroy: {rejection}"))?;
+        service
+            .destroy(created.context)
+            .map_err(|rejection| format!("swapchain destroy: {rejection}"))?;
         Ok(())
     };
 
@@ -433,7 +476,10 @@ fn repeated_alan_wake_2_lifecycles_do_not_grow_memory() {
         }
     }
     let grown = private_bytes() as i64 - before as i64;
-    eprintln!("memory over {MEASURED} create/destroy cycles: private bytes grew by {} KiB", grown / 1024);
+    eprintln!(
+        "memory over {MEASURED} create/destroy cycles: private bytes grew by {} KiB",
+        grown / 1024
+    );
     assert!(
         grown < 4 * 1024 * 1024,
         "private bytes grew by {grown} over {MEASURED} cycles (limit 4 MiB)"
@@ -442,7 +488,10 @@ fn repeated_alan_wake_2_lifecycles_do_not_grow_memory() {
         (Some(adapter), Some(before)) => match video_bytes(adapter) {
             Some(after) => {
                 let video_grown = after as i64 - before as i64;
-                eprintln!("video memory over {MEASURED} cycles: grew by {} KiB", video_grown / 1024);
+                eprintln!(
+                    "video memory over {MEASURED} cycles: grew by {} KiB",
+                    video_grown / 1024
+                );
                 assert!(
                     video_grown < 16 * 1024 * 1024,
                     "video memory grew by {video_grown} (limit 16 MiB)"
@@ -518,7 +567,10 @@ fn the_shared_present_queue_is_released_with_its_last_presenter() {
         Height: HEIGHT,
         Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM,
         Stereo: false.into(),
-        SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: 3,
         Scaling: DXGI_SCALING_STRETCH,
@@ -546,7 +598,11 @@ fn the_shared_present_queue_is_released_with_its_last_presenter() {
     };
 
     let device = Arc::new(D3d12Device::from_raw(&fixture.device));
-    let native = Arc::new(DxgiNative::for_test(&chain4, &fixture.queue, &fixture.device));
+    let native = Arc::new(DxgiNative::for_test(
+        &chain4,
+        &fixture.queue,
+        &fixture.device,
+    ));
     let queues: Arc<SharedPresentQueues<D3d12Device>> = Arc::new(SharedPresentQueues::new(false));
     let clock = Arc::new(FakeClock::new(1_000_000, 1_000_000));
     let device_key = Arc::as_ptr(&device) as usize;
@@ -565,7 +621,9 @@ fn the_shared_present_queue_is_released_with_its_last_presenter() {
         &mut why,
     );
     let Some(presenter) = presenter else {
-        eprintln!("SKIP lifecycle: presenter unavailable ({why}); present queue release not checked");
+        eprintln!(
+            "SKIP lifecycle: presenter unavailable ({why}); present queue release not checked"
+        );
         return;
     };
     let during = queues.len();
@@ -588,7 +646,9 @@ fn a_ten_bit_hdr_session_is_accepted_and_the_game_dispatch_is_acknowledged() {
     let created = service
         .create(&CreateContextDesc {
             frame_generation: Some(ten_bit_frame_generation()),
-            backend_dx12: Some(BackendDx12 { device: Interface::as_raw(&fixture.device) as usize }),
+            backend_dx12: Some(BackendDx12 {
+                device: Interface::as_raw(&fixture.device) as usize,
+            }),
             ..Default::default()
         })
         .expect("10-bit HDR session");

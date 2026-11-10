@@ -99,7 +99,10 @@ impl SwapChainDesc {
     /// The two colour formats the generator supports; anything else is refused with a defined
     /// error rather than guessed at (`supported_color_format` in the C++).
     pub fn supported_format(&self) -> bool {
-        matches!(self.format, PixelFormat::R8G8B8A8Unorm | PixelFormat::R10G10B10A2Unorm)
+        matches!(
+            self.format,
+            PixelFormat::R8G8B8A8Unorm | PixelFormat::R10G10B10A2Unorm
+        )
     }
 
     /// A chain the wrapper can present through.
@@ -160,7 +163,12 @@ pub trait NativeSwapchain: Send + Sync {
     fn present(&self, sync: u32, flags: PresentFlags) -> Result<(), GpuError>;
 
     /// Present1. `params` is always given: an empty one is itself a distinct call.
-    fn present1(&self, sync: u32, flags: PresentFlags, params: &PresentParams) -> Result<(), GpuError>;
+    fn present1(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: &PresentParams,
+    ) -> Result<(), GpuError>;
 
     fn resize_buffers(
         &self,
@@ -274,7 +282,12 @@ mod tests {
     fn empty_metadata_is_not_the_same_as_absent_metadata() {
         assert!(PresentParams::default().is_empty());
         let with_rect = PresentParams {
-            dirty_rects: vec![Rect { left: 0, top: 0, right: 4, bottom: 4 }],
+            dirty_rects: vec![Rect {
+                left: 0,
+                top: 0,
+                right: 4,
+                bottom: 4,
+            }],
             ..PresentParams::default()
         };
         assert!(!with_rect.is_empty());

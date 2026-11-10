@@ -32,7 +32,9 @@ impl D3d12Queue {
     /// Adopts a queue the game owns. The FFX contract keeps it alive for the context's lifetime;
     /// the wrapper takes a COM reference so it never depends on the caller's slot.
     pub fn from_adopted(queue: &ID3D12CommandQueue) -> Self {
-        Self { queue: queue.clone() }
+        Self {
+            queue: queue.clone(),
+        }
     }
 
     /// Executes the lists. The caller guarantees every list is closed and fully recorded.
@@ -41,7 +43,8 @@ impl D3d12Queue {
         for list in lists {
             // SAFETY: QueryInterface for a base interface of the same object always succeeds on a
             // live list, and the returned reference is owned by `base`.
-            let interface: ID3D12CommandList = list.cast()
+            let interface: ID3D12CommandList = list
+                .cast()
                 .map_err(|error| GpuError::failed("command list cast", error.code().0 as u32))?;
             base.push(Some(interface));
         }
@@ -63,7 +66,12 @@ impl D3d12Queue {
     }
 
     /// Signals `fence` then waits for it with a bound, in the policy's signal-then-wait order.
-    pub fn drain(&self, fence: &D3d12Fence, value: u64, timeout: std::time::Duration) -> Result<(), GpuError> {
+    pub fn drain(
+        &self,
+        fence: &D3d12Fence,
+        value: u64,
+        timeout: std::time::Duration,
+    ) -> Result<(), GpuError> {
         self.signal_raw(fence.raw(), value)?;
         fence.wait(value, timeout)
     }

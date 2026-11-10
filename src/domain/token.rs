@@ -14,7 +14,12 @@ impl TokenNamespace {
         if base == 0 || stride == 0 || bytes < stride || bytes > usize::MAX - base {
             return Self::default();
         }
-        Self { base, stride, capacity: bytes / stride, issued: 0 }
+        Self {
+            base,
+            stride,
+            capacity: bytes / stride,
+            issued: 0,
+        }
     }
 
     /// Next unused token, or `None` when unreserved or exhausted. Tokens are never reused.

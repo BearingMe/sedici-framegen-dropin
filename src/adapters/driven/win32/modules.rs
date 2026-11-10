@@ -23,7 +23,9 @@ impl std::hash::Hash for Module {
 fn executable_module() -> Option<Module> {
     // SAFETY: a null module name requests the executable; the result is a borrowed handle with no
     // reference to release.
-    unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }.ok().map(Module)
+    unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }
+        .ok()
+        .map(Module)
 }
 
 /// The process's modules in load order. On a failure the executable alone is returned, so a scan
@@ -37,8 +39,13 @@ pub fn loaded_modules() -> Vec<Module> {
     let mut needed = 0_u32;
     // SAFETY: the pointer and byte length describe `buffer`; `needed` is a local out-parameter.
     let ok = unsafe {
-        K32EnumProcessModules(process, buffer.as_mut_ptr(), (buffer.len() * std::mem::size_of::<HMODULE>()) as u32, &mut needed)
-            .as_bool()
+        K32EnumProcessModules(
+            process,
+            buffer.as_mut_ptr(),
+            (buffer.len() * std::mem::size_of::<HMODULE>()) as u32,
+            &mut needed,
+        )
+        .as_bool()
     };
     if !ok {
         return executable.map(|module| vec![module]).unwrap_or_default();
@@ -48,8 +55,13 @@ pub fn loaded_modules() -> Vec<Module> {
         buffer.resize(count + 16, HMODULE::default());
         // SAFETY: the resized buffer is still valid and its new byte length is passed.
         let retried = unsafe {
-            K32EnumProcessModules(process, buffer.as_mut_ptr(), (buffer.len() * std::mem::size_of::<HMODULE>()) as u32, &mut needed)
-                .as_bool()
+            K32EnumProcessModules(
+                process,
+                buffer.as_mut_ptr(),
+                (buffer.len() * std::mem::size_of::<HMODULE>()) as u32,
+                &mut needed,
+            )
+            .as_bool()
         };
         if !retried {
             return executable.map(|module| vec![module]).unwrap_or_default();
@@ -75,13 +87,17 @@ pub fn running_as_dll() -> bool {
     // The main executable module (the game, or a test binary).
     // SAFETY: a null module name asks for the process's main executable module; the result is a
     // borrowed handle that must not be released.
-    let Some(main) = (unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }).ok() else {
+    let Some(main) =
+        (unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }).ok()
+    else {
         return false;
     };
     // The module that contains this function: the DLL when loaded as one, the test executable when
     // statically linked. Comparing the two handles is exact: a DLL's own module is never the
     // process's main module.
-    let Some(own) = own_module() else { return false };
+    let Some(own) = own_module() else {
+        return false;
+    };
     own != main
 }
 
@@ -119,7 +135,12 @@ pub fn running_as_dll() -> bool {
 pub fn rtss_loaded() -> bool {
     // SAFETY: a null module name by string only reads the loader's module table; no reference is
     // taken and nothing is released.
-    unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!("RTSSHooks64.dll")) }.is_ok()
+    unsafe {
+        windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!(
+            "RTSSHooks64.dll"
+        ))
+    }
+    .is_ok()
 }
 
 #[cfg(not(windows))]
@@ -130,10 +151,13 @@ pub fn rtss_loaded() -> bool {
 /// True when `module` lives under the Windows or System directory. An unknown path counts as
 /// system: the scan leaves it alone rather than risk patching a protected module.
 pub fn is_system_module(module: Module) -> bool {
-    let Some(path) = module_path(module) else { return true };
+    let Some(path) = module_path(module) else {
+        return true;
+    };
     let path = path.to_ascii_lowercase();
     let under = |root: Option<std::path::PathBuf>| {
-        root.map(|root| path.starts_with(root.to_string_lossy().to_ascii_lowercase().as_str())).unwrap_or(false)
+        root.map(|root| path.starts_with(root.to_string_lossy().to_ascii_lowercase().as_str()))
+            .unwrap_or(false)
     };
     under(system_directory()) || under(windows_directory())
 }
@@ -148,8 +172,9 @@ pub fn module_path(module: Module) -> Option<String> {
     let mut buffer = vec![0_u16; MAX_PATH as usize];
     // SAFETY: the buffer and its length are consistent; the returned count is the number of UTF-16
     // units written (excluding the terminator) or the required size on truncation.
-    let written =
-        unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(Some(module.0), &mut buffer) };
+    let written = unsafe {
+        windows::Win32::System::LibraryLoader::GetModuleFileNameW(Some(module.0), &mut buffer)
+    };
     if written == 0 {
         return None;
     }
@@ -165,7 +190,9 @@ fn directory(getter: unsafe fn(Option<&mut [u16]>) -> u32) -> Option<std::path::
     if written == 0 || written as usize >= buffer.len() {
         return None;
     }
-    Some(std::path::PathBuf::from(utf16_to_string(&buffer[..written as usize])))
+    Some(std::path::PathBuf::from(utf16_to_string(
+        &buffer[..written as usize],
+    )))
 }
 
 pub fn system_directory() -> Option<std::path::PathBuf> {
@@ -183,18 +210,34 @@ mod tests {
     #[test]
     fn enumerates_the_executable_first_and_it_is_not_system() {
         let modules = loaded_modules();
-        assert!(!modules.is_empty(), "the process has at least its own module");
+        assert!(
+            !modules.is_empty(),
+            "the process has at least its own module"
+        );
         let exe = executable().expect("the test executable is a loaded module");
-        assert!(modules.contains(&exe), "the executable appears in the enumeration");
-        assert!(!is_system_module(exe), "the test executable is not under the Windows directory");
+        assert!(
+            modules.contains(&exe),
+            "the executable appears in the enumeration"
+        );
+        assert!(
+            !is_system_module(exe),
+            "the test executable is not under the Windows directory"
+        );
         let path = module_path(exe).expect("the executable path is readable");
-        assert!(path.to_ascii_lowercase().ends_with(".exe"), "module_path returns a full path: {path}");
+        assert!(
+            path.to_ascii_lowercase().ends_with(".exe"),
+            "module_path returns a full path: {path}"
+        );
     }
 
     #[test]
     fn kernel32_is_a_system_module() {
         // SAFETY: a borrowed module handle for a string name; no reference is taken.
-        let kernel32 = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!("kernel32.dll")) };
+        let kernel32 = unsafe {
+            windows::Win32::System::LibraryLoader::GetModuleHandleW(windows::core::w!(
+                "kernel32.dll"
+            ))
+        };
         let kernel32 = kernel32.expect("kernel32 is loaded in every process");
         assert!(is_system_module(Module(kernel32)));
     }

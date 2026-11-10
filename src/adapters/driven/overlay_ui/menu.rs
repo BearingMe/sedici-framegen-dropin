@@ -113,7 +113,11 @@ fn status_group(ui: &mut egui::Ui, full: &FullView) {
     ui.strong("Status");
     ui.label(format!(
         "Frame generation: {}",
-        if full.frame_generation_on { "on" } else { "off" }
+        if full.frame_generation_on {
+            "on"
+        } else {
+            "off"
+        }
     ));
     let (rw, rh) = full.render_size;
     let (ow, oh) = full.output_size;
@@ -179,11 +183,22 @@ fn graph(ui: &mut egui::Ui, label: &str, samples: &[f32], scale: f32) {
             0.0
         };
         let y = (ms / GRAPH_MAX_MS).clamp(0.0, 1.0);
-        egui::pos2(rect.left() + x * rect.width(), rect.bottom() - y * rect.height())
+        egui::pos2(
+            rect.left() + x * rect.width(),
+            rect.bottom() - y * rect.height(),
+        )
     };
-    let points: Vec<egui::Pos2> = samples.iter().copied().enumerate().map(|(i, ms)| to_point(i, ms)).collect();
+    let points: Vec<egui::Pos2> = samples
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, ms)| to_point(i, ms))
+        .collect();
     if points.len() > 1 {
-        painter.add(egui::Shape::line(points, Stroke::new(1.0_f32, Color32::from_rgb(120, 190, 255))));
+        painter.add(egui::Shape::line(
+            points,
+            Stroke::new(1.0_f32, Color32::from_rgb(120, 190, 255)),
+        ));
     } else if let Some(&first) = points.first() {
         painter.circle_filled(first, 1.0, Color32::from_rgb(120, 190, 255));
     }

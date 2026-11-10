@@ -41,18 +41,31 @@ pub const VK_F10: u32 = 0x79;
 
 impl Default for Hotkey {
     fn default() -> Self {
-        Self { ctrl: false, alt: true, shift: false, vk: VK_F10 }
+        Self {
+            ctrl: false,
+            alt: true,
+            shift: false,
+            vk: VK_F10,
+        }
     }
 }
 
 fn eq_ignore_ascii_case(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).all(|(x, y)| x.eq_ignore_ascii_case(&y))
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .all(|(x, y)| x.eq_ignore_ascii_case(&y))
 }
 
 impl Hotkey {
     /// Parses the user-facing text (`"alt+f10"`, `"ctrl+shift+a"`). Worst case: the default.
     pub fn parse(text: &str) -> Self {
-        let mut hotkey = Self { ctrl: false, alt: false, shift: false, vk: VK_F10 };
+        let mut hotkey = Self {
+            ctrl: false,
+            alt: false,
+            shift: false,
+            vk: VK_F10,
+        };
         for part in text.split('+') {
             if eq_ignore_ascii_case(part, "alt") {
                 hotkey.alt = true;
@@ -61,7 +74,10 @@ impl Hotkey {
             } else if eq_ignore_ascii_case(part, "shift") {
                 hotkey.shift = true;
             } else if part.len() >= 2 && (part.starts_with('f') || part.starts_with('F')) {
-                let number: u32 = part[1..].bytes().filter(u8::is_ascii_digit).fold(0, |acc, d| acc * 10 + u32::from(d - b'0'));
+                let number: u32 = part[1..]
+                    .bytes()
+                    .filter(u8::is_ascii_digit)
+                    .fold(0, |acc, d| acc * 10 + u32::from(d - b'0'));
                 if (1..=12).contains(&number) {
                     hotkey.vk = 0x70 + number - 1; // VK_F1 .. VK_F12
                 }
@@ -142,7 +158,14 @@ pub trait CursorGuard: Send + Sync {
 /// Maps a client-area point to output pixels. The overlay draws at the output resolution while
 /// Windows reports input in client coordinates, so the two only match when the window is not scaled.
 /// Negative coordinates clamp to the near edge; points past the far edge clamp to the last pixel.
-pub fn map_point(x: i32, y: i32, client_width: i32, client_height: i32, output_width: i32, output_height: i32) -> (i32, i32) {
+pub fn map_point(
+    x: i32,
+    y: i32,
+    client_width: i32,
+    client_height: i32,
+    output_width: i32,
+    output_height: i32,
+) -> (i32, i32) {
     if client_width <= 0 || client_height <= 0 || output_width <= 0 || output_height <= 0 {
         return (x, y);
     }
@@ -176,8 +199,15 @@ mod tests {
     #[test]
     fn modifiers_must_match_exactly() {
         let hotkey = Hotkey::parse("alt+f10");
-        assert!(hotkey.matches(Modifiers { alt: true, ..Modifiers::default() }));
-        assert!(!hotkey.matches(Modifiers { alt: true, ctrl: true, ..Modifiers::default() }));
+        assert!(hotkey.matches(Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        }));
+        assert!(!hotkey.matches(Modifiers {
+            alt: true,
+            ctrl: true,
+            ..Modifiers::default()
+        }));
     }
 
     #[test]

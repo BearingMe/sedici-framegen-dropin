@@ -25,44 +25,43 @@ use egui::epaint::Primitive;
 use windows::core::Interface;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCompile, D3DCOMPILE_OPTIMIZATION_LEVEL3};
-use windows::Win32::Graphics::Direct3D::{D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob};
+use windows::Win32::Graphics::Direct3D::{ID3DBlob, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST};
 use windows::Win32::Graphics::Direct3D12::{
     ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue, ID3D12DescriptorHeap,
     ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12PipelineState, ID3D12Resource,
-    ID3D12RootSignature, D3D12_BLEND_DESC, D3D12_CPU_DESCRIPTOR_HANDLE,
+    ID3D12RootSignature, D3D12_BLEND_DESC, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE,
+    D3D12_BLEND_OP_ADD, D3D12_COLOR_WRITE_ENABLE_ALL, D3D12_COMPARISON_FUNC_ALWAYS,
+    D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_CULL_MODE_NONE,
     D3D12_DEPTH_STENCIL_DESC, D3D12_DESCRIPTOR_HEAP_DESC, D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
     D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_DESCRIPTOR_RANGE, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-    D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_GPU_DESCRIPTOR_HANDLE,
+    D3D12_FILL_MODE_SOLID, D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_GPU_DESCRIPTOR_HANDLE,
     D3D12_GRAPHICS_PIPELINE_STATE_DESC, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
     D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_VIEW,
     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC,
-    D3D12_LOGIC_OP_NOOP, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-    D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC, D3D12_RENDER_TARGET_VIEW_DESC,
-    D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-    D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-    D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-    D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ,
+    D3D12_LOGIC_OP_NOOP, D3D12_PLACED_SUBRESOURCE_FOOTPRINT,
+    D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_RASTERIZER_DESC, D3D12_RENDER_TARGET_BLEND_DESC,
+    D3D12_RENDER_TARGET_VIEW_DESC, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
+    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
+    D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER,
+    D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATES,
+    D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ,
     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET,
-    D3D12_RESOURCE_STATES, D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_PARAMETER,
-    D3D12_ROOT_PARAMETER_0, D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
-    D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, D3D12_ROOT_SIGNATURE_DESC,
-    D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, D3D12_RTV_DIMENSION_TEXTURE2D,
-    D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
-    D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D,
+    D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
+    D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+    D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
+    D3D12_RTV_DIMENSION_TEXTURE2D, D3D12_SHADER_BYTECODE, D3D12_SHADER_RESOURCE_VIEW_DESC,
+    D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_TEXTURE2D,
     D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK, D3D12_STATIC_SAMPLER_DESC, D3D12_TEX2D_RTV,
     D3D12_TEX2D_SRV, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_COPY_LOCATION,
     D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
     D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT,
     D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW,
-    D3D12_VIEWPORT, D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF,
-    D3D12_CULL_MODE_NONE, D3D12_FILL_MODE_SOLID, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE,
-    D3D12_BLEND_OP_ADD, D3D12_COLOR_WRITE_ENABLE_ALL, D3D12_COMPARISON_FUNC_ALWAYS,
-    D3D_ROOT_SIGNATURE_VERSION_1,
+    D3D12_VIEWPORT, D3D_ROOT_SIGNATURE_VERSION_1,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN,
-    DXGI_SAMPLE_DESC,
+    DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
 };
 
 use crate::application::ports::ui_renderer::{OutputFormat, OverlayDrawError, RenderTarget};
@@ -107,7 +106,12 @@ pub struct ClipRect {
 
 impl ClipRect {
     fn to_win32(self) -> RECT {
-        RECT { left: self.left, top: self.top, right: self.right, bottom: self.bottom }
+        RECT {
+            left: self.left,
+            top: self.top,
+            right: self.right,
+            bottom: self.bottom,
+        }
     }
 }
 
@@ -131,12 +135,21 @@ pub struct PackedDraws {
 
 /// Clamps an egui clip rectangle to the output, in physical pixels.
 pub fn clip_rect(rect: &egui::Rect, width: u32, height: u32, pixels_per_point: f32) -> ClipRect {
-    let scale = if pixels_per_point > 0.0 { pixels_per_point } else { 1.0 };
+    let scale = if pixels_per_point > 0.0 {
+        pixels_per_point
+    } else {
+        1.0
+    };
     let left = (rect.left() * scale).floor().clamp(0.0, width as f32) as i32;
     let top = (rect.top() * scale).floor().clamp(0.0, height as f32) as i32;
     let right = (rect.right() * scale).ceil().clamp(0.0, width as f32) as i32;
     let bottom = (rect.bottom() * scale).ceil().clamp(0.0, height as f32) as i32;
-    ClipRect { left, top, right: right.max(left), bottom: bottom.max(top) }
+    ClipRect {
+        left,
+        top,
+        right: right.max(left),
+        bottom: bottom.max(top),
+    }
 }
 
 /// Packs egui's primitives into one vertex channel, one index channel and a batch list.
@@ -158,8 +171,9 @@ pub fn pack(
             continue;
         }
         let vertex_offset = packed.vertex_count;
-        let index_offset = u32::try_from(packed.indices.len() / 4)
-            .map_err(|_| OverlayDrawError::Failed("the overlay ran out of index space".to_owned()))?;
+        let index_offset = u32::try_from(packed.indices.len() / 4).map_err(|_| {
+            OverlayDrawError::Failed("the overlay ran out of index space".to_owned())
+        })?;
         for vertex in &mesh.vertices {
             for value in [vertex.pos.x, vertex.pos.y, vertex.uv.x, vertex.uv.y] {
                 packed.vertices.extend_from_slice(&value.to_le_bytes());
@@ -279,7 +293,9 @@ impl EguiD3d12Renderer {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, RendererState> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The output format the objects were built for, if any.
@@ -358,7 +374,11 @@ impl EguiD3d12Renderer {
         };
         let (width, height, pixels) = match &delta.image {
             egui::epaint::ImageData::Color(image) => {
-                let bytes: Vec<u8> = image.pixels.iter().flat_map(|color| color.to_array()).collect();
+                let bytes: Vec<u8> = image
+                    .pixels
+                    .iter()
+                    .flat_map(|color| color.to_array())
+                    .collect();
                 (image.size[0] as u32, image.size[1] as u32, bytes)
             }
         };
@@ -378,10 +398,16 @@ impl EguiD3d12Renderer {
         // SAFETY: the caller owns the allocator, list and fence and guarantees previous work retired.
         unsafe {
             allocator.Reset().map_err(|error| {
-                OverlayDrawError::Failed(format!("overlay atlas allocator reset ({:#010x})", error.code().0))
+                OverlayDrawError::Failed(format!(
+                    "overlay atlas allocator reset ({:#010x})",
+                    error.code().0
+                ))
             })?;
             list.Reset(allocator, None).map_err(|error| {
-                OverlayDrawError::Failed(format!("overlay atlas list reset ({:#010x})", error.code().0))
+                OverlayDrawError::Failed(format!(
+                    "overlay atlas list reset ({:#010x})",
+                    error.code().0
+                ))
             })?;
         }
         upload_pixels(
@@ -521,7 +547,9 @@ impl EguiD3d12Renderer {
         // SAFETY: the list is open and recording; every object bound here is live for the recording
         // and the SRV was written before the first draw that samples it.
         unsafe {
-            objects.device.CreateRenderTargetView(output, Some(&rtv_desc), rtv);
+            objects
+                .device
+                .CreateRenderTargetView(output, Some(&rtv_desc), rtv);
             list.SetDescriptorHeaps(&[Some(objects.srv_heap.clone())]);
             list.SetGraphicsRootSignature(&objects.root_signature);
             list.SetPipelineState(&objects.pipeline);
@@ -539,7 +567,13 @@ impl EguiD3d12Renderer {
             list.IASetIndexBuffer(Some(&index_view));
             for batch in &packed.batches {
                 list.RSSetScissorRects(&[batch.clip.to_win32()]);
-                list.DrawIndexedInstanced(batch.index_count, 1, batch.index_offset, 0, batch.vertex_offset);
+                list.DrawIndexedInstanced(
+                    batch.index_count,
+                    1,
+                    batch.index_offset,
+                    0,
+                    batch.vertex_offset,
+                );
             }
             // Leave the whole output scissored so whatever records after us is unaffected.
             let full = RECT {
@@ -587,9 +621,13 @@ fn create_srv_heap(device: &ID3D12Device) -> Result<(ID3D12DescriptorHeap, u32),
         NodeMask: 0,
     };
     // SAFETY: `desc` is a fully initialized local that outlives the call.
-    let heap = unsafe { device.CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc) }.map_err(|error| {
-        OverlayDrawError::Failed(format!("overlay SRV heap creation ({:#010x})", error.code().0))
-    })?;
+    let heap =
+        unsafe { device.CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc) }.map_err(|error| {
+            OverlayDrawError::Failed(format!(
+                "overlay SRV heap creation ({:#010x})",
+                error.code().0
+            ))
+        })?;
     // SAFETY: a pure query on a live device.
     let increment =
         unsafe { device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) };
@@ -604,12 +642,21 @@ fn create_rtv_ring(device: &ID3D12Device) -> Result<RtvRing, OverlayDrawError> {
         NodeMask: 0,
     };
     // SAFETY: `desc` is a fully initialized local that outlives the call.
-    let heap = unsafe { device.CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc) }.map_err(|error| {
-        OverlayDrawError::Failed(format!("overlay RTV heap creation ({:#010x})", error.code().0))
-    })?;
+    let heap =
+        unsafe { device.CreateDescriptorHeap::<ID3D12DescriptorHeap>(&desc) }.map_err(|error| {
+            OverlayDrawError::Failed(format!(
+                "overlay RTV heap creation ({:#010x})",
+                error.code().0
+            ))
+        })?;
     // SAFETY: a pure query on a live device.
-    let increment = unsafe { device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV) };
-    Ok(RtvRing { heap, increment, next: 0 })
+    let increment =
+        unsafe { device.GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV) };
+    Ok(RtvRing {
+        heap,
+        increment,
+        next: 0,
+    })
 }
 
 fn create_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, OverlayDrawError> {
@@ -684,20 +731,30 @@ fn create_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, O
             )))
         }
         (Ok(()), None) => {
-            return Err(OverlayDrawError::Failed("overlay root signature serialization".to_owned()))
+            return Err(OverlayDrawError::Failed(
+                "overlay root signature serialization".to_owned(),
+            ))
         }
     };
     // SAFETY: the blob owns the serialized bytes; the slice is read while it is alive.
-    let bytes =
-        unsafe { std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize()) };
+    let bytes = unsafe {
+        std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
+    };
     // SAFETY: `bytes` is a valid serialized root signature for the call, which copies it.
     unsafe { device.CreateRootSignature::<ID3D12RootSignature>(0, bytes) }.map_err(|error| {
-        OverlayDrawError::Failed(format!("overlay root signature creation ({:#010x})", error.code().0))
+        OverlayDrawError::Failed(format!(
+            "overlay root signature creation ({:#010x})",
+            error.code().0
+        ))
     })
 }
 
 /// Compiles one shader to `entry`, `target` at optimisation level 3 with the system `D3DCompile`.
-pub fn compile_shader(source: &str, entry: &str, target: &str) -> Result<Vec<u8>, OverlayDrawError> {
+pub fn compile_shader(
+    source: &str,
+    entry: &str,
+    target: &str,
+) -> Result<Vec<u8>, OverlayDrawError> {
     let entry_name = std::ffi::CString::new(entry)
         .map_err(|_| OverlayDrawError::Failed("overlay shader entry name".to_owned()))?;
     let target_name = std::ffi::CString::new(target)
@@ -729,7 +786,10 @@ pub fn compile_shader(source: &str, entry: &str, target: &str) -> Result<Vec<u8>
                 .map(|blob| {
                     // SAFETY: a compiler error blob is a null-terminated ASCII message.
                     let bytes = unsafe {
-                        std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
+                        std::slice::from_raw_parts(
+                            blob.GetBufferPointer().cast::<u8>(),
+                            blob.GetBufferSize(),
+                        )
                     };
                     String::from_utf8_lossy(bytes).into_owned()
                 })
@@ -741,12 +801,15 @@ pub fn compile_shader(source: &str, entry: &str, target: &str) -> Result<Vec<u8>
             )));
         }
         (Ok(()), None) => {
-            return Err(OverlayDrawError::Failed("overlay shader compilation".to_owned()))
+            return Err(OverlayDrawError::Failed(
+                "overlay shader compilation".to_owned(),
+            ))
         }
     };
     // SAFETY: the blob owns the bytecode; the slice is read while the blob is alive.
-    let bytes =
-        unsafe { std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize()) };
+    let bytes = unsafe {
+        std::slice::from_raw_parts(blob.GetBufferPointer().cast::<u8>(), blob.GetBufferSize())
+    };
     Ok(bytes.to_vec())
 }
 
@@ -832,8 +895,14 @@ fn create_pipeline(
 
     let desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
         pRootSignature: std::mem::ManuallyDrop::new(Some(root_signature.clone())),
-        VS: D3D12_SHADER_BYTECODE { pShaderBytecode: vs.as_ptr().cast(), BytecodeLength: vs.len() },
-        PS: D3D12_SHADER_BYTECODE { pShaderBytecode: ps.as_ptr().cast(), BytecodeLength: ps.len() },
+        VS: D3D12_SHADER_BYTECODE {
+            pShaderBytecode: vs.as_ptr().cast(),
+            BytecodeLength: vs.len(),
+        },
+        PS: D3D12_SHADER_BYTECODE {
+            pShaderBytecode: ps.as_ptr().cast(),
+            BytecodeLength: ps.len(),
+        },
         BlendState: blend,
         RasterizerState: rasterizer,
         DepthStencilState: depth,
@@ -848,7 +917,10 @@ fn create_pipeline(
             formats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
             formats
         },
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         // K155: the desc's default `SampleMask` is 0, which means "write no samples at all" — the
         // pipeline compiled, every draw executed without an error, and the output stayed untouched.
         // All samples must be enabled.
@@ -857,7 +929,10 @@ fn create_pipeline(
     };
     // SAFETY: every pointer in `desc` names a live object for the call, which copies the description.
     unsafe { device.CreateGraphicsPipelineState::<ID3D12PipelineState>(&desc) }.map_err(|error| {
-        OverlayDrawError::Failed(format!("overlay pipeline creation ({:#010x})", error.code().0))
+        OverlayDrawError::Failed(format!(
+            "overlay pipeline creation ({:#010x})",
+            error.code().0
+        ))
     })
 }
 
@@ -871,16 +946,28 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
         MipLevels: 1,
         Format: DXGI_FORMAT_UNKNOWN,
         // D3D12 insists on a sample count of 1 even for buffers (K147).
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
         Flags: D3D12_RESOURCE_FLAG_NONE,
     }
 }
 
 fn create_upload(device: &ID3D12Device, size: u64) -> Result<ID3D12Resource, OverlayDrawError> {
-    let heap = D3D12_HEAP_PROPERTIES { Type: D3D12_HEAP_TYPE_UPLOAD, ..Default::default() };
+    let heap = D3D12_HEAP_PROPERTIES {
+        Type: D3D12_HEAP_TYPE_UPLOAD,
+        ..Default::default()
+    };
     let desc = buffer_desc(size);
-    create_committed(device, &heap, &desc, D3D12_RESOURCE_STATE_GENERIC_READ, "overlay upload buffer")
+    create_committed(
+        device,
+        &heap,
+        &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        "overlay upload buffer",
+    )
 }
 
 fn create_atlas_texture(
@@ -888,7 +975,10 @@ fn create_atlas_texture(
     width: u32,
     height: u32,
 ) -> Result<ID3D12Resource, OverlayDrawError> {
-    let heap = D3D12_HEAP_PROPERTIES { Type: D3D12_HEAP_TYPE_DEFAULT, ..Default::default() };
+    let heap = D3D12_HEAP_PROPERTIES {
+        Type: D3D12_HEAP_TYPE_DEFAULT,
+        ..Default::default()
+    };
     let desc = D3D12_RESOURCE_DESC {
         Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         Alignment: 0,
@@ -897,11 +987,20 @@ fn create_atlas_texture(
         DepthOrArraySize: 1,
         MipLevels: 1,
         Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
         Flags: D3D12_RESOURCE_FLAG_NONE,
     };
-    create_committed(device, &heap, &desc, D3D12_RESOURCE_STATE_COPY_DEST, "overlay atlas")
+    create_committed(
+        device,
+        &heap,
+        &desc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        "overlay atlas",
+    )
 }
 
 fn create_committed(
@@ -916,7 +1015,9 @@ fn create_committed(
     unsafe {
         device.CreateCommittedResource(heap, D3D12_HEAP_FLAG_NONE, desc, state, None, &mut resource)
     }
-    .map_err(|error| OverlayDrawError::Failed(format!("{what} creation ({:#010x})", error.code().0)))?;
+    .map_err(|error| {
+        OverlayDrawError::Failed(format!("{what} creation ({:#010x})", error.code().0))
+    })?;
     resource.ok_or_else(|| OverlayDrawError::Failed(format!("{what} creation")))
 }
 
@@ -938,8 +1039,9 @@ fn upload_pixels(
     let row_bytes = (width as usize) * 4;
     let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
     // SAFETY: an upload-heap buffer is mappable; the range says the CPU will not read it.
-    unsafe { staging.Map(0, None, Some(&mut mapped)) }
-        .map_err(|error| OverlayDrawError::Failed(format!("overlay atlas map ({:#010x})", error.code().0)))?;
+    unsafe { staging.Map(0, None, Some(&mut mapped)) }.map_err(|error| {
+        OverlayDrawError::Failed(format!("overlay atlas map ({:#010x})", error.code().0))
+    })?;
     for y in 0..height as usize {
         let source = y * row_bytes;
         if source + row_bytes > pixels.len() {
@@ -981,7 +1083,9 @@ fn upload_pixels(
     let to = D3D12_TEXTURE_COPY_LOCATION {
         pResource: std::mem::ManuallyDrop::new(Some(texture.clone())),
         Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
+        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+            SubresourceIndex: 0,
+        },
     };
     // SAFETY: the source is a live staging buffer and the destination a live texture in COPY_DEST;
     // the footprint matches the uploaded rows.
@@ -1000,7 +1104,10 @@ fn upload_pixels(
         Shader4ComponentMapping:
             windows::Win32::Graphics::Direct3D12::D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
         Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-            Texture2D: D3D12_TEX2D_SRV { MipLevels: 1, ..Default::default() },
+            Texture2D: D3D12_TEX2D_SRV {
+                MipLevels: 1,
+                ..Default::default()
+            },
         },
     };
     let handle = cpu_handle_base(srv_heap, srv_increment, 0);
@@ -1020,7 +1127,10 @@ fn submit_and_wait(
 ) -> Result<(), OverlayDrawError> {
     // SAFETY: the list is open and fully recorded.
     unsafe { list.Close() }.map_err(|error| {
-        OverlayDrawError::Failed(format!("overlay atlas list close ({:#010x})", error.code().0))
+        OverlayDrawError::Failed(format!(
+            "overlay atlas list close ({:#010x})",
+            error.code().0
+        ))
     })?;
     // SAFETY: the list is the same object as a base command list.
     let base: ID3D12CommandList = list.cast().map_err(|error| {
@@ -1045,10 +1155,11 @@ fn wait_fence(
         return Ok(());
     }
     // SAFETY: no attributes, not manual reset, initially unsignalled, no name.
-    let event = unsafe { windows::Win32::System::Threading::CreateEventW(None, false, false, None) }
-        .map_err(|error| {
-            OverlayDrawError::Failed(format!("overlay wait event ({:#010x})", error.code().0))
-        })?;
+    let event =
+        unsafe { windows::Win32::System::Threading::CreateEventW(None, false, false, None) }
+            .map_err(|error| {
+                OverlayDrawError::Failed(format!("overlay wait event ({:#010x})", error.code().0))
+            })?;
     // SAFETY: the event outlives its registration below.
     let registered = unsafe { fence.SetEventOnCompletion(value, event) };
     if let Err(error) = registered {
@@ -1065,7 +1176,9 @@ fn wait_fence(
     // SAFETY: the event was created above and is closed exactly once.
     let _ = unsafe { windows::Win32::Foundation::CloseHandle(event) };
     if result != windows::Win32::Foundation::WAIT_OBJECT_0 {
-        return Err(OverlayDrawError::Failed("overlay atlas upload timed out".to_owned()));
+        return Err(OverlayDrawError::Failed(
+            "overlay atlas upload timed out".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -1076,8 +1189,9 @@ fn write_mapped(resource: &ID3D12Resource, data: &[u8]) -> Result<(), OverlayDra
     }
     let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
     // SAFETY: an upload-heap buffer is mappable; the range says the CPU will not read it.
-    unsafe { resource.Map(0, None, Some(&mut mapped)) }
-        .map_err(|error| OverlayDrawError::Failed(format!("overlay upload map ({:#010x})", error.code().0)))?;
+    unsafe { resource.Map(0, None, Some(&mut mapped)) }.map_err(|error| {
+        OverlayDrawError::Failed(format!("overlay upload map ({:#010x})", error.code().0))
+    })?;
     // SAFETY: `mapped` addresses `MAX_UPLOAD_BYTES` writable bytes and `data` was checked against it.
     unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), mapped.cast::<u8>(), data.len()) };
     // SAFETY: unmapping a buffer this call mapped; no range is reported as written.
@@ -1092,7 +1206,9 @@ fn cpu_handle_base(
 ) -> D3D12_CPU_DESCRIPTOR_HANDLE {
     // SAFETY: a pure query on a live heap; `index` is below the heap's descriptor count.
     let base = unsafe { heap.GetCPUDescriptorHandleForHeapStart() };
-    D3D12_CPU_DESCRIPTOR_HANDLE { ptr: base.ptr + index as usize * increment as usize }
+    D3D12_CPU_DESCRIPTOR_HANDLE {
+        ptr: base.ptr + index as usize * increment as usize,
+    }
 }
 
 fn gpu_handle(
@@ -1102,7 +1218,9 @@ fn gpu_handle(
 ) -> D3D12_GPU_DESCRIPTOR_HANDLE {
     // SAFETY: a pure query on a live heap; `index` is below the heap's descriptor count.
     let base = unsafe { heap.GetGPUDescriptorHandleForHeapStart() };
-    D3D12_GPU_DESCRIPTOR_HANDLE { ptr: base.ptr + u64::from(index) * u64::from(increment) }
+    D3D12_GPU_DESCRIPTOR_HANDLE {
+        ptr: base.ptr + u64::from(index) * u64::from(increment),
+    }
 }
 
 fn gpu_address(resource: &ID3D12Resource) -> u64 {
@@ -1156,12 +1274,18 @@ mod tests {
             ],
             texture_id: egui::TextureId::default(),
         };
-        egui::ClippedPrimitive { clip_rect: rect, primitive: egui::epaint::Primitive::Mesh(mesh) }
+        egui::ClippedPrimitive {
+            clip_rect: rect,
+            primitive: egui::epaint::Primitive::Mesh(mesh),
+        }
     }
 
     #[test]
     fn packing_writes_twenty_bytes_per_vertex_and_four_per_index() {
-        let primitives = [triangle(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(64.0, 64.0)))];
+        let primitives = [triangle(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(64.0, 64.0),
+        ))];
         let packed = pack(&primitives, 64, 64, 1.0).expect("pack");
         assert_eq!(packed.vertices.len(), 3 * 20);
         assert_eq!(packed.indices.len(), 3 * 4);
@@ -1177,8 +1301,14 @@ mod tests {
     #[test]
     fn packing_concatenates_primitives_with_offsets() {
         let primitives = [
-            triangle(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(64.0, 64.0))),
-            triangle(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(64.0, 64.0))),
+            triangle(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(64.0, 64.0),
+            )),
+            triangle(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(64.0, 64.0),
+            )),
         ];
         let packed = pack(&primitives, 64, 64, 1.0).expect("pack");
         assert_eq!(packed.batches.len(), 2);
@@ -1208,7 +1338,15 @@ mod tests {
     #[test]
     fn a_clip_outside_the_output_is_clamped() {
         let rect = egui::Rect::from_min_size(egui::pos2(-10.0, -10.0), egui::vec2(200.0, 200.0));
-        assert_eq!(clip_rect(&rect, 64, 32, 1.0), ClipRect { left: 0, top: 0, right: 64, bottom: 32 });
+        assert_eq!(
+            clip_rect(&rect, 64, 32, 1.0),
+            ClipRect {
+                left: 0,
+                top: 0,
+                right: 64,
+                bottom: 32
+            }
+        );
     }
 
     #[test]

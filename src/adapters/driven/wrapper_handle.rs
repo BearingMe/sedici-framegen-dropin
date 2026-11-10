@@ -21,20 +21,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::application::context::{
-    ContextHandle, PhaseSpec, Retirement,
+use crate::application::context::{ContextHandle, PhaseSpec, Retirement};
+use crate::application::ffx_model::{
+    self, OpaqueHandle, Resource, ResourceDescription, ResourceKind, SurfaceFormat,
 };
-use crate::application::ffx_model::{self, OpaqueHandle, Resource, ResourceDescription, ResourceKind, SurfaceFormat};
-use crate::application::ports::swapchain::NativeSwapchain;
+use crate::application::ports::generator::GeneratePhase;
 use crate::application::ports::gpu::{
     CommandListHandle, GpuCommandList, GpuDevice, GpuTexture, ResourceState,
 };
+use crate::application::ports::swapchain::NativeSwapchain;
 use crate::application::presentation::presenter::ListLifecycle;
-use crate::application::presentation::swapchain::{
-    PresentedContext, Swapchain,
-};
-use crate::application::session::{Wrapper, WrapOrigin};
-use crate::application::ports::generator::GeneratePhase;
+use crate::application::presentation::swapchain::{PresentedContext, Swapchain};
+use crate::application::session::{WrapOrigin, Wrapper};
 
 /// `FFX_API_RESOURCE_STATE_UNORDERED_ACCESS` (`1 << 1`).
 pub const FFX_RESOURCE_STATE_UNORDERED_ACCESS: u32 = 1 << 1;
@@ -58,7 +56,11 @@ pub struct SessionDriven<D: GpuDevice> {
 
 impl<D: GpuDevice> SessionDriven<D> {
     pub fn new(context: Arc<dyn ContextHandle>, retirement: Option<Arc<dyn Retirement>>) -> Self {
-        Self { context, retirement, _device: std::marker::PhantomData }
+        Self {
+            context,
+            retirement,
+            _device: std::marker::PhantomData,
+        }
     }
 }
 
@@ -149,9 +151,8 @@ where
     D::Queue: Send + Sync + 'static,
     N: NativeSwapchain<Buffer = D::Texture> + Send + Sync + 'static,
 {
-    swapchain: Arc<
-        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>,
-    >,
+    swapchain:
+        Arc<Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>>,
 }
 
 impl<D, N> WrapperHandle<D, N>
@@ -180,9 +181,10 @@ where
         Self { swapchain }
     }
 
-    pub fn inner(&self) -> &Arc<
-        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>,
-    > {
+    pub fn inner(
+        &self,
+    ) -> &Arc<Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>>
+    {
         &self.swapchain
     }
 }
@@ -206,7 +208,10 @@ where
     fn set_generator(&self, owner: usize, sink: Arc<dyn ContextHandle>) -> bool {
         // The wrapper's generation source is a `SessionDriven` over this sink. The retirement probe
         // was installed when the wrapper was built, so it is carried through.
-        let driven = Arc::new(SessionDriven::<D>::new(sink, self.swapchain.sink_retirement()));
+        let driven = Arc::new(SessionDriven::<D>::new(
+            sink,
+            self.swapchain.sink_retirement(),
+        ));
         self.swapchain.set_generator(Some(
             crate::application::presentation::swapchain::GeneratorSink {
                 context: driven,
@@ -243,9 +248,7 @@ where
 }
 
 /// The FFX resource description of a wrapper texture, as the log and the ABI edge print it.
-fn texture_resource(
-    info: &crate::application::ports::gpu::TextureInfo,
-) -> ResourceDescription {
+fn texture_resource(info: &crate::application::ports::gpu::TextureInfo) -> ResourceDescription {
     ResourceDescription {
         kind: ResourceKind::Texture2D,
         // `FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM` is the enum value 10 and

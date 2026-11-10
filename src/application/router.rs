@@ -71,9 +71,21 @@ pub struct ProviderVersion {
 /// enumerates versions sees the same shape it saw before. The New and HWND forms share the
 /// swapchain provider (Alan Wake 2 sends `0xc01007` with the New form, finding 014).
 pub const PROVIDER_VERSIONS: [ProviderVersion; 4] = [
-    ProviderVersion { create_desc_type: CREATE_FRAMEGENERATION, id: 0xf600_0000_00c0_1006, name: c"3.1.6" },
-    ProviderVersion { create_desc_type: CREATE_SWAPCHAIN_WRAP_DX12, id: 0xf65c_dd12_00c0_1007, name: c"3.1.7" },
-    ProviderVersion { create_desc_type: CREATE_SWAPCHAIN_NEW_DX12, id: 0xf65c_dd12_00c0_1007, name: c"3.1.7" },
+    ProviderVersion {
+        create_desc_type: CREATE_FRAMEGENERATION,
+        id: 0xf600_0000_00c0_1006,
+        name: c"3.1.6",
+    },
+    ProviderVersion {
+        create_desc_type: CREATE_SWAPCHAIN_WRAP_DX12,
+        id: 0xf65c_dd12_00c0_1007,
+        name: c"3.1.7",
+    },
+    ProviderVersion {
+        create_desc_type: CREATE_SWAPCHAIN_NEW_DX12,
+        id: 0xf65c_dd12_00c0_1007,
+        name: c"3.1.7",
+    },
     ProviderVersion {
         create_desc_type: CREATE_SWAPCHAIN_FOR_HWND_DX12,
         id: 0xf65c_dd12_00c0_1007,
@@ -83,7 +95,9 @@ pub const PROVIDER_VERSIONS: [ProviderVersion; 4] = [
 
 /// The provider for a create type, if Sedici recognises it.
 pub fn provider_for(create_desc_type: u64) -> Option<&'static ProviderVersion> {
-    PROVIDER_VERSIONS.iter().find(|version| version.create_desc_type == create_desc_type)
+    PROVIDER_VERSIONS
+        .iter()
+        .find(|version| version.create_desc_type == create_desc_type)
 }
 
 /// The token namespace geometry: 256 MiB reserved, 16 bytes apart, never committed (K29).
@@ -111,7 +125,12 @@ pub struct ProcessTokens {
 
 impl ProcessTokens {
     pub fn new(faults: Arc<Faults>, reservation: Arc<dyn AddressReservation>) -> Self {
-        Self { faults, reservation, namespace: Mutex::new(None), reserved: OnceLock::new() }
+        Self {
+            faults,
+            reservation,
+            namespace: Mutex::new(None),
+            reserved: OnceLock::new(),
+        }
     }
 
     /// Reserves the namespace once. False when it cannot be reserved; a create is then refused
@@ -170,7 +189,9 @@ impl MemoryTokens {
     pub fn new(faults: Arc<Faults>, base: usize, bytes: usize, stride: usize) -> Self {
         Self {
             faults,
-            state: Mutex::new(MemoryTokenState { namespace: TokenNamespace::new(base, bytes, stride) }),
+            state: Mutex::new(MemoryTokenState {
+                namespace: TokenNamespace::new(base, bytes, stride),
+            }),
         }
     }
 }
@@ -241,7 +262,11 @@ impl CallScope {
     pub fn enter(op: &'static str, context: OpaqueHandle) -> Self {
         let previous = CALL_OP.with(|cell| *cell.borrow());
         CALL_OP.with(|cell| *cell.borrow_mut() = (op, context));
-        Self { previous, op, start: std::time::Instant::now() }
+        Self {
+            previous,
+            op,
+            start: std::time::Instant::now(),
+        }
     }
 }
 
@@ -312,14 +337,21 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Owned
     fn new(kind: OwnerKind) -> Self {
         Self {
             kind,
-            body: Mutex::new(OwnerBody { session: None, wrap: None, swapchain: 0, dead: false }),
+            body: Mutex::new(OwnerBody {
+                session: None,
+                wrap: None,
+                swapchain: 0,
+                dead: false,
+            }),
             generation_on: AtomicBool::new(false),
             parked: AtomicBool::new(false),
         }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, OwnerBody<D, G>> {
-        self.body.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.body
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -376,20 +408,29 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
 
     /// True when at least one live session was last configured with generation enabled.
     pub fn any_generation_enabled(&self) -> bool {
-        let registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        registry
-            .values()
-            .any(|owner| owner.kind == OwnerKind::Session && owner.generation_on.load(Ordering::Relaxed))
+        let registry = self
+            .owned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        registry.values().any(|owner| {
+            owner.kind == OwnerKind::Session && owner.generation_on.load(Ordering::Relaxed)
+        })
     }
 
     /// Installs a hook that runs once per application Present on every wrapped swapchain.
     pub fn set_present_hook(&self, hook: Option<PresentHook>) {
-        *self.present_hook.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
+        *self
+            .present_hook
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
     }
 
     /// The installed Present hook, for a wrapper that initialized after it was set (K60).
     pub fn present_hook(&self) -> Option<PresentHook> {
-        self.present_hook.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+        self.present_hook
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     fn failure(&self, reason: impl Into<String>, ffx: ReturnCode) -> Rejection {
@@ -404,17 +445,26 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if handle == 0 {
             return None;
         }
-        let registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let registry = self
+            .owned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         registry.get(&handle).cloned()
     }
 
     fn publish(&self, token: OpaqueHandle, owner: Arc<Owned<D, G>>) {
-        let mut registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut registry = self
+            .owned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         registry.insert(token, owner);
     }
 
     fn rollback(&self, token: OpaqueHandle) {
-        let mut registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut registry = self
+            .owned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         registry.remove(&token);
     }
 
@@ -432,7 +482,9 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         ];
         let named = forms.iter().filter(|named| **named).count();
         if named == 0 {
-            return Err(Rejection::unknown_desctype("create chain names no Sedici context"));
+            return Err(Rejection::unknown_desctype(
+                "create chain names no Sedici context",
+            ));
         }
         if named > 1 {
             // One create makes one context. Answering OK as a wrapper alone would drop the
@@ -506,10 +558,17 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if self.faults.consume(BookkeepingFault::OwnerAllocation) {
             return Err(self.allocation("owner allocation failed"));
         }
-        let kind = if swapchain_form { OwnerKind::Wrap } else { OwnerKind::Session };
+        let kind = if swapchain_form {
+            OwnerKind::Wrap
+        } else {
+            OwnerKind::Session
+        };
         let owner = Arc::new(Owned::new(kind));
 
-        if self.faults.consume(BookkeepingFault::RouteRegistryAllocation) {
+        if self
+            .faults
+            .consume(BookkeepingFault::RouteRegistryAllocation)
+        {
             return Err(self.allocation("route registry allocation failed"));
         }
         // Publish a placeholder: a concurrent destroy of this token sees the node but no session,
@@ -519,7 +578,12 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if swapchain_form {
             self.create_swapchain(token, desc, owner)
         } else {
-            self.create_session(token, desc, owner, device.expect("generation create resolved a device"))
+            self.create_session(
+                token,
+                desc,
+                owner,
+                device.expect("generation create resolved a device"),
+            )
         }
     }
 
@@ -537,7 +601,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         // Injected backend allocation failure: rejected before the native chain is touched.
         if self.faults.consume(BookkeepingFault::BackendCreation) {
             self.rollback(token);
-            return Err(self.failure("swapchain wrap backend allocation failed", ReturnCode::Error));
+            return Err(self.failure(
+                "swapchain wrap backend allocation failed",
+                ReturnCode::Error,
+            ));
         }
         let (swapchain, wrapper) = match self.swapchains.create_wrapper(desc, origin, token) {
             Ok(created) => created,
@@ -554,9 +621,16 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         self.faults.run_creation_hook();
         tracing::info!(
             "fg: created swapchain {}",
-            if desc.swapchain_wrap.is_some() { "wrapper" } else { "(new)" }
+            if desc.swapchain_wrap.is_some() {
+                "wrapper"
+            } else {
+                "(new)"
+            }
         );
-        Ok(model::CreatedContext { context: token, swapchain: Some(swapchain) })
+        Ok(model::CreatedContext {
+            context: token,
+            swapchain: Some(swapchain),
+        })
     }
 
     fn create_session(
@@ -569,7 +643,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         // Injected backend allocation failure before creation (K63).
         if self.faults.consume(BookkeepingFault::BackendCreation) {
             self.rollback(token);
-            return Err(self.failure("frame generation backend allocation failed", ReturnCode::Error));
+            return Err(self.failure(
+                "frame generation backend allocation failed",
+                ReturnCode::Error,
+            ));
         }
         let mut session = Session::new(
             Context::new(Arc::clone(&self.objects), Arc::clone(&self.faults)),
@@ -583,7 +660,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         }
         owner.lock().session = Some(session);
         tracing::info!("fg: created frame generation context");
-        Ok(model::CreatedContext { context: token, swapchain: None })
+        Ok(model::CreatedContext {
+            context: token,
+            swapchain: None,
+        })
     }
 
     // -- Configure -----------------------------------------------------------------------------
@@ -642,7 +722,11 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
             .frame_generation
             .as_ref()
             .map(|d| d.frame_generation_enabled)
-            .or_else(|| desc.legacy_frame_generation.as_ref().map(|d| d.frame_generation_enabled))
+            .or_else(|| {
+                desc.legacy_frame_generation
+                    .as_ref()
+                    .map(|d| d.frame_generation_enabled)
+            })
             .unwrap_or(false);
         owner.generation_on.store(enabled, Ordering::Relaxed);
         Ok(())
@@ -655,7 +739,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if swapchain == 0 {
             return None;
         }
-        let registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let registry = self
+            .owned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for (token, owner) in registry.iter() {
             if owner.kind != OwnerKind::Wrap {
                 continue;
@@ -714,7 +801,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if desc.root_type != Some(DISPATCH_FRAMEGENERATION_PREPARE)
             && desc.root_type != Some(DISPATCH_FRAMEGENERATION_PREPARE_V2)
         {
-            return Err(self.failure("unsupported frame generation dispatch type", ReturnCode::Error));
+            return Err(self.failure(
+                "unsupported frame generation dispatch type",
+                ReturnCode::Error,
+            ));
         }
         let Some(session) = body.session.as_mut() else {
             return Err(self.failure("dispatch on a destroyed context", ReturnCode::Error));
@@ -764,10 +854,9 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         if owner.kind == OwnerKind::Wrap {
             if let Some(query) = desc.interpolation_command_list {
                 let Some(wrapper) = body.wrap.as_ref() else {
-                    return Err(self.failure(
-                        "interpolation command list unavailable",
-                        ReturnCode::Error,
-                    ));
+                    return Err(
+                        self.failure("interpolation command list unavailable", ReturnCode::Error)
+                    );
                 };
                 return match wrapper.interpolation_list() {
                     Some(list) if query.output_slot != 0 => {
@@ -776,15 +865,17 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
                         );
                         Ok(QueryReply::CommandList(list))
                     }
-                    _ => Err(self.failure("interpolation command list unavailable", ReturnCode::Error)),
+                    _ => {
+                        Err(self
+                            .failure("interpolation command list unavailable", ReturnCode::Error))
+                    }
                 };
             }
             if let Some(query) = desc.interpolation_texture {
                 let Some(wrapper) = body.wrap.as_ref() else {
-                    return Err(self.failure(
-                        "interpolation texture unavailable",
-                        ReturnCode::Error,
-                    ));
+                    return Err(
+                        self.failure("interpolation texture unavailable", ReturnCode::Error)
+                    );
                 };
                 return match wrapper.interpolation_texture() {
                     Some(texture) if query.output_slot != 0 => {
@@ -798,7 +889,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
             }
         }
         // Other queries stay refused and logged so a game session can name them.
-        Err(self.failure("unimplemented query on a Sedici-owned context", ReturnCode::Error))
+        Err(self.failure(
+            "unimplemented query on a Sedici-owned context",
+            ReturnCode::Error,
+        ))
     }
 
     fn answer_versions(&self, query: &GetVersions) -> Result<QueryReply, Rejection> {
@@ -817,7 +911,11 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
             ));
         }
         // The name is a NUL-terminated literal so the adapter can hand the game a stable pointer.
-        Ok(QueryReply::Versions { count: 1, id: Some(version.id), name: Some(version.name) })
+        Ok(QueryReply::Versions {
+            count: 1,
+            id: Some(version.id),
+            name: Some(version.name),
+        })
     }
 
     // -- Destroy -------------------------------------------------------------------------------
@@ -827,7 +925,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         // Unregister first so no new call can find the owner, then wait for calls already running
         // on it, then tear it down. The registry lock is not held through retirement waits.
         let owner = {
-            let mut registry = self.owned.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut registry = self
+                .owned
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             match registry.remove(&token) {
                 Some(owner) => owner,
                 None => {
@@ -843,7 +944,9 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
         let mut body = owner.lock();
         body.dead = true;
         let ok = if owner.kind == OwnerKind::Session {
-            body.session.as_mut().is_none_or(|session| session.destroy())
+            body.session
+                .as_mut()
+                .is_none_or(|session| session.destroy())
         } else {
             if let Some(wrapper) = body.wrap.as_ref() {
                 wrapper.close_generator();
@@ -880,7 +983,10 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
             return;
         }
         loop {
-            let mut parked = self.parked.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut parked = self
+                .parked
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let index = parked.iter().position(|owner| {
                 let mut body = owner.lock();
                 let retired = match body.session.as_ref() {
@@ -908,7 +1014,7 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
 // Address reservation
 // ---------------------------------------------------------------------------------------------
 
-    /// Reserves a process-lifetime opaque address range.
+/// Reserves a process-lifetime opaque address range.
 ///
 /// The C++ used `VirtualAlloc(MEM_RESERVE, PAGE_NOACCESS)`, a call the adapter layer owns. The
 /// composition root installs [`AddressReservation`] here; the application never names a `windows`
@@ -981,7 +1087,11 @@ mod tests {
             (CREATE_FRAMEGENERATION, 0xf600_0000_00c0_1006, "3.1.6"),
             (CREATE_SWAPCHAIN_WRAP_DX12, 0xf65c_dd12_00c0_1007, "3.1.7"),
             (CREATE_SWAPCHAIN_NEW_DX12, 0xf65c_dd12_00c0_1007, "3.1.7"),
-            (CREATE_SWAPCHAIN_FOR_HWND_DX12, 0xf65c_dd12_00c0_1007, "3.1.7"),
+            (
+                CREATE_SWAPCHAIN_FOR_HWND_DX12,
+                0xf65c_dd12_00c0_1007,
+                "3.1.7",
+            ),
         ];
         assert_eq!(PROVIDER_VERSIONS.len(), expected.len());
         for (version, (create_desc_type, id, name)) in PROVIDER_VERSIONS.iter().zip(expected) {
@@ -1014,4 +1124,3 @@ mod tests {
         assert!(tokens.contains_issued(token));
     }
 }
-

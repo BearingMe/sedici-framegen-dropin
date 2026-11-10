@@ -9,15 +9,15 @@ use windows::Win32::Graphics::Direct3D::Fxc::{D3DCompile, D3DCOMPILE_OPTIMIZATIO
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D12::{
     ID3D12DescriptorHeap, ID3D12Device, ID3D12PipelineState, ID3D12Resource, ID3D12RootSignature,
-    D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_DESCRIPTOR_RANGE, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-    D3D12_DESCRIPTOR_RANGE_TYPE_UAV, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+    D3D12_BUFFER_SRV, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+    D3D12_DESCRIPTOR_RANGE, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_UAV,
     D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
     D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
-    D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_NONE,
-    D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
-    D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_BUFFER, D3D12_SRV_DIMENSION_TEXTURE2D,
-    D3D12_TEX2D_SRV, D3D12_UNORDERED_ACCESS_VIEW_DESC, D3D12_UNORDERED_ACCESS_VIEW_DESC_0,
-    D3D12_UAV_DIMENSION_TEXTURE2D, D3D12_BUFFER_SRV, D3D12_TEX2D_UAV, D3D_ROOT_SIGNATURE_VERSION_1,
+    D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_NONE, D3D12_SHADER_RESOURCE_VIEW_DESC,
+    D3D12_SHADER_RESOURCE_VIEW_DESC_0, D3D12_SHADER_VISIBILITY_ALL, D3D12_SRV_DIMENSION_BUFFER,
+    D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_TEX2D_SRV, D3D12_TEX2D_UAV, D3D12_UAV_DIMENSION_TEXTURE2D,
+    D3D12_UNORDERED_ACCESS_VIEW_DESC, D3D12_UNORDERED_ACCESS_VIEW_DESC_0,
+    D3D_ROOT_SIGNATURE_VERSION_1,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R32_FLOAT;
 
@@ -73,7 +73,10 @@ pub struct Pipelines {
 
 impl Pipelines {
     /// Compiles every pass. A failure names the pass in the log line, as the C++ did.
-    pub fn compile(device: &D3d12Device, root_signature: &ID3D12RootSignature) -> Result<Self, GpuError> {
+    pub fn compile(
+        device: &D3d12Device,
+        root_signature: &ID3D12RootSignature,
+    ) -> Result<Self, GpuError> {
         let compile = |source: &str, name: &'static str| -> Result<Pipeline, GpuError> {
             let bytecode = compile_shader(source, name)?;
             let state = device.create_compute_pipeline(root_signature, &bytecode)?;
@@ -144,9 +147,17 @@ pub fn compile_shader(source: &str, name: &'static str) -> Result<Vec<u8>, GpuEr
                 })
                 .unwrap_or_else(|| "no message".to_string());
             tracing::error!("frame generation: shader {name} failed: {message}");
-            return Err(GpuError::failed("shader compilation", error.code().0 as u32));
+            return Err(GpuError::failed(
+                "shader compilation",
+                error.code().0 as u32,
+            ));
         }
-        (Ok(()), None) => return Err(GpuError::failed("shader compilation", crate::domain::gpu_policy::E_FAIL)),
+        (Ok(()), None) => {
+            return Err(GpuError::failed(
+                "shader compilation",
+                crate::domain::gpu_policy::E_FAIL,
+            ))
+        }
     };
     // SAFETY: the blob owns the bytecode; the slice is read only while the blob is alive.
     let bytes = unsafe {
@@ -228,7 +239,10 @@ pub fn create_root_signature(device: &D3d12Device) -> Result<ID3D12RootSignature
                 "frame generation: root signature serialization failed ({:#010x})",
                 error.code().0
             );
-            return Err(GpuError::failed("root signature serialization", error.code().0 as u32));
+            return Err(GpuError::failed(
+                "root signature serialization",
+                error.code().0 as u32,
+            ));
         }
         (Ok(()), None) => {
             return Err(GpuError::failed(
@@ -253,12 +267,13 @@ pub struct DescriptorBlocks<'a> {
 }
 
 impl<'a> DescriptorBlocks<'a> {
-    pub fn new(
-        device: &'a ID3D12Device,
-        heap: &'a ID3D12DescriptorHeap,
-        increment: u32,
-    ) -> Self {
-        Self { device, heap, increment, block: 0 }
+    pub fn new(device: &'a ID3D12Device, heap: &'a ID3D12DescriptorHeap, increment: u32) -> Self {
+        Self {
+            device,
+            heap,
+            increment,
+            block: 0,
+        }
     }
 
     pub fn begin(&mut self, index: u32) {
@@ -271,14 +286,20 @@ impl<'a> DescriptorBlocks<'a> {
             ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
             Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
             Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                Texture2D: D3D12_TEX2D_SRV { MipLevels: 1, ..Default::default() },
+                Texture2D: D3D12_TEX2D_SRV {
+                    MipLevels: 1,
+                    ..Default::default()
+                },
             },
         };
         let index = u64::from(self.block) * u64::from(BLOCK_SLOTS) + u64::from(slot);
         let handle = self.cpu_handle(index);
         // SAFETY: the descriptor heap has `HEAP_SLOTS` entries, so `index` is in range, and the
         // resource is live for the duration of the call.
-        unsafe { self.device.CreateShaderResourceView(resource, Some(&description), handle) };
+        unsafe {
+            self.device
+                .CreateShaderResourceView(resource, Some(&description), handle)
+        };
     }
 
     /// The LUT buffer view at `t7` of the current block (the warp pass's binding).
@@ -298,7 +319,10 @@ impl<'a> DescriptorBlocks<'a> {
         let index = u64::from(self.block) * u64::from(BLOCK_SLOTS) + 7;
         let handle = self.cpu_handle(index);
         // SAFETY: the heap has room for the slot and the LUT buffer is live.
-        unsafe { self.device.CreateShaderResourceView(resource, Some(&description), handle) };
+        unsafe {
+            self.device
+                .CreateShaderResourceView(resource, Some(&description), handle)
+        };
     }
 
     pub fn write_uav(&self, slot: u32, resource: &ID3D12Resource, format: PixelFormat) {
@@ -314,7 +338,8 @@ impl<'a> DescriptorBlocks<'a> {
         let handle = self.cpu_handle(index);
         // SAFETY: the heap has room for the slot and the resource is live for the call.
         unsafe {
-            self.device.CreateUnorderedAccessView(resource, None, Some(&description), handle)
+            self.device
+                .CreateUnorderedAccessView(resource, None, Some(&description), handle)
         };
     }
 

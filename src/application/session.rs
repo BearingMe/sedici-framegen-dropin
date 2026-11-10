@@ -112,7 +112,10 @@ pub struct SessionError {
 impl SessionError {
     fn new(reason: impl Into<String>) -> Self {
         let reason = reason.into();
-        Self { code: ErrorCode::classify(&reason), reason }
+        Self {
+            code: ErrorCode::classify(&reason),
+            reason,
+        }
     }
 
     /// The reason the C++ session stored for a device-removed refusal.
@@ -174,7 +177,9 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Sessi
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Context<D, G>> {
-        self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.context
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn state(&self) -> SessionState {
@@ -330,7 +335,8 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Sessi
         self.detach();
         // 1000 ms, not 200: at game exit by Alt+F4 a 200 ms window was too short (K127).
         const RETIRE_WAIT_MS: u32 = 1000;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(u64::from(RETIRE_WAIT_MS));
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(u64::from(RETIRE_WAIT_MS));
         loop {
             // Poll with the lock released between looks (K104): the wrapper's untracked-sink
             // resolution takes this lock under the wrapper lock, and holding it for the whole

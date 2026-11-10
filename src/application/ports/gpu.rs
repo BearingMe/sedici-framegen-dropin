@@ -185,8 +185,18 @@ pub struct TextureDesc {
 }
 
 impl TextureDesc {
-    pub const fn texture2d(width: u32, height: u32, format: PixelFormat, flags: TextureFlags) -> Self {
-        Self { width, height, format, flags }
+    pub const fn texture2d(
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        flags: TextureFlags,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            format,
+            flags,
+        }
     }
 }
 
@@ -307,7 +317,8 @@ pub trait GpuDevice {
     /// Reads a readback buffer's contents.
     fn read_buffer(&self, buffer: &Self::Buffer) -> Result<Vec<u8>, GpuError>;
 
-    fn create_command_allocator(&self, kind: QueueKind) -> Result<Self::CommandAllocator, GpuError>;
+    fn create_command_allocator(&self, kind: QueueKind)
+        -> Result<Self::CommandAllocator, GpuError>;
 
     fn create_command_list(
         &self,

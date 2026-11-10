@@ -32,7 +32,7 @@ use amd_fidelityfx_framegeneration_dx12::application::ports::swapchain::{
 use amd_fidelityfx_framegeneration_dx12::application::presentation::pacing::superseded;
 use amd_fidelityfx_framegeneration_dx12::application::presentation::presenter::ListLifecycle;
 use amd_fidelityfx_framegeneration_dx12::application::presentation::swapchain::{
-    GeneratorSink, PresentedContext, PresentChoice, SharedPresentQueues, Swapchain, SwapchainError,
+    GeneratorSink, PresentChoice, PresentedContext, SharedPresentQueues, Swapchain, SwapchainError,
     WrapEnvironment, WrapReport, DXGI_ERROR_INVALID_CALL, DXGI_ERROR_UNSUPPORTED,
 };
 use amd_fidelityfx_framegeneration_dx12::domain::config::{Multiplier, Present, TearGuard};
@@ -85,7 +85,6 @@ impl World {
     fn set_completed(&self, value: u64) {
         self.completed.store(value, Ordering::Release);
     }
-
 }
 
 fn sample_desc() -> SwapChainDesc {
@@ -126,7 +125,10 @@ impl GpuTexture for FakeTexture {
 
 impl Clone for FakeTexture {
     fn clone(&self) -> Self {
-        Self { identity: self.identity, copies: AtomicU32::new(self.copies.load(Ordering::Relaxed)) }
+        Self {
+            identity: self.identity,
+            copies: AtomicU32::new(self.copies.load(Ordering::Relaxed)),
+        }
     }
 }
 
@@ -279,14 +281,20 @@ impl GpuDevice for FakeDevice {
     fn read_buffer(&self, _buffer: &Self::Buffer) -> Result<Vec<u8>, GpuError> {
         Ok(Vec::new())
     }
-    fn create_command_allocator(&self, _kind: QueueKind) -> Result<Self::CommandAllocator, GpuError> {
+    fn create_command_allocator(
+        &self,
+        _kind: QueueKind,
+    ) -> Result<Self::CommandAllocator, GpuError> {
         Ok(FakeAllocator {
             resets: AtomicU32::new(0),
             world: Arc::clone(&self.world),
             open: Arc::new(AtomicBool::new(false)),
         })
     }
-    fn create_command_list(&self, allocator: &Self::CommandAllocator) -> Result<Self::CommandList, GpuError> {
+    fn create_command_list(
+        &self,
+        allocator: &Self::CommandAllocator,
+    ) -> Result<Self::CommandList, GpuError> {
         Ok(FakeList {
             closed: Arc::new(AtomicBool::new(true)),
             barriers: Arc::new(AtomicU32::new(0)),
@@ -295,10 +303,18 @@ impl GpuDevice for FakeDevice {
         })
     }
     fn create_fence(&self, _initial: u64) -> Result<Self::Fence, GpuError> {
-        Ok(FakeFence { world: Arc::clone(&self.world) })
+        Ok(FakeFence {
+            world: Arc::clone(&self.world),
+        })
     }
-    fn create_queue(&self, _kind: QueueKind, _priority: QueuePriority) -> Result<Self::Queue, GpuError> {
-        Ok(FakeQueue { world: Arc::clone(&self.world) })
+    fn create_queue(
+        &self,
+        _kind: QueueKind,
+        _priority: QueuePriority,
+    ) -> Result<Self::Queue, GpuError> {
+        Ok(FakeQueue {
+            world: Arc::clone(&self.world),
+        })
     }
     fn removed_reason(&self) -> Option<u32> {
         *self.world.removed.lock().unwrap()
@@ -329,7 +345,10 @@ impl NativeSwapchain for FakeNative {
     type Buffer = FakeTexture;
 
     fn back_buffer(&self, index: u32) -> Result<Self::Buffer, GpuError> {
-        self.buffers.get(index as usize).cloned().ok_or_else(|| GpuError::failed("buffer", 0x887A_0001))
+        self.buffers
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| GpuError::failed("buffer", 0x887A_0001))
     }
 
     fn buffer_reference_count(&self, index: u32) -> Option<u32> {
@@ -337,7 +356,11 @@ impl NativeSwapchain for FakeNative {
             return None;
         }
         // One reference is the chain's own; "taken" adds the application's.
-        Some(if self.world.buffer_taken.load(Ordering::Acquire) { 2 } else { 1 })
+        Some(if self.world.buffer_taken.load(Ordering::Acquire) {
+            2
+        } else {
+            1
+        })
     }
 
     fn desc(&self) -> Result<SwapChainDesc, GpuError> {
@@ -354,11 +377,18 @@ impl NativeSwapchain for FakeNative {
         Ok(())
     }
 
-    fn present1(&self, _sync: u32, flags: PresentFlags, params: &PresentParams) -> Result<(), GpuError> {
+    fn present1(
+        &self,
+        _sync: u32,
+        flags: PresentFlags,
+        params: &PresentParams,
+    ) -> Result<(), GpuError> {
         self.world.present1s.fetch_add(1, Ordering::Relaxed);
         self.world.present_flags.lock().unwrap().push(flags.0);
         if !params.is_empty() {
-            self.world.presents_with_params.fetch_add(1, Ordering::Relaxed);
+            self.world
+                .presents_with_params
+                .fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
     }
@@ -391,7 +421,11 @@ impl NativeSwapchain for FakeNative {
         node_masks: &[u32],
     ) -> Result<(), GpuError> {
         self.world.resize1s.fetch_add(1, Ordering::Relaxed);
-        self.world.resize_masks.lock().unwrap().push(node_masks.to_vec());
+        self.world
+            .resize_masks
+            .lock()
+            .unwrap()
+            .push(node_masks.to_vec());
         self.resize_buffers(count, width, height, format, flags)
     }
 
@@ -399,7 +433,10 @@ impl NativeSwapchain for FakeNative {
         None
     }
     fn last_present_count(&self) -> Option<u32> {
-        Some(self.world.presents.load(Ordering::Relaxed) + self.world.present1s.load(Ordering::Relaxed))
+        Some(
+            self.world.presents.load(Ordering::Relaxed)
+                + self.world.present1s.load(Ordering::Relaxed),
+        )
     }
     fn maximum_frame_latency(&self) -> Option<u32> {
         Some(1)
@@ -478,10 +515,13 @@ impl PresentedContext for FakeContext {
         _reset: bool,
     ) -> bool {
         self.events.lock().unwrap().push("generate");
-        if self.world.presents.load(Ordering::Relaxed) == 0 && self.world.present1s.load(Ordering::Relaxed) == 0 {
+        if self.world.presents.load(Ordering::Relaxed) == 0
+            && self.world.present1s.load(Ordering::Relaxed) == 0
+        {
             self.generates_before_present.store(true, Ordering::Release);
         }
-        self.phases_recorded.fetch_add(phases.len() as u32, Ordering::Relaxed);
+        self.phases_recorded
+            .fetch_add(phases.len() as u32, Ordering::Relaxed);
         self.untracked.store(true, Ordering::Release);
         true
     }
@@ -527,7 +567,11 @@ struct Harness {
 fn harness(present: Present) -> Harness {
     let mut harness = harness_without_sink_present(present);
     let context = Arc::new(FakeContext::new(Arc::clone(&harness.world)));
-    let sink = GeneratorSink { context: Arc::clone(&context), owner: 1, lease: Some(Arc::new(())) };
+    let sink = GeneratorSink {
+        context: Arc::clone(&context),
+        owner: 1,
+        lease: Some(Arc::new(())),
+    };
     assert!(harness.swapchain.set_generator(Some(sink)));
     harness.context = context;
     harness
@@ -540,12 +584,21 @@ fn harness_without_sink() -> Harness {
 fn harness_without_sink_present(present: Present) -> Harness {
     let world = Arc::new(World::new(sample_desc()));
     *world.refresh_hz.lock().unwrap() = 60.0;
-    let device = Arc::new(FakeDevice { world: Arc::clone(&world) });
+    let device = Arc::new(FakeDevice {
+        world: Arc::clone(&world),
+    });
     let native = Arc::new(FakeNative::new(Arc::clone(&world)));
-    let queue = Arc::new(FakeQueue { world: Arc::clone(&world) });
+    let queue = Arc::new(FakeQueue {
+        world: Arc::clone(&world),
+    });
     let clock = Arc::new(FakeClock::new(1_000_000, 1_000_000));
     let queues = Arc::new(SharedPresentQueues::new(false));
-    let choice = PresentChoice { present, guard: TearGuard::Off, multiplier: Multiplier::X2, target_fps: 0.0 };
+    let choice = PresentChoice {
+        present,
+        guard: TearGuard::Off,
+        multiplier: Multiplier::X2,
+        target_fps: 0.0,
+    };
     let mut report = WrapReport::default();
     let swapchain = Swapchain::wrap(
         native,
@@ -561,7 +614,12 @@ fn harness_without_sink_present(present: Present) -> Harness {
     )
     .expect("the wrapper builds");
     let context = Arc::new(FakeContext::new(Arc::clone(&world)));
-    Harness { world, swapchain, context, clock }
+    Harness {
+        world,
+        swapchain,
+        context,
+        clock,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -575,7 +633,9 @@ fn a_real_frame_wrapper_shows_a_midpoint_then_the_real_frame() {
     let h = harness(Present::Vsync);
     for cycle in 0..6u32 {
         h.clock.advance(1_000_000 / 60);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("present accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("present accepted");
         assert_eq!(
             h.swapchain.current_back_buffer_index(),
             (cycle + 1) % 3,
@@ -583,12 +643,19 @@ fn a_real_frame_wrapper_shows_a_midpoint_then_the_real_frame() {
         );
     }
     let counters = h.swapchain.counters();
-    assert_eq!(h.context.phases_recorded.load(Ordering::Relaxed), 6, "one generation per real frame");
+    assert_eq!(
+        h.context.phases_recorded.load(Ordering::Relaxed),
+        6,
+        "one generation per real frame"
+    );
     assert_eq!(counters.present_cycles, 6);
     // The first cycle only seeds history; every later one shows one midpoint.
     assert_eq!(counters.generated_presents, 5);
     assert_eq!(counters.skipped_generates, 0);
-    assert!(h.context.generates_before_present.load(Ordering::Acquire), "generation precedes the present");
+    assert!(
+        h.context.generates_before_present.load(Ordering::Acquire),
+        "generation precedes the present"
+    );
 }
 
 #[test]
@@ -596,18 +663,25 @@ fn clearing_the_sink_stops_midpoints_without_stalling_real_frames() {
     let h = harness(Present::Vsync);
     for _ in 0..3 {
         h.clock.advance(1_000_000 / 60);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("accepted");
     }
     let before = h.swapchain.counters();
     assert!(h.swapchain.clear_generator_if_owner(1));
     for _ in 0..2 {
         h.clock.advance(1_000_000 / 60);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("accepted");
     }
     let after = h.swapchain.counters();
     assert_eq!(after.generated_presents, before.generated_presents);
     assert_eq!(after.present_cycles, before.present_cycles + 2);
-    assert!(!h.swapchain.clear_generator_if_owner(2), "a stale owner cannot detach a newer sink");
+    assert!(
+        !h.swapchain.clear_generator_if_owner(2),
+        "a stale owner cannot detach a newer sink"
+    );
 }
 
 /// One scenario for the three injected generation faults: after any of them, every later Present
@@ -621,15 +695,26 @@ fn a_failed_generation_submission_stops_later_admission(#[case] fault: &str) {
     match fault {
         // Close is not injectable through the fakes; a failing execute is the same seam.
         "close" => h.world.fail_execute.store(true, Ordering::Release),
-        "signal" => h.context.accept_registration.store(false, Ordering::Release),
+        "signal" => h
+            .context
+            .accept_registration
+            .store(false, Ordering::Release),
         // A reset fault loses the allocator, which the C++ treats as a submission failure.
         "reset" => h.world.fail_reset.store(true, Ordering::Release),
         _ => unreachable!(),
     }
     let first = h.swapchain.present(1, PresentFlags::NONE, None);
     let second = h.swapchain.present(1, PresentFlags::NONE, None);
-    assert_eq!(first.unwrap_err().code(), 0x8000_4005, "{fault}: first present fails");
-    assert_eq!(second.unwrap_err().code(), 0x8000_4005, "{fault}: later presents stay refused");
+    assert_eq!(
+        first.unwrap_err().code(),
+        0x8000_4005,
+        "{fault}: first present fails"
+    );
+    assert_eq!(
+        second.unwrap_err().code(),
+        0x8000_4005,
+        "{fault}: later presents stay refused"
+    );
     assert!(h.swapchain.current_back_buffer_index() < 3);
 }
 
@@ -642,16 +727,25 @@ fn a_present1_metadata_failure_does_not_consume_the_frame() {
     // an empty metadata set must reach Present1 and be counted as such.
     h.clock.advance(1_000_000 / 60);
     let params = PresentParams {
-        dirty_rects: vec![Rect { left: 0, top: 0, right: 16, bottom: 16 }],
+        dirty_rects: vec![Rect {
+            left: 0,
+            top: 0,
+            right: 16,
+            bottom: 16,
+        }],
         scroll_rect: None,
         scroll_offset: None,
     };
-    h.swapchain.present(0, PresentFlags::NONE, Some(&params)).expect("accepted");
+    h.swapchain
+        .present(0, PresentFlags::NONE, Some(&params))
+        .expect("accepted");
     assert_eq!(h.world.present1s.load(Ordering::Relaxed), 1);
     assert_eq!(h.world.presents_with_params.load(Ordering::Relaxed), 1);
     let index = h.swapchain.current_back_buffer_index();
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(0, PresentFlags::NONE, Some(&params)).expect("retry accepted");
+    h.swapchain
+        .present(0, PresentFlags::NONE, Some(&params))
+        .expect("retry accepted");
     assert_eq!(h.swapchain.current_back_buffer_index(), (index + 1) % 3);
 }
 
@@ -659,7 +753,9 @@ fn a_present1_metadata_failure_does_not_consume_the_frame() {
 fn present1_with_an_empty_metadata_set_is_still_present1() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(0, PresentFlags::NONE, Some(&PresentParams::default())).expect("accepted");
+    h.swapchain
+        .present(0, PresentFlags::NONE, Some(&PresentParams::default()))
+        .expect("accepted");
     assert_eq!(h.world.present1s.load(Ordering::Relaxed), 1);
     assert_eq!(h.world.presents.load(Ordering::Relaxed), 0);
     assert_eq!(h.world.presents_with_params.load(Ordering::Relaxed), 0);
@@ -669,7 +765,9 @@ fn present1_with_an_empty_metadata_set_is_still_present1() {
 fn present_test_presents_nothing_and_advances_nothing() {
     let h = harness(Present::Vsync);
     let index = h.swapchain.current_back_buffer_index();
-    h.swapchain.present(0, PresentFlags::TEST, None).expect("test accepted");
+    h.swapchain
+        .present(0, PresentFlags::TEST, None)
+        .expect("test accepted");
     assert_eq!(h.swapchain.current_back_buffer_index(), index);
     assert_eq!(h.swapchain.counters().present_cycles, 0);
 }
@@ -680,10 +778,14 @@ fn present_test_presents_nothing_and_advances_nothing() {
 fn vsync_forces_a_sync_interval_and_strips_tearing() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(0, PresentFlags::ALLOW_TEARING, None).expect("accepted");
+    h.swapchain
+        .present(0, PresentFlags::ALLOW_TEARING, None)
+        .expect("accepted");
     let flags = h.world.present_flags.lock().unwrap();
     assert!(!flags.is_empty());
-    assert!(flags.iter().all(|value| *value & PresentFlags::ALLOW_TEARING.0 == 0));
+    assert!(flags
+        .iter()
+        .all(|value| *value & PresentFlags::ALLOW_TEARING.0 == 0));
 }
 
 /// `fgcheck_retention.cpp`: a removed device executes nothing more, so the wrapper is retirable even
@@ -692,18 +794,25 @@ fn vsync_forces_a_sync_interval_and_strips_tearing() {
 fn teardown_waits_for_retirement_and_a_removed_device_counts_as_retired() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     // A live device whose fence lags the wrapper's value is not retirable.
     h.world.set_completed(0);
     assert!(!h.swapchain.retirable());
     // Removal makes everything in flight unretirable no more: nothing can execute.
     *h.world.removed.lock().unwrap() = Some(0x887A_0005);
     assert!(h.swapchain.retirable());
-    let error = h.swapchain.drain().expect_err("a removed device is reported");
+    let error = h
+        .swapchain
+        .drain()
+        .expect_err("a removed device is reported");
     assert_eq!(error.code(), 0x887A_0005);
     assert!(matches!(
         error,
-        SwapchainError::DeviceRemoved | SwapchainError::DeviceHung | SwapchainError::SubmissionFailure
+        SwapchainError::DeviceRemoved
+            | SwapchainError::DeviceHung
+            | SwapchainError::SubmissionFailure
     ));
 }
 
@@ -711,10 +820,14 @@ fn teardown_waits_for_retirement_and_a_removed_device_counts_as_retired() {
 fn teardown_is_bounded_when_the_fence_never_reaches_the_target() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     // The fake fence completes on wait, which is the live-device path the C++ drained.
     h.swapchain.drain().expect("a live device drains");
-    assert!(!h.world.waits.lock().unwrap().is_empty() || h.world.completed.load(Ordering::Acquire) > 0);
+    assert!(
+        !h.world.waits.lock().unwrap().is_empty() || h.world.completed.load(Ordering::Acquire) > 0
+    );
 }
 
 /// `check_window`: resize refuses while the application holds a back buffer, then succeeds and the
@@ -723,15 +836,23 @@ fn teardown_is_bounded_when_the_fence_never_reaches_the_target() {
 fn resize_refuses_a_taken_back_buffer_then_applies_the_new_size() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     h.world.buffer_taken.store(true, Ordering::Release);
     assert_eq!(
         h.swapchain.resize(3, 320, 180, None, 0).unwrap_err().code(),
         DXGI_ERROR_INVALID_CALL
     );
-    assert_eq!(h.world.resizes.load(Ordering::Relaxed), 0, "the chain was not resized");
+    assert_eq!(
+        h.world.resizes.load(Ordering::Relaxed),
+        0,
+        "the chain was not resized"
+    );
     h.world.buffer_taken.store(false, Ordering::Release);
-    h.swapchain.resize(3, 320, 180, None, 0).expect("resize accepted");
+    h.swapchain
+        .resize(3, 320, 180, None, 0)
+        .expect("resize accepted");
     assert_eq!(h.world.resizes.load(Ordering::Relaxed), 1);
 }
 
@@ -765,7 +886,12 @@ fn resize_buffers1_validates_masks(#[case] masks: &[u32], #[case] accepted: bool
 #[rstest]
 #[case(2, 3, false, PixelFormat::R8G8B8A8Unorm)]
 #[case(1, 3, false, PixelFormat::R16G16B16A16Float)]
-fn an_unsupported_chain_is_refused(#[case] samples: u32, #[case] buffers: u32, #[case] stereo: bool, #[case] format: PixelFormat) {
+fn an_unsupported_chain_is_refused(
+    #[case] samples: u32,
+    #[case] buffers: u32,
+    #[case] stereo: bool,
+    #[case] format: PixelFormat,
+) {
     let world = Arc::new(World::new(sample_desc()));
     let mut desc = *world.desc.lock().unwrap();
     desc.sample_count = samples;
@@ -773,24 +899,35 @@ fn an_unsupported_chain_is_refused(#[case] samples: u32, #[case] buffers: u32, #
     desc.stereo = stereo;
     desc.format = format;
     *world.desc.lock().unwrap() = desc;
-    let device = Arc::new(FakeDevice { world: Arc::clone(&world) });
+    let device = Arc::new(FakeDevice {
+        world: Arc::clone(&world),
+    });
     let native = Arc::new(FakeNative::new(Arc::clone(&world)));
-    let queue = Arc::new(FakeQueue { world: Arc::clone(&world) });
+    let queue = Arc::new(FakeQueue {
+        world: Arc::clone(&world),
+    });
     let clock = Arc::new(FakeClock::new(1_000_000, 0));
     let mut report = WrapReport::default();
-    let result: Result<Swapchain<FakeDevice, FakeNative, FakeContext, NoOverlay>, _> = Swapchain::wrap(
-        native,
-        device,
-        queue,
-        clock,
-        PresentChoice { present: Present::Vsync, ..PresentChoice::default() },
-        Arc::new(SharedPresentQueues::new(false)),
-        Arc::new(NoOverlay),
-        WrapEnvironment::default(),
-        0,
-        &mut report,
+    let result: Result<Swapchain<FakeDevice, FakeNative, FakeContext, NoOverlay>, _> =
+        Swapchain::wrap(
+            native,
+            device,
+            queue,
+            clock,
+            PresentChoice {
+                present: Present::Vsync,
+                ..PresentChoice::default()
+            },
+            Arc::new(SharedPresentQueues::new(false)),
+            Arc::new(NoOverlay),
+            WrapEnvironment::default(),
+            0,
+            &mut report,
+        );
+    assert_eq!(
+        result.err().map(|error| error.code()),
+        Some(DXGI_ERROR_UNSUPPORTED)
     );
-    assert_eq!(result.err().map(|error| error.code()), Some(DXGI_ERROR_UNSUPPORTED));
 }
 
 /// "vrr" without a handed-over reference cannot recreate the chain and falls back to "vsync"
@@ -800,7 +937,9 @@ fn vrr_falls_back_to_vsync_when_the_caller_keeps_its_reference() {
     let h = harness(Present::Vrr);
     assert!(!h.swapchain.async_present());
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("the fallback still presents");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("the fallback still presents");
 }
 
 /// The interpolation scratch texture is created once per size and a resize retires the old one
@@ -812,7 +951,11 @@ fn the_interpolation_texture_follows_a_resize_without_reuse() {
     let first = h.swapchain.interpolation_texture().expect("created");
     assert!(h.swapchain.has_interpolation_texture());
     let again = h.swapchain.interpolation_texture().expect("same size");
-    assert_eq!(first.identity(), again.identity(), "a same-size ask returns the same resource");
+    assert_eq!(
+        first.identity(),
+        again.identity(),
+        "a same-size ask returns the same resource"
+    );
     h.swapchain.resize(3, 64, 64, None, 0).expect("resized");
     let resized = h.swapchain.interpolation_texture().expect("recreated");
     assert_ne!(first.identity(), resized.identity(), "a resize replaces it");
@@ -824,10 +967,16 @@ fn the_interpolation_texture_follows_a_resize_without_reuse() {
 fn the_interpolation_list_is_reusable() {
     let h = harness(Present::Vsync);
     let first = h.swapchain.interpolation_list().expect("created");
-    assert!(!first.closed.load(Ordering::Acquire), "a new list is open for recording");
+    assert!(
+        !first.closed.load(Ordering::Acquire),
+        "a new list is open for recording"
+    );
     first.close_list().expect("closed");
     let again = h.swapchain.interpolation_list().expect("reset");
-    assert!(!again.closed.load(Ordering::Acquire), "the second ask starts a fresh recording");
+    assert!(
+        !again.closed.load(Ordering::Acquire),
+        "the second ask starts a fresh recording"
+    );
 }
 
 /// K168: a game asks for the interpolation list again while its previous recording is still open
@@ -839,11 +988,23 @@ fn the_interpolation_list_is_reusable() {
 fn a_second_interpolation_list_ask_closes_the_still_open_recording() {
     let h = harness(Present::Vsync);
     let first = h.swapchain.interpolation_list().expect("created");
-    assert!(!first.closed.load(Ordering::Acquire), "the first ask leaves the list open");
+    assert!(
+        !first.closed.load(Ordering::Acquire),
+        "the first ask leaves the list open"
+    );
     // No close in between: this is the per-frame ask a game makes.
-    let again = h.swapchain.interpolation_list().expect("the re-ask resets the open list");
-    assert!(!again.closed.load(Ordering::Acquire), "the re-ask hands back a fresh recording");
-    assert!(Arc::ptr_eq(&first.closed, &again.closed), "the pointer the game holds stays valid");
+    let again = h
+        .swapchain
+        .interpolation_list()
+        .expect("the re-ask resets the open list");
+    assert!(
+        !again.closed.load(Ordering::Acquire),
+        "the re-ask hands back a fresh recording"
+    );
+    assert!(
+        Arc::ptr_eq(&first.closed, &again.closed),
+        "the pointer the game holds stays valid"
+    );
 }
 
 /// `check_pacing` decisions, through the wrapper's own pacing interval and the presenter's stale
@@ -892,7 +1053,10 @@ fn every_fixed_multiplier_plans_an_even_grid(#[case] multiplier: Multiplier) {
         }
     }
     let expected = interval * f64::from(denominator) / f64::from(numerator);
-    assert!(gaps.iter().all(|gap| (gap - expected).abs() < 1e-6), "{multiplier:?} keeps an even grid");
+    assert!(
+        gaps.iter().all(|gap| (gap - expected).abs() < 1e-6),
+        "{multiplier:?} keeps an even grid"
+    );
     assert!(generated <= 2);
 }
 
@@ -905,7 +1069,9 @@ fn the_pacing_interval_tracks_the_game_rate() {
     assert!((h.swapchain.pacing_interval() - 1.0 / 60.0).abs() < 1e-12);
     for _ in 0..3 {
         h.clock.advance(1_000_000 / 36);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("accepted");
     }
     assert!((h.swapchain.pacing_interval() - 1.0 / 36.0).abs() < 1e-6);
 }
@@ -929,11 +1095,16 @@ fn a_do_not_wait_present_never_blocks_on_outstanding_work() {
 fn the_pacing_wait_is_bounded_by_the_fake_clock() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     // Present may have waited for the midpoint-to-real gap; every recorded wait is a real deadline.
     for deadline in h.clock.waits() {
         assert!(deadline >= 1_000_000);
-        assert!(deadline <= 1_000_000 + 1_000_000 / 30, "the wait stays inside half an interval");
+        assert!(
+            deadline <= 1_000_000 + 1_000_000 / 30,
+            "the wait stays inside half an interval"
+        );
     }
 }
 
@@ -944,7 +1115,9 @@ fn counters_distinguish_shown_midpoints_from_dropped_ones() {
     let h = harness(Present::Vsync);
     for _ in 0..4 {
         h.clock.advance(1_000_000 / 60);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("accepted");
     }
     let counters = h.swapchain.counters();
     assert_eq!(counters.generated_presents + counters.skipped_generates, 3);
@@ -956,7 +1129,9 @@ fn a_resize_resets_the_pacing_history() {
     let h = harness(Present::Vsync);
     for _ in 0..3 {
         h.clock.advance(1_000_000 / 60);
-        h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+        h.swapchain
+            .present(1, PresentFlags::NONE, None)
+            .expect("accepted");
     }
     h.swapchain.resize(3, 320, 180, None, 0).expect("resized");
     assert!((h.swapchain.pacing_interval() - 1.0 / 60.0).abs() < 1e-12);
@@ -967,9 +1142,13 @@ fn a_resize_resets_the_pacing_history() {
 #[test]
 fn vblank_alignment_without_frame_statistics_falls_back_to_the_current_time() {
     let world = Arc::new(World::new(sample_desc()));
-    let device = Arc::new(FakeDevice { world: Arc::clone(&world) });
+    let device = Arc::new(FakeDevice {
+        world: Arc::clone(&world),
+    });
     let native = Arc::new(FakeNative::new(Arc::clone(&world)));
-    let queue = Arc::new(FakeQueue { world: Arc::clone(&world) });
+    let queue = Arc::new(FakeQueue {
+        world: Arc::clone(&world),
+    });
     let clock = Arc::new(FakeClock::new(1_000_000, 0));
     let mut report = WrapReport::default();
     let swapchain = Swapchain::wrap(
@@ -977,18 +1156,30 @@ fn vblank_alignment_without_frame_statistics_falls_back_to_the_current_time() {
         device,
         queue,
         clock.clone(),
-        PresentChoice { present: Present::Vsync, ..PresentChoice::default() },
+        PresentChoice {
+            present: Present::Vsync,
+            ..PresentChoice::default()
+        },
         Arc::new(SharedPresentQueues::new(false)),
         Arc::new(NoOverlay),
-        WrapEnvironment { align_vblank: true, ..WrapEnvironment::default() },
+        WrapEnvironment {
+            align_vblank: true,
+            ..WrapEnvironment::default()
+        },
         0,
         &mut report,
     )
     .expect("built");
-    let sink = GeneratorSink { context: Arc::new(FakeContext::new(Arc::clone(&world))), owner: 1, lease: None };
+    let sink = GeneratorSink {
+        context: Arc::new(FakeContext::new(Arc::clone(&world))),
+        owner: 1,
+        lease: None,
+    };
     assert!(swapchain.set_generator(Some(sink)));
     clock.advance(1_000_000 / 60);
-    swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
 }
 
 /// The scratch lock is never the wrapper's Present path (K138): asking for the interpolation
@@ -998,10 +1189,18 @@ fn vblank_alignment_without_frame_statistics_falls_back_to_the_current_time() {
 fn the_scratch_queries_do_not_take_the_present_path() {
     let h = harness(Present::Vsync);
     h.clock.advance(1_000_000 / 60);
-    let _ = h.swapchain.interpolation_texture().expect("created outside Present");
-    h.swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    let _ = h
+        .swapchain
+        .interpolation_texture()
+        .expect("created outside Present");
+    h.swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     // A second query after Present returns at once: the scratch never holds the wrapper's lock.
-    let _ = h.swapchain.interpolation_texture().expect("still available");
+    let _ = h
+        .swapchain
+        .interpolation_texture()
+        .expect("still available");
 }
 
 /// `owned` references: the wrapper takes over the game's one native reference in the real-frame
@@ -1010,9 +1209,13 @@ fn the_scratch_queries_do_not_take_the_present_path() {
 #[test]
 fn a_handed_over_reference_wraps_and_presents() {
     let world = Arc::new(World::new(sample_desc()));
-    let device = Arc::new(FakeDevice { world: Arc::clone(&world) });
+    let device = Arc::new(FakeDevice {
+        world: Arc::clone(&world),
+    });
     let native = Arc::new(FakeNative::new(Arc::clone(&world)));
-    let queue = Arc::new(FakeQueue { world: Arc::clone(&world) });
+    let queue = Arc::new(FakeQueue {
+        world: Arc::clone(&world),
+    });
     let clock = Arc::new(FakeClock::new(1_000_000, 0));
     let mut report = WrapReport::default();
     let swapchain: Swapchain<FakeDevice, FakeNative, FakeContext, NoOverlay> = Swapchain::wrap(
@@ -1020,7 +1223,10 @@ fn a_handed_over_reference_wraps_and_presents() {
         device,
         queue,
         clock.clone(),
-        PresentChoice { present: Present::Vsync, ..PresentChoice::default() },
+        PresentChoice {
+            present: Present::Vsync,
+            ..PresentChoice::default()
+        },
         Arc::new(SharedPresentQueues::new(false)),
         Arc::new(NoOverlay),
         WrapEnvironment::default(),
@@ -1029,6 +1235,8 @@ fn a_handed_over_reference_wraps_and_presents() {
     )
     .expect("built");
     clock.advance(1_000_000 / 60);
-    swapchain.present(1, PresentFlags::NONE, None).expect("accepted");
+    swapchain
+        .present(1, PresentFlags::NONE, None)
+        .expect("accepted");
     assert!(report.fallback_reason.is_none(), "vsync needs no fallback");
 }

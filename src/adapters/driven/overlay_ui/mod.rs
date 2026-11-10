@@ -37,11 +37,9 @@ use crate::adapters::driven::d3d12::fence::D3d12Fence;
 use crate::adapters::driven::d3d12::queue::D3d12Queue;
 use crate::adapters::driven::d3d12::resources::{D3d12CommandAllocator, D3d12CommandList};
 use crate::application::overlay::{OverlayAction, OverlayView};
-use crate::application::ports::gpu::{
-    GpuDevice, GpuFence, QueueKind, QueuePriority,
-};
+use crate::application::ports::gpu::{GpuDevice, GpuFence, QueueKind, QueuePriority};
 use crate::application::ports::ui_renderer::{
-    OverlayDrawError, OverlayRenderer, OutputFormat, RenderTarget, UiFrameInfo, UiInput,
+    OutputFormat, OverlayDrawError, OverlayRenderer, RenderTarget, UiFrameInfo, UiInput,
 };
 
 pub mod device;
@@ -80,7 +78,6 @@ struct Upload {
     value: u64,
 }
 
-
 /// The game device and output format the renderer was created for. The format lives on the renderer
 /// (it is what the pipeline was compiled for); this keeps the owning device alive so the overlay's
 /// COM references outlive the swapchain's own.
@@ -103,7 +100,11 @@ impl OverlayUi {
 
     /// Prepares the D3D12 objects and the upload queue for `device` and `format`. A repeat call for
     /// the same pair is a no-op; a different device or format is a defined refusal.
-    pub fn initialize(&mut self, device: &D3d12Device, format: OutputFormat) -> Result<(), OverlayDrawError> {
+    pub fn initialize(
+        &mut self,
+        device: &D3d12Device,
+        format: OutputFormat,
+    ) -> Result<(), OverlayDrawError> {
         if self.upload.is_none() {
             let queue = device
                 .create_queue(QueueKind::Direct, QueuePriority::Normal)
@@ -117,11 +118,21 @@ impl OverlayUi {
             let fence = device
                 .create_fence(0)
                 .map_err(|error| OverlayDrawError::Failed(error.to_string()))?;
-            self.upload = Some(Upload { queue, allocator, list, fence, value: 0 });
+            self.upload = Some(Upload {
+                queue,
+                allocator,
+                list,
+                fence,
+                value: 0,
+            });
         }
         self.renderer.initialize(device.raw(), format)?;
-        *self.owner.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
-            Some(Owner { device: device.clone() });
+        *self
+            .owner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Owner {
+            device: device.clone(),
+        });
         Ok(())
     }
 
@@ -134,7 +145,9 @@ impl OverlayUi {
     }
 
     fn disabled_slot(&self) -> std::sync::MutexGuard<'_, Option<String>> {
-        self.disabled.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.disabled
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Uploads the whole-image texture deltas of one egui pass, oldest first.
@@ -238,7 +251,13 @@ impl OverlayUi {
             }
         }
         self.apply_textures(&textures)?;
-        Ok((actions, PassOutput { primitives, pixels_per_point }))
+        Ok((
+            actions,
+            PassOutput {
+                primitives,
+                pixels_per_point,
+            },
+        ))
     }
 
     /// Draws one frame onto the caller's own list and output texture. The adapter uses this when it
@@ -259,7 +278,9 @@ impl OverlayUi {
         if matches!(view, OverlayView::Off) {
             return Ok(false);
         }
-        if target.device != device_identity_of(&self.owner_device().ok_or(OverlayDrawError::NoDevice)?) {
+        if target.device
+            != device_identity_of(&self.owner_device().ok_or(OverlayDrawError::NoDevice)?)
+        {
             return Err(OverlayDrawError::DeviceChanged);
         }
         if self.renderer.format() != Some(target.format) {
@@ -269,15 +290,27 @@ impl OverlayUi {
         if pass.primitives.is_empty() {
             return Ok(false);
         }
-        let packed = device::pack(&pass.primitives, target.width, target.height, pass.pixels_per_point)?;
-        self.renderer.record(list.raw(), output.raw(), target, &packed, target.generated)?;
+        let packed = device::pack(
+            &pass.primitives,
+            target.width,
+            target.height,
+            pass.pixels_per_point,
+        )?;
+        self.renderer
+            .record(list.raw(), output.raw(), target, &packed, target.generated)?;
         self.count_draw(target.generated);
         Ok(true)
     }
 
     fn count_draw(&self, generated: bool) {
-        let counter = if generated { &self.generated_draws } else { &self.real_draws };
-        *counter.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+        let counter = if generated {
+            &self.generated_draws
+        } else {
+            &self.real_draws
+        };
+        *counter
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
     }
 
     /// Records `packed` through the caller-owned list and output named by `target`'s identities.
@@ -363,7 +396,9 @@ impl OverlayRenderer for OverlayUi {
     }
 
     fn disabled_reason(&self) -> Option<String> {
-        self.renderer.disabled_reason().or_else(|| self.disabled_slot().clone())
+        self.renderer
+            .disabled_reason()
+            .or_else(|| self.disabled_slot().clone())
     }
 
     fn disable(&mut self, reason: &str) {
@@ -376,7 +411,10 @@ impl OverlayRenderer for OverlayUi {
     }
 
     fn draw_counts(&self) -> (u64, u64) {
-        let real = *self.real_draws.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let real = *self
+            .real_draws
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let generated = *self
             .generated_draws
             .lock()
@@ -389,7 +427,10 @@ impl OverlayRenderer for OverlayUi {
 /// taking ownership, so the caller's reference count is untouched; callers use this for the two
 /// objects a record needs at once.
 #[allow(dead_code)]
-fn with_borrowed_list<T>(identity: usize, f: impl FnOnce(&ID3D12GraphicsCommandList) -> T) -> Result<T, OverlayDrawError> {
+fn with_borrowed_list<T>(
+    identity: usize,
+    f: impl FnOnce(&ID3D12GraphicsCommandList) -> T,
+) -> Result<T, OverlayDrawError> {
     if identity == 0 {
         return Err(OverlayDrawError::NoDevice);
     }
@@ -404,14 +445,17 @@ fn with_borrowed_list<T>(identity: usize, f: impl FnOnce(&ID3D12GraphicsCommandL
 /// As [`with_borrowed_list`], for the output back buffer. Kept beside its sibling so the port's two
 /// identities are read the same way.
 #[allow(dead_code)]
-fn with_borrowed_resource<T>(identity: usize, f: impl FnOnce(&ID3D12Resource) -> T) -> Result<T, OverlayDrawError> {
+fn with_borrowed_resource<T>(
+    identity: usize,
+    f: impl FnOnce(&ID3D12Resource) -> T,
+) -> Result<T, OverlayDrawError> {
     if identity == 0 {
         return Err(OverlayDrawError::NoDevice);
     }
     let raw = identity as *mut core::ffi::c_void;
     // SAFETY: the identity is the caller's live output resource, valid for this call.
-    let resource = unsafe { ID3D12Resource::from_raw_borrowed(&raw) }
-        .ok_or(OverlayDrawError::NoDevice)?;
+    let resource =
+        unsafe { ID3D12Resource::from_raw_borrowed(&raw) }.ok_or(OverlayDrawError::NoDevice)?;
     Ok(f(resource))
 }
 

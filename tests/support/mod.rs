@@ -14,8 +14,8 @@ use std::time::Duration;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::device::D3d12Device;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12CommandList;
 use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
-    GpuCommandAllocator, GpuDevice, GpuFence, GpuQueue, GpuTexture,
-    PixelFormat, QueueKind, QueuePriority, ResourceState, TextureDesc, TextureFlags,
+    GpuCommandAllocator, GpuDevice, GpuFence, GpuQueue, GpuTexture, PixelFormat, QueueKind,
+    QueuePriority, ResourceState, TextureDesc, TextureFlags,
 };
 
 pub const WAIT: Duration = Duration::from_secs(20);
@@ -33,11 +33,39 @@ pub struct Scene {
 }
 
 pub const SCENES: [Scene; 4] = [
-    Scene { name: "rightward pan", travel_x: 0.10, travel_y: 0.0, bar_width: 0.12, start_x: 0.35, start_y: 0.50 },
-    Scene { name: "leftward pan", travel_x: -0.05, travel_y: 0.0, bar_width: 0.20, start_x: 0.70, start_y: 0.50 },
-    Scene { name: "diagonal thin bar", travel_x: 0.06, travel_y: 0.04, bar_width: 0.03, start_x: 0.30, start_y: 0.40 },
+    Scene {
+        name: "rightward pan",
+        travel_x: 0.10,
+        travel_y: 0.0,
+        bar_width: 0.12,
+        start_x: 0.35,
+        start_y: 0.50,
+    },
+    Scene {
+        name: "leftward pan",
+        travel_x: -0.05,
+        travel_y: 0.0,
+        bar_width: 0.20,
+        start_x: 0.70,
+        start_y: 0.50,
+    },
+    Scene {
+        name: "diagonal thin bar",
+        travel_x: 0.06,
+        travel_y: 0.04,
+        bar_width: 0.03,
+        start_x: 0.30,
+        start_y: 0.40,
+    },
     // K120: a quarter of the screen per frame, the disocclusion case at high speed.
-    Scene { name: "fast bar", travel_x: 0.25, travel_y: 0.0, bar_width: 0.12, start_x: 0.20, start_y: 0.50 },
+    Scene {
+        name: "fast bar",
+        travel_x: 0.25,
+        travel_y: 0.0,
+        bar_width: 0.12,
+        start_x: 0.20,
+        start_y: 0.50,
+    },
 ];
 
 /// One rendered scene: RGBA colour, one-channel reversed-Z depth and two-channel pixel motion.
@@ -62,7 +90,11 @@ pub fn make_scene(scene: &Scene, t: f32, width: u32, height: u32) -> Image {
     let travel_pixels_x = scene.travel_x * width_f;
     let travel_pixels_y = scene.travel_y * height_f;
     let feather = 1.25;
-    let half_height = if scene.travel_y != 0.0 { 0.15 * height_f } else { 0.5 * height_f };
+    let half_height = if scene.travel_y != 0.0 {
+        0.15 * height_f
+    } else {
+        0.5 * height_f
+    };
 
     let mut image = Image {
         color: vec![0.0; (width * height * 4) as usize],
@@ -76,8 +108,13 @@ pub fn make_scene(scene: &Scene, t: f32, width: u32, height: u32) -> Image {
             let u = (x as f32 + 0.5) / width_f;
             let pixel_x = x as f32 + 0.5;
             let pixel_y = y as f32 + 0.5;
-            let horizontal = smooth_step(half_width, half_width - feather, (pixel_x - centre_x).abs());
-            let vertical = smooth_step(half_height, half_height - feather, (pixel_y - centre_y).abs());
+            let horizontal =
+                smooth_step(half_width, half_width - feather, (pixel_x - centre_x).abs());
+            let vertical = smooth_step(
+                half_height,
+                half_height - feather,
+                (pixel_y - centre_y).abs(),
+            );
             let inside = horizontal * vertical;
             let index = (y * width + x) as usize;
 
@@ -213,7 +250,11 @@ pub fn ssim(reference: &[u8], candidate: &[u8], width: u32, height: u32) -> f64 
             let covariance = sum_ab / n - mean_a * mean_b;
             let numerator = (2.0 * mean_a * mean_b + C1) * (2.0 * covariance + C2);
             let denominator = (mean_a * mean_a + mean_b * mean_b + C1) * (var_a + var_b + C2);
-            total += if denominator != 0.0 { numerator / denominator } else { 0.0 };
+            total += if denominator != 0.0 {
+                numerator / denominator
+            } else {
+                0.0
+            };
             windows += 1;
             x += STRIDE;
         }
@@ -240,26 +281,43 @@ impl Host {
     /// `None` when there is no D3D12 adapter (the caller skips with a message).
     pub fn new() -> Option<Self> {
         let device = D3d12Device::create_default().ok().flatten()?;
-        let queue = device.create_queue(QueueKind::Direct, QueuePriority::Normal).ok()?;
+        let queue = device
+            .create_queue(QueueKind::Direct, QueuePriority::Normal)
+            .ok()?;
         let allocator = device.create_command_allocator(QueueKind::Direct).ok()?;
         let list = device.create_command_list(&allocator).ok()?;
         let fence = device.create_fence(0).ok()?;
-        Some(Self { device, queue, allocator, list, fence, fence_value: 0 })
+        Some(Self {
+            device,
+            queue,
+            allocator,
+            list,
+            fence,
+            fence_value: 0,
+        })
     }
 
     /// Resets the list for a fresh recording.
     pub fn begin(&self) -> Result<(), String> {
         self.allocator.reset().map_err(|error| error.to_string())?;
-        self.list.reset(&self.allocator).map_err(|error| error.to_string())
+        self.list
+            .reset(&self.allocator)
+            .map_err(|error| error.to_string())
     }
 
     /// Closes, executes and waits for the recording.
     pub fn submit(&mut self) -> Result<(), String> {
         self.list.close().map_err(|error| error.to_string())?;
-        self.queue.execute(&[&self.list]).map_err(|error| error.to_string())?;
+        self.queue
+            .execute(&[&self.list])
+            .map_err(|error| error.to_string())?;
         self.fence_value += 1;
-        self.queue.signal(&self.fence, self.fence_value).map_err(|error| error.to_string())?;
-        self.fence.wait(self.fence_value, WAIT).map_err(|error| error.to_string())
+        self.queue
+            .signal(&self.fence, self.fence_value)
+            .map_err(|error| error.to_string())?;
+        self.fence
+            .wait(self.fence_value, WAIT)
+            .map_err(|error| error.to_string())
     }
 
     pub fn texture(
@@ -270,7 +328,9 @@ impl Host {
         flags: TextureFlags,
     ) -> Result<<D3d12Device as GpuDevice>::Texture, String> {
         let desc = TextureDesc::texture2d(width, height, format, flags);
-        self.device.create_texture(&desc).map_err(|error| error.to_string())
+        self.device
+            .create_texture(&desc)
+            .map_err(|error| error.to_string())
     }
 
     /// Uploads rows through a staging buffer and leaves the texture in `final_state`.
@@ -313,7 +373,15 @@ impl Host {
             .device
             .create_upload_buffer(u64::from(pitch) * u64::from(height))
             .map_err(|error| error.to_string())?;
-        self.upload_into(texture, &staging, data, width, height, bytes_per_pixel, ResourceState::COMMON)
+        self.upload_into(
+            texture,
+            &staging,
+            data,
+            width,
+            height,
+            bytes_per_pixel,
+            ResourceState::COMMON,
+        )
     }
 
     /// Copies a texture into a readback buffer, executes and returns tightly packed RGBA8 rows.
@@ -333,7 +401,10 @@ impl Host {
             .readback_texture(texture, &staging, from_state, from_state)
             .map_err(|error| error.to_string())?;
         self.submit()?;
-        let bytes = self.device.read_buffer(&staging).map_err(|error| error.to_string())?;
+        let bytes = self
+            .device
+            .read_buffer(&staging)
+            .map_err(|error| error.to_string())?;
         let row_bytes = (info.width * 4) as usize;
         let mut packed = Vec::with_capacity(row_bytes * info.height as usize);
         for y in 0..info.height as usize {

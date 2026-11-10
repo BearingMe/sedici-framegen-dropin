@@ -27,8 +27,8 @@ use amd_fidelityfx_framegeneration_dx12::application::overlay::{
     FullView, MiniView, OverlayView, ScaleChoice, TargetMode,
 };
 use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
-    GpuCommandAllocator, GpuDevice, GpuFence, GpuQueue, PixelFormat,
-    QueueKind, QueuePriority, ResourceState, TextureDesc, TextureFlags,
+    GpuCommandAllocator, GpuDevice, GpuFence, GpuQueue, PixelFormat, QueueKind, QueuePriority,
+    ResourceState, TextureDesc, TextureFlags,
 };
 use amd_fidelityfx_framegeneration_dx12::application::ports::ui_renderer::{
     OutputFormat, OverlayRenderer, RenderTarget, UiFrameInfo,
@@ -46,7 +46,11 @@ const R8G8B8A8_UNORM: u32 = 28;
 const CLEAR: [u8; 4] = [0, 0, 0, 0];
 
 fn mini_view() -> OverlayView {
-    OverlayView::Mini(MiniView { real_fps: 60.0, output_fps: 120.0, output_p99_ms: 9.0 })
+    OverlayView::Mini(MiniView {
+        real_fps: 60.0,
+        output_fps: 120.0,
+        output_p99_ms: 9.0,
+    })
 }
 
 fn full_view() -> OverlayView {
@@ -93,11 +97,20 @@ impl Host {
         // The debug layer must be on before the device exists.
         enable_debug_layer();
         let device = D3d12Device::create_default().ok().flatten()?;
-        let queue = device.create_queue(QueueKind::Direct, QueuePriority::Normal).ok()?;
+        let queue = device
+            .create_queue(QueueKind::Direct, QueuePriority::Normal)
+            .ok()?;
         let allocator = device.create_command_allocator(QueueKind::Direct).ok()?;
         let list = device.create_command_list(&allocator).ok()?;
         let fence = device.create_fence(0).ok()?;
-        Some(Self { device, queue, allocator, list, fence, value: 0 })
+        Some(Self {
+            device,
+            queue,
+            allocator,
+            list,
+            fence,
+            value: 0,
+        })
     }
 
     /// The seam that reads the info queue's error-severity messages.
@@ -112,15 +125,23 @@ impl Host {
 
     fn begin(&self) -> Result<(), String> {
         self.allocator.reset().map_err(|error| error.to_string())?;
-        self.list.reset(&self.allocator).map_err(|error| error.to_string())
+        self.list
+            .reset(&self.allocator)
+            .map_err(|error| error.to_string())
     }
 
     fn submit(&mut self) -> Result<(), String> {
         self.list.close().map_err(|error| error.to_string())?;
-        self.queue.execute(&[&self.list]).map_err(|error| error.to_string())?;
+        self.queue
+            .execute(&[&self.list])
+            .map_err(|error| error.to_string())?;
         self.value += 1;
-        self.queue.signal(&self.fence, self.value).map_err(|error| error.to_string())?;
-        self.fence.wait(self.value, WAIT).map_err(|error| error.to_string())
+        self.queue
+            .signal(&self.fence, self.value)
+            .map_err(|error| error.to_string())?;
+        self.fence
+            .wait(self.value, WAIT)
+            .map_err(|error| error.to_string())
     }
 
     /// A D3D12 committed texture reads as zeros before anything writes it, so the test's "nothing
@@ -141,10 +162,18 @@ impl Host {
         self.begin()?;
         let pitch = self
             .list
-            .readback_texture(texture, &readback, ResourceState::COMMON, ResourceState::COMMON)
+            .readback_texture(
+                texture,
+                &readback,
+                ResourceState::COMMON,
+                ResourceState::COMMON,
+            )
             .map_err(|error| error.to_string())?;
         self.submit()?;
-        let bytes = self.device.read_buffer(&readback).map_err(|error| error.to_string())?;
+        let bytes = self
+            .device
+            .read_buffer(&readback)
+            .map_err(|error| error.to_string())?;
         let mut packed = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
         for y in 0..HEIGHT as usize {
             let row = y * pitch as usize;
@@ -156,7 +185,12 @@ impl Host {
 
 fn pixel(pixels: &[u8], x: u32, y: u32) -> [u8; 4] {
     let index = ((y * WIDTH + x) * 4) as usize;
-    [pixels[index], pixels[index + 1], pixels[index + 2], pixels[index + 3]]
+    [
+        pixels[index],
+        pixels[index + 1],
+        pixels[index + 2],
+        pixels[index + 3],
+    ]
 }
 
 /// True when a pixel was painted at all. The overlay's panel fill is 65 % black over a zeroed back
@@ -195,7 +229,10 @@ fn gpu_overlay_draws_a_known_frame(#[case] name: &str, #[case] view: OverlayView
     let target = RenderTarget {
         command_list: 0,
         resource: 0,
-        device: amd_fidelityfx_framegeneration_dx12::adapters::driven::overlay_ui::device_identity_of(&host.device),
+        device:
+            amd_fidelityfx_framegeneration_dx12::adapters::driven::overlay_ui::device_identity_of(
+                &host.device,
+            ),
         width: WIDTH,
         height: HEIGHT,
         format: OutputFormat(R8G8B8A8_UNORM),
@@ -234,7 +271,10 @@ fn gpu_overlay_draws_a_known_frame(#[case] name: &str, #[case] view: OverlayView
     let pixels = host.readback(&output).expect("read back");
     // The Mini panel sits at (12, 12) with a few points of margin; the Full window starts at the same
     // anchor. Sample inside that area and at the far corner, which no menu reaches at this size.
-    assert!(is_painted(pixel(&pixels, 20, 20)), "{name}: the menu area must be painted");
+    assert!(
+        is_painted(pixel(&pixels, 20, 20)),
+        "{name}: the menu area must be painted"
+    );
     assert_eq!(
         pixel(&pixels, WIDTH - 2, HEIGHT - 2),
         CLEAR,
@@ -254,15 +294,25 @@ fn gpu_overlay_draws_a_known_frame(#[case] name: &str, #[case] view: OverlayView
         "a disabled overlay refuses to draw"
     );
     host.submit().expect("submit");
-    assert_eq!(host.device.removed_reason(), None, "GPU device remains healthy");
+    assert_eq!(
+        host.device.removed_reason(),
+        None,
+        "GPU device remains healthy"
+    );
     if let Some(errors) = overlay_errors {
         let messages = errors.messages();
-        assert!(messages.is_empty(), "{name}: DX12 validation errors: {messages:?}");
+        assert!(
+            messages.is_empty(),
+            "{name}: DX12 validation errors: {messages:?}"
+        );
     }
 }
 
 fn host_errors(errors: &Option<QueueErrors>) -> Vec<String> {
-    errors.as_ref().map(QueueErrors::messages).unwrap_or_default()
+    errors
+        .as_ref()
+        .map(QueueErrors::messages)
+        .unwrap_or_default()
 }
 
 /// A tiny wrapper over the debug layer's stored messages (the regression's "DX12 debug layer reports
@@ -284,15 +334,22 @@ impl QueueErrors {
             unsafe {
                 let _ = self.queue.GetMessage(index, None, &mut bytes);
                 let mut storage = vec![0u8; bytes];
-                let message = storage.as_mut_ptr() as *mut windows::Win32::Graphics::Direct3D12::D3D12_MESSAGE;
-                if self.queue.GetMessage(index, Some(message), &mut bytes).is_ok() {
+                let message = storage.as_mut_ptr()
+                    as *mut windows::Win32::Graphics::Direct3D12::D3D12_MESSAGE;
+                if self
+                    .queue
+                    .GetMessage(index, Some(message), &mut bytes)
+                    .is_ok()
+                {
                     let description = (*message).pDescription;
                     if !description.is_null() && (*message).DescriptionByteLength > 0 {
                         let slice = std::slice::from_raw_parts(
                             description,
                             (*message).DescriptionByteLength as usize,
                         );
-                        let text = String::from_utf8_lossy(slice).trim_end_matches('\0').to_owned();
+                        let text = String::from_utf8_lossy(slice)
+                            .trim_end_matches('\0')
+                            .to_owned();
                         if (*message).Severity.0 <= 1 {
                             out.push(text);
                         }

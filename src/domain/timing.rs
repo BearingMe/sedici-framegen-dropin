@@ -35,7 +35,13 @@ pub struct TimingRing {
 
 impl Default for TimingRing {
     fn default() -> Self {
-        Self { samples: [0.0; TIMING_SAMPLES], head: 0, count: 0, last_qpc: 0, have_last: false }
+        Self {
+            samples: [0.0; TIMING_SAMPLES],
+            head: 0,
+            count: 0,
+            last_qpc: 0,
+            have_last: false,
+        }
     }
 }
 
@@ -102,7 +108,9 @@ impl TimingRing {
     /// Samples oldest first, for a plot.
     pub fn chronological(&self) -> Vec<f32> {
         let start = (self.head + TIMING_SAMPLES - self.count) % TIMING_SAMPLES;
-        (0..self.count).map(|i| self.samples[(start + i) % TIMING_SAMPLES]).collect()
+        (0..self.count)
+            .map(|i| self.samples[(start + i) % TIMING_SAMPLES])
+            .collect()
     }
 }
 

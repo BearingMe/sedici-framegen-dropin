@@ -79,7 +79,17 @@ pub struct LogStats {
 
 impl Default for LogStats {
     fn default() -> Self {
-        Self { queued: 0, written: 0, dropped: 0, suppressed: 0, lost: 0, sink_failures: 0, depth: 0, max_depth: 0, sink_ok: true }
+        Self {
+            queued: 0,
+            written: 0,
+            dropped: 0,
+            suppressed: 0,
+            lost: 0,
+            sink_failures: 0,
+            depth: 0,
+            max_depth: 0,
+            sink_ok: true,
+        }
     }
 }
 
@@ -151,7 +161,11 @@ struct Ring {
 
 impl Default for Ring {
     fn default() -> Self {
-        Self { values: [0.0; STALL_MEDIAN_WINDOW], next: 0, count: 0 }
+        Self {
+            values: [0.0; STALL_MEDIAN_WINDOW],
+            next: 0,
+            count: 0,
+        }
     }
 }
 
@@ -274,13 +288,24 @@ impl Stats {
             let median_ms = w.stall_baseline.median();
             let enough_samples = w.stall_baseline.count >= STALL_MIN_SAMPLES;
             let rate_limited = w.have_stall_log
-                && ticks_to_ms(now_qpc.saturating_sub(w.last_stall_log_qpc), frequency) < STALL_LOG_INTERVAL_MS;
+                && ticks_to_ms(now_qpc.saturating_sub(w.last_stall_log_qpc), frequency)
+                    < STALL_LOG_INTERVAL_MS;
 
-            if enough_samples && interval_ms > STALL_RATIO * median_ms && interval_ms >= STALL_FLOOR_MS {
+            if enough_samples
+                && interval_ms > STALL_RATIO * median_ms
+                && interval_ms >= STALL_FLOOR_MS
+            {
                 w.stall_count += 1;
                 w.last_stall_interval_ms = interval_ms;
                 if !rate_limited {
-                    out.stall = Some(stall_line(w, info, interval_ms, median_ms, now_qpc, self.qpc_frequency));
+                    out.stall = Some(stall_line(
+                        w,
+                        info,
+                        interval_ms,
+                        median_ms,
+                        now_qpc,
+                        self.qpc_frequency,
+                    ));
                     w.have_stall_log = true;
                     w.last_stall_log_qpc = now_qpc;
                 }
@@ -313,7 +338,10 @@ impl Stats {
         let frequency = self.qpc_frequency;
         let w = &mut self.window;
         if w.have_present {
-            w.present_interval.push(ticks_to_ms(qpc.saturating_sub(w.last_present_qpc), frequency));
+            w.present_interval.push(ticks_to_ms(
+                qpc.saturating_sub(w.last_present_qpc),
+                frequency,
+            ));
         }
         w.last_present_qpc = qpc;
         w.have_present = true;
@@ -470,9 +498,20 @@ fn ticks_to_ms(delta: u64, frequency: u64) -> f64 {
 }
 
 /// The one-line stall report.
-fn stall_line(w: &Window, info: &PrepareInfo, interval_ms: f64, median_ms: f64, now_qpc: u64, frequency: u64) -> String {
+fn stall_line(
+    w: &Window,
+    info: &PrepareInfo,
+    interval_ms: f64,
+    median_ms: f64,
+    now_qpc: u64,
+    frequency: u64,
+) -> String {
     let mut out = String::new();
-    let ratio = if median_ms > 0.0 { interval_ms / median_ms } else { 0.0 };
+    let ratio = if median_ms > 0.0 {
+        interval_ms / median_ms
+    } else {
+        0.0
+    };
     let _ = write!(
         out,
         "sedici: stall prepare interval={interval_ms:.3} ms median={median_ms:.3} ms ratio={ratio:.3}x frameID={}",
@@ -522,7 +561,13 @@ mod tests {
     }
 
     fn prepare(frame_time_delta: f32, frame_id: u64) -> PrepareInfo {
-        PrepareInfo { frame_time_delta, frame_id, reset: None, render_width: 1920, render_height: 1080 }
+        PrepareInfo {
+            frame_time_delta,
+            frame_id,
+            reset: None,
+            render_width: 1920,
+            render_height: 1080,
+        }
     }
 
     #[test]
@@ -540,10 +585,19 @@ mod tests {
         assert_eq!(reports[1].0, 599);
         let line = &reports[0].1;
         assert!(line.starts_with("stats prepares=300"), "{line}");
-        assert!(line.contains("frameTimeDelta_ms{avg=16.000 min=16.000 max=16.000 sd=0.000}"), "{line}");
-        assert!(line.contains("prepareQpc_ms{avg=16.000 min=16.000 max=16.000 sd=0.000}"), "{line}");
+        assert!(
+            line.contains("frameTimeDelta_ms{avg=16.000 min=16.000 max=16.000 sd=0.000}"),
+            "{line}"
+        );
+        assert!(
+            line.contains("prepareQpc_ms{avg=16.000 min=16.000 max=16.000 sd=0.000}"),
+            "{line}"
+        );
         assert!(line.contains("presentInterval_ms=n/a"), "{line}");
-        assert!(line.contains("presentsPerPrepare{avg=0.000 min=0 max=0}"), "{line}");
+        assert!(
+            line.contains("presentsPerPrepare{avg=0.000 min=0 max=0}"),
+            "{line}"
+        );
     }
 
     #[test]
@@ -555,8 +609,14 @@ mod tests {
             stats.on_present(now + ms_ticks(8.0));
             let out = stats.on_dispatch(&prepare(16.0, i), now + ms_ticks(16.0));
             if let Some(report) = out.report {
-                assert!(report.contains("presentsPerPrepare{avg=2.000 min=2 max=2}"), "{report}");
-                assert!(report.contains("presentInterval_ms{avg=8.000 p50=8.000"), "{report}");
+                assert!(
+                    report.contains("presentsPerPrepare{avg=2.000 min=2 max=2}"),
+                    "{report}"
+                );
+                assert!(
+                    report.contains("presentInterval_ms{avg=8.000 p50=8.000"),
+                    "{report}"
+                );
                 return;
             }
             now += ms_ticks(16.0);
@@ -587,7 +647,12 @@ mod tests {
             assert_eq!(stats.stall_count(), 1);
             assert_eq!(stats.last_stall_ms(), stall_ms);
             let line = out.stall.unwrap();
-            assert!(line.starts_with(&format!("sedici: stall prepare interval={stall_ms:.3} ms median=16.000 ms ratio=")), "{line}");
+            assert!(
+                line.starts_with(&format!(
+                    "sedici: stall prepare interval={stall_ms:.3} ms median=16.000 ms ratio="
+                )),
+                "{line}"
+            );
             assert!(line.contains("frameID=99"), "{line}");
             assert!(line.contains("reset=n/a"), "{line}");
             assert!(line.contains("swapchainEvents1s{count=0}"), "{line}");
@@ -620,7 +685,10 @@ mod tests {
         assert!(first.stall.is_some());
         now += ms_ticks(100.0);
         let second = stats.on_dispatch(&prepare(16.0, 101), now + ms_ticks(100.0));
-        assert!(second.stall.is_none(), "a second stall within a second is not logged");
+        assert!(
+            second.stall.is_none(),
+            "a second stall within a second is not logged"
+        );
         assert_eq!(stats.stall_count(), 2, "but it is still counted");
     }
 
@@ -635,7 +703,10 @@ mod tests {
         stats.on_swapchain_event("resize", now);
         let out = stats.on_dispatch(&prepare(16.0, 7), now + ms_ticks(100.0));
         let line = out.stall.expect("stall");
-        assert!(line.contains("swapchainEvents1s{count=1 last=resize 100.000 ms ago}"), "{line}");
+        assert!(
+            line.contains("swapchainEvents1s{count=1 last=resize 100.000 ms ago}"),
+            "{line}"
+        );
         assert_eq!(stats.swapchain_event_count(), 1);
     }
 
@@ -649,7 +720,10 @@ mod tests {
         }
         let mut v2 = prepare(16.0, 42);
         v2.reset = Some(true);
-        let line = stats.on_dispatch(&v2, now + ms_ticks(100.0)).stall.expect("stall");
+        let line = stats
+            .on_dispatch(&v2, now + ms_ticks(100.0))
+            .stall
+            .expect("stall");
         assert!(line.contains(" reset=true"), "{line}");
         assert_eq!(stats.render_size(), (1920, 1080));
     }
@@ -661,7 +735,11 @@ mod tests {
         stats.on_present(0);
         stats.on_present(ms_ticks(16.0));
         stats.on_swapchain_event("create", 0);
-        assert_eq!(stats.swapchain_event_count(), 1, "the count is kept at any level");
+        assert_eq!(
+            stats.swapchain_event_count(),
+            1,
+            "the count is kept at any level"
+        );
         assert!(stats.window.events.iter().next().is_none());
         assert!(stats.window.present_interval.is_empty());
     }
@@ -677,7 +755,10 @@ mod tests {
     #[test]
     fn zero_frequency_records_nothing() {
         let mut stats = Stats::new(0);
-        assert_eq!(stats.on_dispatch(&prepare(16.0, 0), 0), StatsOutput::default());
+        assert_eq!(
+            stats.on_dispatch(&prepare(16.0, 0), 0),
+            StatsOutput::default()
+        );
     }
 
     #[rstest]
@@ -686,7 +767,10 @@ mod tests {
     #[case(DiagSnapshot { log: LogStats { sink_ok: false, ..LogStats::default() }, ..DiagSnapshot::default() }, true)]
     #[case(DiagSnapshot { swapchains_parked: 2, ..DiagSnapshot::default() }, true)]
     #[case(DiagSnapshot { settings_io_stalled_now: true, ..DiagSnapshot::default() }, true)]
-    fn diag_line_is_only_written_when_notable(#[case] snapshot: DiagSnapshot, #[case] notable: bool) {
+    fn diag_line_is_only_written_when_notable(
+        #[case] snapshot: DiagSnapshot,
+        #[case] notable: bool,
+    ) {
         assert_eq!(diag_notable_line(&snapshot).is_some(), notable);
     }
 

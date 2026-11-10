@@ -30,16 +30,20 @@ use crate::application::ports::gpu::{
     PixelFormat, QueueKind, ResourceState, TextureDesc, TextureFlags,
 };
 use crate::application::ports::overlay::OverlayHook;
-use crate::application::ports::swapchain::{NativeSwapchain, PresentFlags, PresentParams, SwapChainDesc};
+use crate::application::ports::swapchain::{
+    NativeSwapchain, PresentFlags, PresentParams, SwapChainDesc,
+};
 use crate::application::presentation::pacing::Pacer;
+pub use crate::application::presentation::presenter::SharedPresentQueues;
 use crate::application::presentation::presenter::{
     ListLifecycle, PresentJob, Presenter, ScanlineSource,
 };
-pub use crate::application::presentation::presenter::SharedPresentQueues;
 use crate::domain::config::{Multiplier, Present, TearGuard};
 use crate::domain::frame::MIDPOINT_ALPHA;
-use crate::domain::gpu_policy::{acquire_frame_slot, classify_fence, FenceProgress, PRESENTER_QUEUE_CAPACITY};
-use crate::domain::pacing::{OutputSchedule, OutputPlan};
+use crate::domain::gpu_policy::{
+    acquire_frame_slot, classify_fence, FenceProgress, PRESENTER_QUEUE_CAPACITY,
+};
+use crate::domain::pacing::{OutputPlan, OutputSchedule};
 use crate::domain::schedule::auto_target_fps;
 
 /// `E_POINTER`.
@@ -133,7 +137,12 @@ pub struct PresentChoice {
 
 impl Default for PresentChoice {
     fn default() -> Self {
-        Self { present: Present::Vrr, guard: TearGuard::Scanline, multiplier: Multiplier::X2, target_fps: 0.0 }
+        Self {
+            present: Present::Vrr,
+            guard: TearGuard::Scanline,
+            multiplier: Multiplier::X2,
+            target_fps: 0.0,
+        }
     }
 }
 
@@ -204,7 +213,13 @@ pub struct WrapEnvironment {
 
 impl Default for WrapEnvironment {
     fn default() -> Self {
-        Self { scanline: None, rtss_loaded: false, lead_seconds: 0.00025, force_sync_override: None, align_vblank: false }
+        Self {
+            scanline: None,
+            rtss_loaded: false,
+            lead_seconds: 0.00025,
+            force_sync_override: None,
+            align_vblank: false,
+        }
     }
 }
 
@@ -247,7 +262,9 @@ struct Scratch<D: GpuDevice> {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// The swapchain wrapper.
@@ -255,7 +272,11 @@ pub struct Swapchain<D, N, C, O>
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Clone + Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::CommandList: Clone,
     D::Fence: Send + Sync + 'static,
@@ -308,7 +329,11 @@ impl<D, N, C, O> Swapchain<D, N, C, O>
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Clone + Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::CommandList: Clone,
     D::Fence: Send + Sync + 'static,
@@ -333,7 +358,13 @@ where
         handed_refs: u32,
         report: &mut WrapReport,
     ) -> Result<Self, SwapchainError> {
-        let WrapEnvironment { scanline, rtss_loaded, lead_seconds, force_sync_override, align_vblank } = environment;
+        let WrapEnvironment {
+            scanline,
+            rtss_loaded,
+            lead_seconds,
+            force_sync_override,
+            align_vblank,
+        } = environment;
         let desc = native.desc().map_err(|_| SwapchainError::Unsupported)?;
         if !desc.is_supported() {
             return Err(SwapchainError::Unsupported);
@@ -347,29 +378,47 @@ where
                 );
                 chosen.present = Present::Vsync;
             } else if handed_refs == 0 {
-                report.fallback_reason =
-                    Some("the caller keeps its swapchain reference, so the chain cannot be recreated".to_owned());
+                report.fallback_reason = Some(
+                    "the caller keeps its swapchain reference, so the chain cannot be recreated"
+                        .to_owned(),
+                );
                 chosen.present = Present::Vsync;
             }
         }
 
         let copy_allocators = [
-            device.create_command_allocator(QueueKind::Direct).map_err(|_| SwapchainError::OutOfMemory)?,
-            device.create_command_allocator(QueueKind::Direct).map_err(|_| SwapchainError::OutOfMemory)?,
+            device
+                .create_command_allocator(QueueKind::Direct)
+                .map_err(|_| SwapchainError::OutOfMemory)?,
+            device
+                .create_command_allocator(QueueKind::Direct)
+                .map_err(|_| SwapchainError::OutOfMemory)?,
         ];
-        let generate_allocator =
-            device.create_command_allocator(QueueKind::Direct).map_err(|_| SwapchainError::OutOfMemory)?;
+        let generate_allocator = device
+            .create_command_allocator(QueueKind::Direct)
+            .map_err(|_| SwapchainError::OutOfMemory)?;
         let copy_raw = [
-            device.create_command_list(&copy_allocators[0]).map_err(|_| SwapchainError::OutOfMemory)?,
-            device.create_command_list(&copy_allocators[1]).map_err(|_| SwapchainError::OutOfMemory)?,
+            device
+                .create_command_list(&copy_allocators[0])
+                .map_err(|_| SwapchainError::OutOfMemory)?,
+            device
+                .create_command_list(&copy_allocators[1])
+                .map_err(|_| SwapchainError::OutOfMemory)?,
         ];
-        let generate_raw =
-            device.create_command_list(&generate_allocator).map_err(|_| SwapchainError::OutOfMemory)?;
+        let generate_raw = device
+            .create_command_list(&generate_allocator)
+            .map_err(|_| SwapchainError::OutOfMemory)?;
         let copy_lists = copy_raw;
         let generate_list = generate_raw;
-        let fence = Arc::new(device.create_fence(0).map_err(|_| SwapchainError::OutOfMemory)?);
-        let buffers = create_back_buffers(device.as_ref(), &desc).map_err(|_| SwapchainError::OutOfMemory)?;
-        let generated = create_generated(device.as_ref(), &desc).map_err(|_| SwapchainError::OutOfMemory)?;
+        let fence = Arc::new(
+            device
+                .create_fence(0)
+                .map_err(|_| SwapchainError::OutOfMemory)?,
+        );
+        let buffers =
+            create_back_buffers(device.as_ref(), &desc).map_err(|_| SwapchainError::OutOfMemory)?;
+        let generated =
+            create_generated(device.as_ref(), &desc).map_err(|_| SwapchainError::OutOfMemory)?;
 
         let mut wrapper = Self {
             native,
@@ -462,7 +511,8 @@ where
             desc.format,
             TextureFlags::ALLOW_UNORDERED_ACCESS,
         );
-        let snapshot = TextureDesc::texture2d(desc.width, desc.height, desc.format, TextureFlags::NONE);
+        let snapshot =
+            TextureDesc::texture2d(desc.width, desc.height, desc.format, TextureFlags::NONE);
         let mut slots = Vec::with_capacity(SLOTS);
         for _ in 0..SLOTS {
             let mut built = Vec::with_capacity(PHASE_OUTPUTS);
@@ -472,10 +522,16 @@ where
                     Err(_) => return,
                 }
             }
-            let Some(snapshot_texture) = self.device.create_texture(&snapshot).ok() else { return };
+            let Some(snapshot_texture) = self.device.create_texture(&snapshot).ok() else {
+                return;
+            };
             let mut iter = built.into_iter();
             let phase_outputs = std::array::from_fn(|_| iter.next().expect("counted above"));
-            slots.push(VrrSlot { phase_outputs, snapshot: snapshot_texture, snapshot_fence: 0 });
+            slots.push(VrrSlot {
+                phase_outputs,
+                snapshot: snapshot_texture,
+                snapshot_fence: 0,
+            });
         }
         *lock(&self.vrr_slots) = slots;
     }
@@ -523,7 +579,8 @@ where
             return false;
         }
         let mut current = lock(&self.sink);
-        let replaces = current.as_ref().map(|sink| sink.owner) != sink.as_ref().map(|sink| sink.owner);
+        let replaces =
+            current.as_ref().map(|sink| sink.owner) != sink.as_ref().map(|sink| sink.owner);
         *current = sink;
         drop(current);
         if replaces {
@@ -573,10 +630,12 @@ where
     pub fn counters(&self) -> SwapchainCounters {
         let mut counters = *lock(&self.counters);
         if let Some(presenter) = &self.presenter {
-            counters.generated_presents =
-                counters.generated_presents.saturating_add(presenter.counters().generated_shown());
-            counters.skipped_generates =
-                counters.skipped_generates.saturating_add(presenter.counters().generated_dropped());
+            counters.generated_presents = counters
+                .generated_presents
+                .saturating_add(presenter.counters().generated_shown());
+            counters.skipped_generates = counters
+                .skipped_generates
+                .saturating_add(presenter.counters().generated_dropped());
         }
         counters
     }
@@ -659,10 +718,13 @@ where
     /// pointer stays valid for the life of the wrapper.
     pub fn interpolation_texture(&self) -> Result<D::Texture, SwapchainError> {
         let mut scratch = lock(&self.scratch);
-        let Some(format) = scratch.format else { return Err(SwapchainError::NotFound) };
+        let Some(format) = scratch.format else {
+            return Err(SwapchainError::NotFound);
+        };
         if let Some(texture) = &scratch.texture {
             let info = texture.info();
-            if info.width == scratch.width && info.height == scratch.height && info.format == format {
+            if info.width == scratch.width && info.height == scratch.height && info.format == format
+            {
                 return Ok(texture.clone());
             }
             let old = scratch.texture.take();
@@ -676,7 +738,10 @@ where
             format,
             TextureFlags::ALLOW_UNORDERED_ACCESS,
         );
-        let texture = self.device.create_texture(&desc).map_err(|_| SwapchainError::OutOfMemory)?;
+        let texture = self
+            .device
+            .create_texture(&desc)
+            .map_err(|_| SwapchainError::OutOfMemory)?;
         scratch.texture = Some(texture);
         Ok(scratch.texture.as_ref().expect("just stored").clone())
     }
@@ -701,17 +766,23 @@ where
             // recording and leaves it open, which is what the C++ hands the game (K152).
             let new_list = scratch.list.as_ref().expect("just stored");
             let allocator = scratch.allocator.as_ref().expect("just stored");
-            new_list.reset_list(allocator).map_err(|_| SwapchainError::OutOfMemory)?;
+            new_list
+                .reset_list(allocator)
+                .map_err(|_| SwapchainError::OutOfMemory)?;
             return Ok(new_list.clone());
         }
-        let allocator = scratch.allocator.as_ref().ok_or(SwapchainError::OutOfMemory)?;
+        let allocator = scratch
+            .allocator
+            .as_ref()
+            .ok_or(SwapchainError::OutOfMemory)?;
         let list = scratch.list.as_ref().ok_or(SwapchainError::OutOfMemory)?;
         // The previous recording was never executed, so it is still open; a list must be closed
         // before its allocator can be reset. K168: without this close, the re-ask failed every
         // time (`allocator reset`) and the game was told the interpolation list was unavailable.
         let _ = list.close_list();
         allocator.reset().map_err(|_| SwapchainError::OutOfMemory)?;
-        list.reset_list(allocator).map_err(|_| SwapchainError::OutOfMemory)?;
+        list.reset_list(allocator)
+            .map_err(|_| SwapchainError::OutOfMemory)?;
         Ok(list.clone())
     }
 
@@ -722,7 +793,12 @@ where
 
     /// The Present entry point. `params` `Some` means Present1 was called; an empty metadata set is
     /// itself a distinct call.
-    pub fn present(&self, sync: u32, flags: PresentFlags, params: Option<&PresentParams>) -> Result<(), SwapchainError> {
+    pub fn present(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: Option<&PresentParams>,
+    ) -> Result<(), SwapchainError> {
         let entered = self.clock.now();
         if flags.contains(PresentFlags::TEST) {
             return self.call_native(sync, flags, params);
@@ -736,7 +812,9 @@ where
         if self.presenter.is_some() {
             return self.present_async(sync, flags, params, entered);
         }
-        if flags.contains(PresentFlags::DO_NOT_WAIT) && self.fence.completed() < self.fence_value.load(Ordering::Acquire) {
+        if flags.contains(PresentFlags::DO_NOT_WAIT)
+            && self.fence.completed() < self.fence_value.load(Ordering::Acquire)
+        {
             return Err(code_error(DXGI_ERROR_WAS_STILL_DRAWING));
         }
         self.drain()?;
@@ -749,7 +827,11 @@ where
         }
         let now = self.seconds();
         let out_sync = if self.force_sync { 1 } else { sync };
-        let out_flags = if self.force_sync { flags.without(PresentFlags::ALLOW_TEARING) } else { flags };
+        let out_flags = if self.force_sync {
+            flags.without(PresentFlags::ALLOW_TEARING)
+        } else {
+            flags
+        };
         // Generate from THIS prepare before any native Present or sleep can let the application
         // recycle its inputs. The next outputs must be midpoint(N-1,N) and real N, not last
         // cycle's midpoint followed by real N.
@@ -761,7 +843,10 @@ where
 
         if plan.present_generated {
             let mut generated_state = ResourceState::COPY_SOURCE;
-            if self.blit(&self.generated, &mut generated_state, true).is_ok() {
+            if self
+                .blit(&self.generated, &mut generated_state, true)
+                .is_ok()
+            {
                 let _ = self.signal_after_copy();
                 self.generated_ready.store(false, Ordering::Release);
                 if self.call_native(out_sync, out_flags, params).is_ok() {
@@ -780,7 +865,9 @@ where
         }
 
         let index = self.current_back_buffer_index() as usize;
-        let Some(real) = self.buffers.get(index) else { return Err(SwapchainError::InvalidCall) };
+        let Some(real) = self.buffers.get(index) else {
+            return Err(SwapchainError::InvalidCall);
+        };
         let mut real_state = ResourceState::PRESENT;
         self.blit(real, &mut real_state, false)?;
         if self.align_vblank {
@@ -807,7 +894,12 @@ where
         result
     }
 
-    fn call_native(&self, sync: u32, flags: PresentFlags, params: Option<&PresentParams>) -> Result<(), SwapchainError> {
+    fn call_native(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: Option<&PresentParams>,
+    ) -> Result<(), SwapchainError> {
         match params {
             Some(params) => self.native.present1(sync, flags, params),
             None => self.native.present(sync, flags),
@@ -833,8 +925,12 @@ where
             return Ok(());
         }
         let index = self.current_back_buffer_index() as usize;
-        let Some(real) = self.buffers.get(index) else { return Ok(()) };
-        self.generate_allocator.reset().map_err(|_| SwapchainError::SubmissionFailure)?;
+        let Some(real) = self.buffers.get(index) else {
+            return Ok(());
+        };
+        self.generate_allocator
+            .reset()
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         self.generate_list
             .reset_list(&self.generate_allocator)
             .map_err(|_| SwapchainError::SubmissionFailure)?;
@@ -905,7 +1001,9 @@ where
     /// keeps the lease.
     fn resolve_untracked(&self) -> Result<(), SwapchainError> {
         let mut untracked = lock(&self.untracked);
-        let Some(sink) = untracked.as_ref() else { return Ok(()) };
+        let Some(sink) = untracked.as_ref() else {
+            return Ok(());
+        };
         let value = self.fence_value.load(Ordering::Acquire);
         if !sink.context.track_submission(value) {
             return Err(SwapchainError::SubmissionFailure);
@@ -922,7 +1020,9 @@ where
         params: Option<&PresentParams>,
         entered: u64,
     ) -> Result<(), SwapchainError> {
-        let Some(presenter) = self.presenter.as_ref() else { return Err(SwapchainError::InvalidCall) };
+        let Some(presenter) = self.presenter.as_ref() else {
+            return Err(SwapchainError::InvalidCall);
+        };
         if flags.contains(PresentFlags::DO_NOT_WAIT) && presenter.outstanding() > IN_FLIGHT {
             return Err(code_error(DXGI_ERROR_WAS_STILL_DRAWING));
         }
@@ -957,7 +1057,11 @@ where
         // Generate every planned phase in one submission. The generator advances its history once
         // per real frame, so a frame with nothing generated to show still runs one phase.
         let (generated, phases) = self.record_vrr_phases(&planned, slot)?;
-        let plan = if generated { planned } else { OutputPlan::real_only(now) };
+        let plan = if generated {
+            planned
+        } else {
+            OutputPlan::real_only(now)
+        };
         if !generated && planned.generated() > 0 && lock(&self.sink).is_some() {
             // Nothing usable was generated: the real frame is shown on its own.
             lock(&self.counters).skipped_generates += 1;
@@ -995,11 +1099,18 @@ where
         let mut phase_index = 0usize;
         for output in plan.outputs() {
             if output.real {
-                job.push(crate::application::presentation::presenter::JobOutput::real(output.content));
+                job.push(
+                    crate::application::presentation::presenter::JobOutput::real(output.content),
+                );
             } else {
                 let image = phases[phase_index.min(phases.len() - 1)].clone();
                 phase_index += 1;
-                job.push(crate::application::presentation::presenter::JobOutput::generated(image, output.content));
+                job.push(
+                    crate::application::presentation::presenter::JobOutput::generated(
+                        image,
+                        output.content,
+                    ),
+                );
             }
         }
 
@@ -1028,16 +1139,23 @@ where
     fn acquire_vrr_slot(&self) -> Result<u32, SwapchainError> {
         let mut next = lock(&self.vrr_next_slot);
         let result = acquire_frame_slot(&mut next, SLOTS as u32, |candidate| {
-            let target = lock(&self.vrr_slots).get(candidate as usize).map(|slot| slot.snapshot_fence).unwrap_or(0);
+            let target = lock(&self.vrr_slots)
+                .get(candidate as usize)
+                .map(|slot| slot.snapshot_fence)
+                .unwrap_or(0);
             match classify_fence(self.fence.completed(), target) {
                 FenceProgress::Complete => Ok(true),
-                FenceProgress::DeviceRemoved => Err(crate::domain::gpu_policy::GpuFailure(DXGI_ERROR_DEVICE_REMOVED)),
+                FenceProgress::DeviceRemoved => Err(crate::domain::gpu_policy::GpuFailure(
+                    DXGI_ERROR_DEVICE_REMOVED,
+                )),
                 FenceProgress::Pending => Ok(false),
             }
         });
         match result {
             Ok(slot) => Ok(slot),
-            Err(failure) if failure.0 == DXGI_ERROR_DEVICE_REMOVED => Err(SwapchainError::DeviceHung),
+            Err(failure) if failure.0 == DXGI_ERROR_DEVICE_REMOVED => {
+                Err(SwapchainError::DeviceHung)
+            }
             Err(failure) => Err(code_error(failure.0)),
         }
     }
@@ -1055,11 +1173,20 @@ where
             None => return Ok((false, Vec::new())),
         };
         let index = self.current_back_buffer_index() as usize;
-        let Some(real) = self.buffers.get(index) else { return Ok((false, Vec::new())) };
-        let alphas: Vec<f32> = plan.outputs().iter().filter(|output| !output.real).map(|output| output.alpha).collect();
+        let Some(real) = self.buffers.get(index) else {
+            return Ok((false, Vec::new()));
+        };
+        let alphas: Vec<f32> = plan
+            .outputs()
+            .iter()
+            .filter(|output| !output.real)
+            .map(|output| output.alpha)
+            .collect();
         let images: Vec<D::Texture> = {
             let slots = lock(&self.vrr_slots);
-            let Some(entry) = slots.get(slot as usize) else { return Err(SwapchainError::InvalidCall) };
+            let Some(entry) = slots.get(slot as usize) else {
+                return Err(SwapchainError::InvalidCall);
+            };
             let wanted = alphas.len().clamp(1, PHASE_OUTPUTS);
             entry.phase_outputs.iter().take(wanted).cloned().collect()
         };
@@ -1076,7 +1203,11 @@ where
             self.set_submission_failure(E_FAIL);
             return Err(SwapchainError::SubmissionFailure);
         }
-        if self.generate_list.reset_list(&self.generate_allocator).is_err() {
+        if self
+            .generate_list
+            .reset_list(&self.generate_allocator)
+            .is_err()
+        {
             self.set_submission_failure(E_FAIL);
             return Err(SwapchainError::SubmissionFailure);
         }
@@ -1109,19 +1240,41 @@ where
     /// buffer is free once this copy has run (queue order guarantees it before its next use).
     fn snapshot_real(&self, slot: u32) -> Result<(), SwapchainError> {
         let index = self.current_back_buffer_index() as usize;
-        let Some(source) = self.buffers.get(index) else { return Ok(()) };
-        self.generate_allocator.reset().map_err(|_| SwapchainError::SubmissionFailure)?;
+        let Some(source) = self.buffers.get(index) else {
+            return Ok(());
+        };
+        self.generate_allocator
+            .reset()
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         self.generate_list
             .reset_list(&self.generate_allocator)
             .map_err(|_| SwapchainError::SubmissionFailure)?;
         {
             let slots = lock(&self.vrr_slots);
-            let Some(entry) = slots.get(slot as usize) else { return Err(SwapchainError::InvalidCall) };
-            self.generate_list.transition(source, ResourceState::PRESENT, ResourceState::COPY_SOURCE);
-            self.generate_list.transition(&entry.snapshot, ResourceState::PRESENT, ResourceState::COPY_DEST);
+            let Some(entry) = slots.get(slot as usize) else {
+                return Err(SwapchainError::InvalidCall);
+            };
+            self.generate_list.transition(
+                source,
+                ResourceState::PRESENT,
+                ResourceState::COPY_SOURCE,
+            );
+            self.generate_list.transition(
+                &entry.snapshot,
+                ResourceState::PRESENT,
+                ResourceState::COPY_DEST,
+            );
             self.generate_list.copy_resource(&entry.snapshot, source);
-            self.generate_list.transition(source, ResourceState::COPY_SOURCE, ResourceState::PRESENT);
-            self.generate_list.transition(&entry.snapshot, ResourceState::COPY_DEST, ResourceState::PRESENT);
+            self.generate_list.transition(
+                source,
+                ResourceState::COPY_SOURCE,
+                ResourceState::PRESENT,
+            );
+            self.generate_list.transition(
+                &entry.snapshot,
+                ResourceState::COPY_DEST,
+                ResourceState::PRESENT,
+            );
         }
         if self.generate_list.close_list().is_err() {
             self.set_submission_failure(E_FAIL);
@@ -1136,32 +1289,54 @@ where
 
     /// Copies `source` into the current native back buffer, restoring both states, and draws the
     /// overlay on the final image. The copy is executed before this returns.
-    fn blit(&self, source: &D::Texture, source_state: &mut ResourceState, generated: bool) -> Result<(), SwapchainError> {
-        let destination =
-            self.native.back_buffer(self.native.current_back_buffer_index()).map_err(|error| code_error(error.code()))?;
+    fn blit(
+        &self,
+        source: &D::Texture,
+        source_state: &mut ResourceState,
+        generated: bool,
+    ) -> Result<(), SwapchainError> {
+        let destination = self
+            .native
+            .back_buffer(self.native.current_back_buffer_index())
+            .map_err(|error| code_error(error.code()))?;
         // Alternating allocators: both copies of a cycle execute before either can be reset.
         let slot = (self.next_list.fetch_add(1, Ordering::AcqRel) & 1) as usize;
-        self.copy_allocators[slot].reset().map_err(|_| SwapchainError::SubmissionFailure)?;
+        self.copy_allocators[slot]
+            .reset()
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         let list = &self.copy_lists[slot];
-        list.reset_list(&self.copy_allocators[slot]).map_err(|_| SwapchainError::SubmissionFailure)?;
+        list.reset_list(&self.copy_allocators[slot])
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         let restore = *source_state;
         list.transition(source, restore, ResourceState::COPY_SOURCE);
-        list.transition(&destination, ResourceState::PRESENT, ResourceState::COPY_DEST);
+        list.transition(
+            &destination,
+            ResourceState::PRESENT,
+            ResourceState::COPY_DEST,
+        );
         list.copy_resource(&destination, source);
-        list.transition(&destination, ResourceState::COPY_DEST, ResourceState::PRESENT);
+        list.transition(
+            &destination,
+            ResourceState::COPY_DEST,
+            ResourceState::PRESENT,
+        );
         list.transition(source, ResourceState::COPY_SOURCE, restore);
         // The overlay draws on the final image, as it does from AMD's callback.
         lock(&self.overlay).draw(list, &destination, generated);
         if list.close_list().is_err() {
             return Err(SwapchainError::SubmissionFailure);
         }
-        self.queue.execute(&[list]).map_err(|_| SwapchainError::SubmissionFailure)?;
+        self.queue
+            .execute(&[list])
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         Ok(())
     }
 
     fn signal_after_copy(&self) -> Result<u64, SwapchainError> {
         let value = self.fence_value.fetch_add(1, Ordering::AcqRel) + 1;
-        self.queue.signal(self.fence.as_ref(), value).map_err(|_| SwapchainError::SubmissionFailure)?;
+        self.queue
+            .signal(self.fence.as_ref(), value)
+            .map_err(|_| SwapchainError::SubmissionFailure)?;
         Ok(value)
     }
 
@@ -1171,7 +1346,9 @@ where
             if !presenter.wait_outstanding(0, Duration::from_millis(5000)) {
                 return Err(SwapchainError::DeviceHung);
             }
-            presenter.drain_gpu().map_err(|error| code_error(error.code()))?;
+            presenter
+                .drain_gpu()
+                .map_err(|error| code_error(error.code()))?;
         }
         if let Some(recovery) = *lock(&self.submission_failure) {
             // A failed signal left submitted work without a retirement token. A later queue-signalled
@@ -1189,7 +1366,9 @@ where
         match classify_fence(self.fence.completed(), target) {
             FenceProgress::DeviceRemoved => {
                 return Err(code_error(crate::domain::gpu_policy::removed_device_error(
-                    self.device.removed_reason().unwrap_or(DXGI_ERROR_DEVICE_REMOVED),
+                    self.device
+                        .removed_reason()
+                        .unwrap_or(DXGI_ERROR_DEVICE_REMOVED),
                 )))
             }
             FenceProgress::Complete => return Ok(()),
@@ -1198,7 +1377,9 @@ where
         match self.fence.wait(target, Duration::from_millis(5000)) {
             Ok(()) => Ok(()),
             Err(GpuError::Timeout) => match self.device.removed_reason() {
-                Some(reason) => Err(code_error(crate::domain::gpu_policy::removed_device_error(reason))),
+                Some(reason) => Err(code_error(crate::domain::gpu_policy::removed_device_error(
+                    reason,
+                ))),
                 None => Err(SwapchainError::DeviceHung),
             },
             Err(error) => Err(code_error(error.code())),
@@ -1232,7 +1413,10 @@ where
         flags: u32,
     ) -> Result<(), SwapchainError> {
         if let Some(format) = format {
-            if !matches!(format, PixelFormat::R8G8B8A8Unorm | PixelFormat::R10G10B10A2Unorm) {
+            if !matches!(
+                format,
+                PixelFormat::R8G8B8A8Unorm | PixelFormat::R10G10B10A2Unorm
+            ) {
                 return Err(SwapchainError::Unsupported);
             }
         }
@@ -1245,15 +1429,24 @@ where
         }
         // Resize must fail while the application owns a back buffer reference, as native DXGI does.
         for index in 0..self.buffers.len() as u32 {
-            if self.native.buffer_reference_count(index).is_some_and(|count| count > 1) {
+            if self
+                .native
+                .buffer_reference_count(index)
+                .is_some_and(|count| count > 1)
+            {
                 return Err(SwapchainError::BufferReferenced);
             }
         }
         self.drain()?;
-        let current = self.native.desc().map_err(|_| SwapchainError::InvalidCall)?;
+        let current = self
+            .native
+            .desc()
+            .map_err(|_| SwapchainError::InvalidCall)?;
         let chain_format = format.unwrap_or(current.format);
         match &self.presenter {
-            Some(presenter) => presenter.resize_native(count, width, height, chain_format, flags).map_err(|error| code_error(error.code()))?,
+            Some(presenter) => presenter
+                .resize_native(count, width, height, chain_format, flags)
+                .map_err(|error| code_error(error.code()))?,
             None => self
                 .native
                 .resize_buffers(count, width, height, chain_format, flags)
@@ -1261,7 +1454,10 @@ where
         }
         self.generated_ready.store(false, Ordering::Release);
         lock(&self.pacer).reset();
-        let desc = self.native.desc().map_err(|_| SwapchainError::InvalidCall)?;
+        let desc = self
+            .native
+            .desc()
+            .map_err(|_| SwapchainError::InvalidCall)?;
         {
             let mut scratch = lock(&self.scratch);
             if let Some(texture) = scratch.texture.take() {
@@ -1288,11 +1484,19 @@ where
         flags: u32,
         node_masks: &[u32],
     ) -> Result<(), SwapchainError> {
-        let buffers = if count == 0 { self.buffers.len() as u32 } else { count };
+        let buffers = if count == 0 {
+            self.buffers.len() as u32
+        } else {
+            count
+        };
         if node_masks.len() < buffers as usize {
             return Err(SwapchainError::InvalidArgument);
         }
-        if node_masks.iter().take(buffers as usize).any(|mask| *mask > 1) {
+        if node_masks
+            .iter()
+            .take(buffers as usize)
+            .any(|mask| *mask > 1)
+        {
             return Err(SwapchainError::ForeignPresentQueue);
         }
         self.resize(count, width, height, format, flags)
@@ -1325,7 +1529,11 @@ where
     /// known refresh rate keep the old safe fallback.
     pub fn adaptive_target(&self, choice: PresentChoice) -> f64 {
         let hz = self.display_refresh_hz();
-        let target = if choice.target_fps > 0.0 { choice.target_fps } else { auto_target_fps(hz) };
+        let target = if choice.target_fps > 0.0 {
+            choice.target_fps
+        } else {
+            auto_target_fps(hz)
+        };
         if target > 0.0 {
             target
         } else {
@@ -1334,7 +1542,11 @@ where
     }
 
     pub fn display_refresh_hz(&self) -> f64 {
-        let mut hz = self.native.containing_output().map(|output| output.refresh_hz).unwrap_or(0.0);
+        let mut hz = self
+            .native
+            .containing_output()
+            .map(|output| output.refresh_hz)
+            .unwrap_or(0.0);
         if hz <= 0.0 {
             if let Some(presenter) = &self.presenter {
                 hz = presenter.refresh_hz();
@@ -1388,14 +1600,19 @@ where
         if frequency == 0 {
             return;
         }
-        let target = self.clock.now().saturating_add((remaining * frequency as f64) as u64);
+        let target = self
+            .clock
+            .now()
+            .saturating_add((remaining * frequency as f64) as u64);
         let _ = self.clock.wait_until(target);
     }
 
     /// The absolute deadline for arming a flip just before the next vertical blank (opt-in,
     /// `SEDICI_FG_ALIGN=1`). Returns `now` when frame statistics are unavailable.
     fn vblank_deadline(&self, now: f64) -> f64 {
-        let Some(stats) = self.native.frame_statistics() else { return now };
+        let Some(stats) = self.native.frame_statistics() else {
+            return now;
+        };
         let frequency = self.clock.frequency();
         if frequency == 0 || stats.sync_qpc_ticks <= 0 {
             return now;
@@ -1405,7 +1622,11 @@ where
         const MARGIN: f64 = 0.0012;
         let lead = now + MARGIN;
         let period = 1.0 / 75.0;
-        let target = if lead >= epoch { epoch + ((lead - epoch) / period).ceil() * period } else { epoch };
+        let target = if lead >= epoch {
+            epoch + ((lead - epoch) / period).ceil() * period
+        } else {
+            epoch
+        };
         target - MARGIN
     }
 }
@@ -1417,17 +1638,30 @@ pub fn scanline_lead_us() -> Option<f64> {
     (0.0..=5000.0).contains(&value).then_some(value)
 }
 
-fn create_back_buffers<D: GpuDevice>(device: &D, desc: &SwapChainDesc) -> Result<Vec<D::Texture>, GpuError> {
+fn create_back_buffers<D: GpuDevice>(
+    device: &D,
+    desc: &SwapChainDesc,
+) -> Result<Vec<D::Texture>, GpuError> {
     // The game renders into these, so they need render-target access (D3D12's
     // D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET is 0x1). The port's `TextureFlags` has no named
     // constant for it (K152), so the raw bit is spelled here instead of widening another slice.
     let texture = TextureDesc::texture2d(desc.width, desc.height, desc.format, TextureFlags(0x1));
-    (0..desc.buffer_count).map(|_| device.create_texture(&texture)).collect()
+    (0..desc.buffer_count)
+        .map(|_| device.create_texture(&texture))
+        .collect()
 }
 
-fn create_generated<D: GpuDevice>(device: &D, desc: &SwapChainDesc) -> Result<D::Texture, GpuError> {
+fn create_generated<D: GpuDevice>(
+    device: &D,
+    desc: &SwapChainDesc,
+) -> Result<D::Texture, GpuError> {
     // Written by a compute pass and copied to a native back buffer, so UAV access and no RT flag.
-    let texture = TextureDesc::texture2d(desc.width, desc.height, desc.format, TextureFlags::ALLOW_UNORDERED_ACCESS);
+    let texture = TextureDesc::texture2d(
+        desc.width,
+        desc.height,
+        desc.format,
+        TextureFlags::ALLOW_UNORDERED_ACCESS,
+    );
     device.create_texture(&texture)
 }
 

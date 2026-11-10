@@ -5,13 +5,12 @@
 use std::cell::Cell;
 
 use windows::Win32::Graphics::Direct3D12::{
-    ID3D12CommandAllocator, ID3D12GraphicsCommandList, ID3D12Resource, D3D12_RESOURCE_BARRIER,
-    D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-    D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-    D3D12_RESOURCE_BARRIER_TYPE_UAV, D3D12_RESOURCE_DESC,
+    ID3D12CommandAllocator, ID3D12GraphicsCommandList, ID3D12Resource,
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
+    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_BARRIER_FLAG_NONE,
+    D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_BARRIER_TYPE_UAV, D3D12_RESOURCE_DESC,
     D3D12_RESOURCE_STATES, D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_RESOURCE_UAV_BARRIER,
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_SUBRESOURCE_FOOTPRINT,
-    D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+    D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
     D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
     D3D12_TEXTURE_DATA_PITCH_ALIGNMENT,
 };
@@ -36,7 +35,9 @@ pub struct D3d12Texture {
 
 impl std::fmt::Debug for D3d12Texture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("D3d12Texture").field("info", &self.info).finish()
+        f.debug_struct("D3d12Texture")
+            .field("info", &self.info)
+            .finish()
     }
 }
 
@@ -74,7 +75,11 @@ impl D3d12Texture {
 
 impl Clone for D3d12Texture {
     fn clone(&self) -> Self {
-        Self { resource: self.resource.clone(), info: self.info, state: Cell::new(self.state.get()) }
+        Self {
+            resource: self.resource.clone(),
+            info: self.info,
+            state: Cell::new(self.state.get()),
+        }
     }
 }
 
@@ -117,7 +122,9 @@ pub struct D3d12Buffer {
 
 impl std::fmt::Debug for D3d12Buffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("D3d12Buffer").field("size", &self.size).finish()
+        f.debug_struct("D3d12Buffer")
+            .field("size", &self.size)
+            .finish()
     }
 }
 
@@ -129,7 +136,10 @@ impl D3d12Buffer {
     /// Maps, copies `data` and unmaps. Only valid for an upload heap.
     pub fn write(&self, data: &[u8]) -> Result<(), GpuError> {
         if data.len() as u64 > self.size {
-            return Err(GpuError::failed("buffer write", crate::domain::gpu_policy::E_INVALIDARG));
+            return Err(GpuError::failed(
+                "buffer write",
+                crate::domain::gpu_policy::E_INVALIDARG,
+            ));
         }
         let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
         // SAFETY: an upload-heap buffer is mappable; the range says the CPU will not read it.
@@ -149,9 +159,8 @@ impl D3d12Buffer {
         unsafe { self.resource.Map(0, None, Some(&mut mapped)) }
             .map_err(|error| GpuError::failed("buffer map", error.code().0 as u32))?;
         // SAFETY: `mapped` points at `self.size` readable bytes.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(mapped.cast::<u8>(), self.size as usize).to_vec()
-        };
+        let bytes =
+            unsafe { std::slice::from_raw_parts(mapped.cast::<u8>(), self.size as usize).to_vec() };
         // SAFETY: unmapping a buffer this object mapped.
         unsafe { self.resource.Unmap(0, None) };
         Ok(bytes)
@@ -196,7 +205,9 @@ impl std::fmt::Debug for D3d12CommandList {
 
 impl Clone for D3d12CommandList {
     fn clone(&self) -> Self {
-        Self { list: self.list.clone() }
+        Self {
+            list: self.list.clone(),
+        }
     }
 }
 
@@ -254,8 +265,13 @@ impl D3d12CommandList {
     ) -> Result<(), GpuError> {
         let row_pitch = Self::row_pitch(width, bytes_per_pixel);
         let row_bytes = (width * bytes_per_pixel) as usize;
-        if data.len() < row_bytes * height as usize || staging.size < u64::from(row_pitch) * u64::from(height) {
-            return Err(GpuError::failed("texture upload", crate::domain::gpu_policy::E_INVALIDARG));
+        if data.len() < row_bytes * height as usize
+            || staging.size < u64::from(row_pitch) * u64::from(height)
+        {
+            return Err(GpuError::failed(
+                "texture upload",
+                crate::domain::gpu_policy::E_INVALIDARG,
+            ));
         }
         let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
         // SAFETY: an upload-heap buffer is mappable for the whole size.
@@ -295,7 +311,9 @@ impl D3d12CommandList {
         let to = D3D12_TEXTURE_COPY_LOCATION {
             pResource: std::mem::ManuallyDrop::new(Some(texture.resource.clone())),
             Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
+            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                SubresourceIndex: 0,
+            },
         };
         // SAFETY: both locations describe live resources in COPY_DEST / generic-read states, and
         // the footprint matches the upload buffer's size.
@@ -315,13 +333,18 @@ impl D3d12CommandList {
         let info = texture.info;
         let row_pitch = Self::row_pitch(info.width, 4);
         if staging.size < u64::from(row_pitch) * u64::from(info.height) {
-            return Err(GpuError::failed("texture readback", crate::domain::gpu_policy::E_INVALIDARG));
+            return Err(GpuError::failed(
+                "texture readback",
+                crate::domain::gpu_policy::E_INVALIDARG,
+            ));
         }
         self.transition(texture, from_state, ResourceState::COPY_SOURCE);
         let from = D3D12_TEXTURE_COPY_LOCATION {
             pResource: std::mem::ManuallyDrop::new(Some(texture.resource.clone())),
             Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 { SubresourceIndex: 0 },
+            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                SubresourceIndex: 0,
+            },
         };
         let to = D3D12_TEXTURE_COPY_LOCATION {
             pResource: std::mem::ManuallyDrop::new(Some(staging.resource.clone())),
@@ -398,7 +421,10 @@ impl GpuCommandList<D3d12Texture> for D3d12CommandList {
     fn copy_resource(&self, destination: &D3d12Texture, source: &D3d12Texture) {
         // SAFETY: both resources are live, distinct and in the states the caller transitioned them
         // to (COPY_DEST / COPY_SOURCE).
-        unsafe { self.list.CopyResource(&destination.resource, &source.resource) };
+        unsafe {
+            self.list
+                .CopyResource(&destination.resource, &source.resource)
+        };
     }
 
     fn dispatch(&self, groups_x: u32, groups_y: u32, groups_z: u32) {

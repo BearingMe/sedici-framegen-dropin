@@ -57,20 +57,32 @@ fn triangles_after_warmup(view: &OverlayView) -> usize {
             let _ = menu::show(ctx, view);
         });
         let primitives = context.tessellate(output.shapes, 1.0);
-        last = primitives.iter().filter(|p| matches!(p.primitive, egui::epaint::Primitive::Mesh(_))).count();
+        last = primitives
+            .iter()
+            .filter(|p| matches!(p.primitive, egui::epaint::Primitive::Mesh(_)))
+            .count();
     }
     last
 }
 
 #[test]
 fn the_mini_menu_tessellates_after_the_warmup_pass() {
-    let view = OverlayView::Mini(MiniView { real_fps: 60.0, output_fps: 120.0, output_p99_ms: 9.0 });
-    assert!(triangles_after_warmup(&view) > 0, "a Mini menu must produce triangles");
+    let view = OverlayView::Mini(MiniView {
+        real_fps: 60.0,
+        output_fps: 120.0,
+        output_p99_ms: 9.0,
+    });
+    assert!(
+        triangles_after_warmup(&view) > 0,
+        "a Mini menu must produce triangles"
+    );
 }
 
 #[test]
 fn the_full_menu_tessellates_after_the_warmup_pass() {
     let view = OverlayView::Full(full_view());
-    assert!(triangles_after_warmup(&view) > 0, "a Full menu must produce triangles");
+    assert!(
+        triangles_after_warmup(&view) > 0,
+        "a Full menu must produce triangles"
+    );
 }
-

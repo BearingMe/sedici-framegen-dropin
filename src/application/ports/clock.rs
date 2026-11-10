@@ -71,7 +71,14 @@ struct FakeState {
 
 impl FakeClock {
     pub fn new(frequency: u64, start: u64) -> Self {
-        Self { frequency, state: Mutex::new(FakeState { now: start, waits: Vec::new() }), waits_succeed: Mutex::new(true) }
+        Self {
+            frequency,
+            state: Mutex::new(FakeState {
+                now: start,
+                waits: Vec::new(),
+            }),
+            waits_succeed: Mutex::new(true),
+        }
     }
 
     /// Advances the clock by `ticks` without a wait (the game's own frame cost).

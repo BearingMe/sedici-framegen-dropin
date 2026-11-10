@@ -35,7 +35,11 @@ pub const DEVICE_REMOVED: u32 = 0x887A_0005;
 /// Some drivers return success from the removed-reason query before removal is observable. A
 /// removed-fence sentinel must never become success.
 pub fn removed_device_error(reason: u32) -> u32 {
-    if reason & 0x8000_0000 != 0 { reason } else { DEVICE_REMOVED }
+    if reason & 0x8000_0000 != 0 {
+        reason
+    } else {
+        DEVICE_REMOVED
+    }
 }
 
 /// A retirement wait is valid only after its queue signal was accepted.
@@ -73,7 +77,9 @@ pub struct FixedQueue<T, const CAPACITY: usize> {
 
 impl<T, const CAPACITY: usize> Default for FixedQueue<T, CAPACITY> {
     fn default() -> Self {
-        Self { entries: VecDeque::with_capacity(CAPACITY) }
+        Self {
+            entries: VecDeque::with_capacity(CAPACITY),
+        }
     }
 }
 
@@ -116,10 +122,13 @@ mod tests {
     #[test]
     fn wait_is_skipped_when_signal_fails() {
         let mut waited = false;
-        let r = signal_then_wait(|| Err(GpuFailure(E_FAIL)), || {
-            waited = true;
-            Ok(())
-        });
+        let r = signal_then_wait(
+            || Err(GpuFailure(E_FAIL)),
+            || {
+                waited = true;
+                Ok(())
+            },
+        );
         assert_eq!(r, Err(GpuFailure(E_FAIL)));
         assert!(!waited);
     }
@@ -127,11 +136,17 @@ mod tests {
     #[test]
     fn slot_ring_advances_only_when_ready() {
         let mut next = 1;
-        assert_eq!(acquire_frame_slot(&mut next, 3, |_| Ok(false)), Err(GpuFailure(E_FAIL)));
+        assert_eq!(
+            acquire_frame_slot(&mut next, 3, |_| Ok(false)),
+            Err(GpuFailure(E_FAIL))
+        );
         assert_eq!(next, 1);
         assert_eq!(acquire_frame_slot(&mut next, 3, |_| Ok(true)), Ok(1));
         assert_eq!(next, 2);
-        assert_eq!(acquire_frame_slot(&mut 3, 3, |_| Ok(true)), Err(GpuFailure(E_INVALIDARG)));
+        assert_eq!(
+            acquire_frame_slot(&mut 3, 3, |_| Ok(true)),
+            Err(GpuFailure(E_INVALIDARG))
+        );
     }
 
     #[test]

@@ -69,7 +69,10 @@ pub struct PacingOutput {
 /// No wait before the midpoint. The real-frame deadline is at most half an interval after
 /// entry; work/API time already spent consumes that budget.
 pub fn plan_present(input: &PacingInput) -> PacingOutput {
-    let mut output = PacingOutput { real_deadline: input.now, ..Default::default() };
+    let mut output = PacingOutput {
+        real_deadline: input.now,
+        ..Default::default()
+    };
     output.present_generated = input.generated_ready && input.cycle_started;
     if !input.cycle_started {
         // No temporal pair yet: never show the seeded real image as a midpoint.
@@ -112,7 +115,12 @@ pub struct PacingState {
 
 impl Default for PacingState {
     fn default() -> Self {
-        Self { last_entry: 0.0, interval: 1.0 / 60.0, cycle_started: false, interval_valid: false }
+        Self {
+            last_entry: 0.0,
+            interval: 1.0 / 60.0,
+            cycle_started: false,
+            interval_valid: false,
+        }
     }
 }
 
@@ -164,7 +172,11 @@ pub struct PlannedOutput {
 
 impl Default for PlannedOutput {
     fn default() -> Self {
-        Self { alpha: 1.0, real: true, content: 0.0 }
+        Self {
+            alpha: 1.0,
+            real: true,
+            content: 0.0,
+        }
     }
 }
 
@@ -198,7 +210,11 @@ impl OutputPlan {
     /// The real frame alone; used when nothing usable was generated.
     pub fn real_only(entry: f64) -> Self {
         let mut plan = Self::default();
-        plan.push(PlannedOutput { alpha: 1.0, real: true, content: entry });
+        plan.push(PlannedOutput {
+            alpha: 1.0,
+            real: true,
+            content: entry,
+        });
         plan
     }
 }
@@ -276,7 +292,11 @@ impl OutputSchedule {
     /// Output frames per second to aim for. Resets the grid.
     pub fn set_target(&mut self, fps: f64) {
         self.adaptive = true;
-        self.target = if fps.is_finite() { fps.clamp(1.0, 1000.0) } else { 60.0 };
+        self.target = if fps.is_finite() {
+            fps.clamp(1.0, 1000.0)
+        } else {
+            60.0
+        };
         self.reset();
     }
 
@@ -347,7 +367,12 @@ impl OutputSchedule {
         self.started = true;
         if !continuous {
             self.index = 0;
-            self.next_slot = entry + if self.adaptive { 1.0 / self.target } else { 0.0 };
+            self.next_slot = entry
+                + if self.adaptive {
+                    1.0 / self.target
+                } else {
+                    0.0
+                };
             return OutputPlan::real_only(entry);
         }
 
@@ -358,7 +383,11 @@ impl OutputSchedule {
                 return;
             }
             let alpha = alpha.clamp(0.02, 0.98);
-            plan.push(PlannedOutput { alpha: alpha as f32, real: false, content: previous + alpha * interval });
+            plan.push(PlannedOutput {
+                alpha: alpha as f32,
+                real: false,
+                content: previous + alpha * interval,
+            });
         };
 
         if !adaptive {
@@ -372,7 +401,11 @@ impl OutputSchedule {
             for m in first..=last {
                 let numerator = m * q - (n - 1) * p;
                 if numerator >= p {
-                    plan.push(PlannedOutput { alpha: 1.0, real: true, content: entry });
+                    plan.push(PlannedOutput {
+                        alpha: 1.0,
+                        real: true,
+                        content: entry,
+                    });
                 } else {
                     add_generated(&mut plan, numerator as f64 / p as f64);
                 }
@@ -394,7 +427,11 @@ impl OutputSchedule {
         while guard < 64 && self.next_slot <= entry + snap {
             guard += 1;
             if (entry - self.next_slot).abs() <= snap {
-                plan.push(PlannedOutput { alpha: 1.0, real: true, content: entry });
+                plan.push(PlannedOutput {
+                    alpha: 1.0,
+                    real: true,
+                    content: entry,
+                });
                 self.next_slot += period;
                 break; // the real frame closes this interval
             }
@@ -437,12 +474,21 @@ mod tests {
         assert_eq!(got.present_generated, want.present_generated);
         assert!(got.first_wait.abs() < 1e-9);
         assert!((got.second_wait - want.second_wait).abs() < 1e-9, "{got:?}");
-        assert!((got.real_deadline - want.real_deadline).abs() < 1e-9, "{got:?}");
+        assert!(
+            (got.real_deadline - want.real_deadline).abs() < 1e-9,
+            "{got:?}"
+        );
     }
 
     #[test]
     fn invalid_interval_falls_back_to_a_bounded_wait() {
-        let input = PacingInput { now: 10.0 + 1.0 / 60.0, last_cycle: 10.0, interval: 0.0, cycle_started: true, generated_ready: true };
+        let input = PacingInput {
+            now: 10.0 + 1.0 / 60.0,
+            last_cycle: 10.0,
+            interval: 0.0,
+            cycle_started: true,
+            generated_ready: true,
+        };
         let plan = plan_present(&input);
         assert!(plan.second_wait > 0.0 && plan.second_wait <= 0.5);
     }
@@ -470,7 +516,8 @@ mod tests {
             let work = if cycle % 2 == 1 { 0.002 } else { 0.004 };
             let real = (entry + work).max(next.real_deadline);
             let following_entry = (entry + period).max(real + 0.004);
-            bounded &= next.first_wait == 0.0 && next.real_deadline <= entry + pacing.interval() * 0.5 + 1e-8;
+            bounded &= next.first_wait == 0.0
+                && next.real_deadline <= entry + pacing.interval() * 0.5 + 1e-8;
             if !enabled {
                 bounded &= !next.present_generated && next.real_deadline == entry;
             }
@@ -491,7 +538,13 @@ mod tests {
     #[case(true, 1.0, 0.125, 1.124, false)]
     #[case(true, 1.0, 0.125, 1.125, true)] // equality counts as due
     #[case(true, 1.0, 0.125, 1.126, true)]
-    fn stale_output_policy(#[case] has_later: bool, #[case] content: f64, #[case] latency: f64, #[case] now: f64, #[case] due: bool) {
+    fn stale_output_policy(
+        #[case] has_later: bool,
+        #[case] content: f64,
+        #[case] latency: f64,
+        #[case] now: f64,
+        #[case] due: bool,
+    ) {
         assert_eq!(later_output_is_due(has_later, content, latency, now), due);
     }
 
@@ -521,10 +574,18 @@ mod tests {
     #[case(u32::MAX, 0, 2, 1)] // zero denominator rejected
     #[case(1, 3, 2, 1)] // ratio below 1 rejected
     #[case(3, 2, 3, 2)]
-    fn ratio_validation(#[case] numerator: u32, #[case] denominator: u32, #[case] want_n: u32, #[case] want_d: u32) {
+    fn ratio_validation(
+        #[case] numerator: u32,
+        #[case] denominator: u32,
+        #[case] want_n: u32,
+        #[case] want_d: u32,
+    ) {
         let mut schedule = OutputSchedule::new();
         schedule.set_ratio(numerator, denominator);
-        assert_eq!((schedule.numerator(), schedule.denominator()), (want_n, want_d));
+        assert_eq!(
+            (schedule.numerator(), schedule.denominator()),
+            (want_n, want_d)
+        );
     }
 
     /// Every output lands on an even grid in content time; no real frame ever needs more than
@@ -600,7 +661,8 @@ mod tests {
             for out in step.outputs() {
                 if frame > 1 {
                     produced += 1;
-                    max_gap_error = max_gap_error.max((out.content - previous_content - 1.0 / 72.0).abs());
+                    max_gap_error =
+                        max_gap_error.max((out.content - previous_content - 1.0 / 72.0).abs());
                 }
                 previous_content = out.content;
             }

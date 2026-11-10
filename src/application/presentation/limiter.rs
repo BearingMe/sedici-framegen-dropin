@@ -75,7 +75,6 @@ struct LimiterState {
     window: Window,
 }
 
-
 /// The limiter over a [`Clock`] and an fps source. Construct one per DLL lifetime.
 pub struct Limiter<C: Clock> {
     clock: C,
@@ -126,7 +125,10 @@ pub fn format_fps(fps: f64) -> String {
 
 impl<C: Clock> Limiter<C> {
     pub fn new(clock: C) -> Self {
-        Self { clock, state: Mutex::new(LimiterState::default()) }
+        Self {
+            clock,
+            state: Mutex::new(LimiterState::default()),
+        }
     }
 
     /// Drops the schedule and allowed timer state after a live target change. The next Present
@@ -138,13 +140,21 @@ impl<C: Clock> Limiter<C> {
 
     /// True once the limiter has decided it cannot run (no frequency or a timer failure).
     pub fn disabled(&self) -> bool {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).disabled
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .disabled
     }
 
     /// The measured interval between real presents in the current window, in milliseconds. For
     /// tests and the presentation stats.
     pub fn intervals_ms(&self) -> Vec<f64> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).window.intervals.clone()
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .window
+            .intervals
+            .clone()
     }
 
     /// Makes the frame's deadline decision, waits if needed, and records the frame. `now` is the
@@ -164,16 +174,34 @@ impl<C: Clock> Limiter<C> {
         if !state.logged_mode || state.logged_fg != fg_active {
             state.logged_mode = true;
             state.logged_fg = fg_active;
-            info!("{}", activation_line(config.fps, state.interval, config.spin_us, self.clock.frequency(), fg_active));
+            info!(
+                "{}",
+                activation_line(
+                    config.fps,
+                    state.interval,
+                    config.spin_us,
+                    self.clock.frequency(),
+                    fg_active
+                )
+            );
         }
 
-        let LimiterStep { deadline, wait, late, reset } = limiter_step(now, state.deadline, state.have_deadline, state.interval);
+        let LimiterStep {
+            deadline,
+            wait,
+            late,
+            reset,
+        } = limiter_step(now, state.deadline, state.have_deadline, state.interval);
         state.deadline = deadline;
         state.have_deadline = true;
 
         let mut timer_failed = false;
         if wait {
-            let wait_target = if deadline > state.spin { deadline - state.spin } else { now };
+            let wait_target = if deadline > state.spin {
+                deadline - state.spin
+            } else {
+                now
+            };
             if wait_target > now && !self.clock.wait_until(wait_target) {
                 timer_failed = true;
             }
@@ -188,15 +216,24 @@ impl<C: Clock> Limiter<C> {
         }
 
         if state.have_last_actual {
-            let elapsed = self.clock.ticks_to_ms(actual.saturating_sub(state.last_actual));
+            let elapsed = self
+                .clock
+                .ticks_to_ms(actual.saturating_sub(state.last_actual));
             state.window.intervals.push(elapsed);
         }
         state.last_actual = actual;
         state.have_last_actual = true;
 
-        state.window.waits.push(self.clock.ticks_to_ms(actual.saturating_sub(now)));
+        state
+            .window
+            .waits
+            .push(self.clock.ticks_to_ms(actual.saturating_sub(now)));
         if wait && !timer_failed {
-            let overshoot = if actual > deadline { self.clock.ticks_to_ms(actual - deadline) } else { 0.0 };
+            let overshoot = if actual > deadline {
+                self.clock.ticks_to_ms(actual - deadline)
+            } else {
+                0.0
+            };
             state.window.overshoots.push(overshoot);
         }
 
@@ -224,7 +261,11 @@ impl<C: Clock> Limiter<C> {
             info!("{line}");
         }
 
-        FrameOutcome { reset, late, waited: wait && !timer_failed }
+        FrameOutcome {
+            reset,
+            late,
+            waited: wait && !timer_failed,
+        }
     }
 
     fn initialize(&self, state: &mut LimiterState, config: LimiterConfig) -> bool {
@@ -253,8 +294,18 @@ impl<C: Clock> Limiter<C> {
     }
 }
 
-fn activation_line(fps: f64, interval: u64, spin_us: i64, frequency: u64, fg_active: bool) -> String {
-    let interval_ms = if frequency == 0 { 0.0 } else { interval as f64 * 1000.0 / frequency as f64 };
+fn activation_line(
+    fps: f64,
+    interval: u64,
+    spin_us: i64,
+    frequency: u64,
+    fg_active: bool,
+) -> String {
+    let interval_ms = if frequency == 0 {
+        0.0
+    } else {
+        interval as f64 * 1000.0 / frequency as f64
+    };
     format!(
         "sedici: limiter active target={} fps interval={interval_ms:.3} ms spin={spin_us} us fg={}",
         format_fps(fps),
@@ -320,16 +371,33 @@ mod tests {
     #[test]
     fn inert_when_target_is_zero() {
         let (clock, limiter) = limiter(1000, 100);
-        let out = limiter.before_present(100, LimiterConfig { fps: 0.0, spin_us: 1000 }, false);
+        let out = limiter.before_present(
+            100,
+            LimiterConfig {
+                fps: 0.0,
+                spin_us: 1000,
+            },
+            false,
+        );
         assert_eq!(out, FrameOutcome::default());
-        assert!(clock.waits().is_empty(), "no timer, no wait when the limiter is off");
+        assert!(
+            clock.waits().is_empty(),
+            "no timer, no wait when the limiter is off"
+        );
         assert!(limiter.intervals_ms().is_empty());
     }
 
     #[test]
     fn first_frame_seeds_and_never_waits() {
         let (clock, limiter) = limiter(1000, 500);
-        let out = limiter.before_present(500, LimiterConfig { fps: 100.0, spin_us: 0 }, false);
+        let out = limiter.before_present(
+            500,
+            LimiterConfig {
+                fps: 100.0,
+                spin_us: 0,
+            },
+            false,
+        );
         assert_eq!(out, FrameOutcome::default());
         assert!(clock.waits().is_empty());
     }
@@ -338,7 +406,10 @@ mod tests {
     fn a_fast_game_is_held_to_one_interval_per_frame() {
         // 1000 Hz, 50 fps => 20 tick interval. Game finishes each frame in 8 ticks.
         let (clock, limiter) = limiter(1000, 0);
-        let config = LimiterConfig { fps: 50.0, spin_us: 0 };
+        let config = LimiterConfig {
+            fps: 50.0,
+            spin_us: 0,
+        };
         limiter.before_present(0, config, false); // seed at 0
         let mut now = 0;
         for _ in 0..10 {
@@ -348,7 +419,10 @@ mod tests {
             now = clock.now(); // the limiter waited until the deadline
         }
         // Deadlines 20,40,...,200; each waited about one interval.
-        assert_eq!(clock.waits(), vec![20, 40, 60, 80, 100, 120, 140, 160, 180, 200]);
+        assert_eq!(
+            clock.waits(),
+            vec![20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
+        );
         assert_eq!(clock.now(), 200);
     }
 
@@ -356,7 +430,10 @@ mod tests {
     fn a_slow_game_is_never_delayed() {
         // interval 20 ticks, game takes 50 ticks.
         let (clock, limiter) = limiter(1000, 0);
-        let config = LimiterConfig { fps: 50.0, spin_us: 0 };
+        let config = LimiterConfig {
+            fps: 50.0,
+            spin_us: 0,
+        };
         limiter.before_present(0, config, false);
         let mut now = 0;
         for _ in 0..20 {
@@ -364,14 +441,20 @@ mod tests {
             clock.set(now);
             limiter.before_present(now, config, false);
         }
-        assert!(clock.waits().is_empty(), "a game slower than the cap is never delayed");
+        assert!(
+            clock.waits().is_empty(),
+            "a game slower than the cap is never delayed"
+        );
     }
 
     #[test]
     fn a_live_target_change_reseeds() {
         let (clock, limiter) = limiter(1000, 0);
         // Rate 10 fps: 100 tick interval. Seed, then one frame waits about 100 ticks.
-        let slow = LimiterConfig { fps: 10.0, spin_us: 0 };
+        let slow = LimiterConfig {
+            fps: 10.0,
+            spin_us: 0,
+        };
         limiter.before_present(0, slow, false);
         clock.set(5);
         limiter.before_present(5, slow, false);
@@ -379,16 +462,25 @@ mod tests {
         // Change target: reset, then the next frame seeds instead of waiting out the old interval.
         limiter.on_config_changed();
         clock.clear_waits();
-        let fast = LimiterConfig { fps: 1000.0, spin_us: 0 };
+        let fast = LimiterConfig {
+            fps: 1000.0,
+            spin_us: 0,
+        };
         let before = clock.now();
         limiter.before_present(before, fast, false);
-        assert!(clock.waits().is_empty() && clock.now() == before, "a reset reseeds without waiting");
+        assert!(
+            clock.waits().is_empty() && clock.now() == before,
+            "a reset reseeds without waiting"
+        );
     }
 
     #[test]
     fn a_failed_wait_disables_the_limiter() {
         let (clock, limiter) = limiter(1000, 0);
-        let config = LimiterConfig { fps: 50.0, spin_us: 0 };
+        let config = LimiterConfig {
+            fps: 50.0,
+            spin_us: 0,
+        };
         limiter.before_present(0, config, false);
         clock.fail_waits();
         clock.set(1);
@@ -405,7 +497,14 @@ mod tests {
     #[test]
     fn missing_frequency_disables() {
         let (_, limiter) = limiter(0, 0);
-        let out = limiter.before_present(0, LimiterConfig { fps: 60.0, spin_us: 1000 }, false);
+        let out = limiter.before_present(
+            0,
+            LimiterConfig {
+                fps: 60.0,
+                spin_us: 1000,
+            },
+            false,
+        );
         assert_eq!(out, FrameOutcome::default());
         assert!(limiter.disabled());
     }
@@ -417,15 +516,24 @@ mod tests {
         let _guard = tracing::subscriber::set_default(CountingSubscriber(Arc::clone(&events)));
 
         let (clock, limiter) = limiter(1000, 0);
-        let config = LimiterConfig { fps: 50.0, spin_us: 0 };
+        let config = LimiterConfig {
+            fps: 50.0,
+            spin_us: 0,
+        };
         limiter.before_present(0, config, false);
         for frame in 1..=REPORT_EVERY {
             clock.set((frame * 20) as u64); // exactly on the deadline: late, no wait
             limiter.before_present((frame * 20) as u64, config, false);
         }
         // Activation line plus one stats line once the window fills.
-        assert!(events.load(Ordering::SeqCst) >= 2, "activation and 300-frame stats are logged");
-        assert!(limiter.intervals_ms().is_empty(), "the window clears after the report");
+        assert!(
+            events.load(Ordering::SeqCst) >= 2,
+            "activation and 300-frame stats are logged"
+        );
+        assert!(
+            limiter.intervals_ms().is_empty(),
+            "the window clears after the report"
+        );
     }
 
     /// Counts tracing events without pulling `tracing-subscriber` into the application layer.

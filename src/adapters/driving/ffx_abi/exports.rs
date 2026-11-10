@@ -30,7 +30,7 @@ use crate::application::ffx_model::{self as model, ReturnCode};
 use crate::entry;
 
 use super::desc_walk;
-use super::types::{ffxApiHeader, ffxAllocationCallbacks, ffxContext, ffxReturnCode_t};
+use super::types::{ffxAllocationCallbacks, ffxApiHeader, ffxContext, ffxReturnCode_t};
 
 /// The documented answer for a call on a null handle or a handle Sedici never issued (README).
 const FOREIGN_HANDLE: ReturnCode = ReturnCode::ErrorParameter;
@@ -57,7 +57,11 @@ fn log_rejection(operation: &str, context: usize, rejection: &model::Rejection) 
         rejection.reason,
         rejection.code.name(),
         operation,
-        if context == 0 { "null".to_owned() } else { format!("0x{context:x}") }
+        if context == 0 {
+            "null".to_owned()
+        } else {
+            format!("0x{context:x}")
+        }
     );
 }
 
@@ -105,14 +109,18 @@ pub unsafe extern "system" fn ffxCreateContext(
                         UNKNOWN_DESC
                     }
                 }
-                Some(service) if flattened.names_a_sedici_context() => match service.create(&flattened) {
+                Some(service) if flattened.names_a_sedici_context() => match service
+                    .create(&flattened)
+                {
                     Ok(created) => {
                         if desc_walk::apply_created(context, desc as *mut ffxApiHeader, &created) {
                             ReturnCode::Ok
                         } else {
                             // The chain named no writable output slot; the router's context is
                             // dropped rather than leaked into a game call that cannot use it.
-                            tracing::info!("rejected: create could not write the game's output slot");
+                            tracing::info!(
+                                "rejected: create could not write the game's output slot"
+                            );
                             ReturnCode::Error
                         }
                     }
@@ -158,7 +166,12 @@ pub unsafe extern "system" fn ffxDestroyContext(
                 ),
             },
         };
-        desc_walk::describe_call(desc_walk::ExportKind::Destroy, std::ptr::null(), result, handle.unwrap_or(0));
+        desc_walk::describe_call(
+            desc_walk::ExportKind::Destroy,
+            std::ptr::null(),
+            result,
+            handle.unwrap_or(0),
+        );
         result
     })
 }
@@ -190,7 +203,12 @@ pub unsafe extern "system" fn ffxConfigure(
                 ),
             },
         };
-        desc_walk::describe_call(desc_walk::ExportKind::Configure, desc, result, handle.unwrap_or(0));
+        desc_walk::describe_call(
+            desc_walk::ExportKind::Configure,
+            desc,
+            result,
+            handle.unwrap_or(0),
+        );
         result
     })
 }
@@ -204,7 +222,10 @@ pub unsafe extern "system" fn ffxConfigure(
 /// The C ABI contract: `context` is a live `ffxContext*` or null; `desc` is a readable query chain
 /// whose output slots are writable.
 #[no_mangle]
-pub unsafe extern "system" fn ffxQuery(context: *mut ffxContext, desc: *mut ffxApiHeader) -> ffxReturnCode_t {
+pub unsafe extern "system" fn ffxQuery(
+    context: *mut ffxContext,
+    desc: *mut ffxApiHeader,
+) -> ffxReturnCode_t {
     guarded(|| {
         entry::ensure_started();
         let handle = context_value(context as *const ffxContext);
@@ -246,7 +267,12 @@ pub unsafe extern "system" fn ffxQuery(context: *mut ffxContext, desc: *mut ffxA
             }
         };
 
-        desc_walk::describe_call(desc_walk::ExportKind::Query, root, result, handle.unwrap_or(0));
+        desc_walk::describe_call(
+            desc_walk::ExportKind::Query,
+            root,
+            result,
+            handle.unwrap_or(0),
+        );
         result
     })
 }
@@ -279,7 +305,12 @@ pub unsafe extern "system" fn ffxDispatch(
                 ),
             },
         };
-        desc_walk::describe_call(desc_walk::ExportKind::Dispatch, desc, result, handle.unwrap_or(0));
+        desc_walk::describe_call(
+            desc_walk::ExportKind::Dispatch,
+            desc,
+            result,
+            handle.unwrap_or(0),
+        );
         result
     })
 }
@@ -299,7 +330,10 @@ mod tests {
         // SAFETY: every export is called with null pointers only, which each export checks before
         // touching game memory.
         unsafe {
-            assert_eq!(ffxCreateContext(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null()), 6);
+            assert_eq!(
+                ffxCreateContext(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null()),
+                6
+            );
             assert_eq!(ffxDestroyContext(std::ptr::null_mut(), std::ptr::null()), 6);
             assert_eq!(ffxConfigure(std::ptr::null_mut(), std::ptr::null()), 6);
             assert_eq!(ffxQuery(std::ptr::null_mut(), std::ptr::null_mut()), 6);

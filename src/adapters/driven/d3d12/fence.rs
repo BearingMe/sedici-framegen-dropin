@@ -10,7 +10,9 @@ use windows::Win32::Graphics::Direct3D12::ID3D12Fence;
 use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 use crate::application::ports::gpu::{GpuError, GpuFence};
-use crate::domain::gpu_policy::{classify_fence, removed_device_error, FenceProgress, DEVICE_REMOVED};
+use crate::domain::gpu_policy::{
+    classify_fence, removed_device_error, FenceProgress, DEVICE_REMOVED,
+};
 
 /// An auto-reset event used for a single bounded wait. Dropping it closes the handle.
 pub(crate) struct WaitEvent(HANDLE);
@@ -85,7 +87,10 @@ impl D3d12Fence {
         // SAFETY: the event handle is owned by `self` and outlives the registration.
         let registered = unsafe { self.fence.SetEventOnCompletion(value, self.event.handle()) };
         if let Err(error) = registered {
-            return Err(GpuError::failed("fence event registration", error.code().0 as u32));
+            return Err(GpuError::failed(
+                "fence event registration",
+                error.code().0 as u32,
+            ));
         }
 
         // WaitForSingleObject takes milliseconds; clamp rather than overflow for very long waits.
@@ -105,7 +110,10 @@ impl D3d12Fence {
                 reason: removed_device_error(device_reason.unwrap_or(DEVICE_REMOVED)),
             }),
             // A signalled event whose fence has not reached the value cannot be trusted.
-            FenceProgress::Pending => Err(GpuError::failed("fence wait", crate::domain::gpu_policy::E_FAIL)),
+            FenceProgress::Pending => Err(GpuError::failed(
+                "fence wait",
+                crate::domain::gpu_policy::E_FAIL,
+            )),
         }
     }
 }

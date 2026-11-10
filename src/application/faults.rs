@@ -8,7 +8,7 @@
 //! The C++ hooks are one-shot function pointers that force a lookup/destroy interleaving
 //! (K41, K47, K60). They are represented here as one-shot boxed closures.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A bookkeeping step a test can make fail. The discriminant is the value stored atomically;
@@ -74,7 +74,12 @@ impl Faults {
             return false;
         }
         self.armed
-            .compare_exchange(fault as u8, BookkeepingFault::None as u8, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(
+                fault as u8,
+                BookkeepingFault::None as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
             .is_ok()
     }
 

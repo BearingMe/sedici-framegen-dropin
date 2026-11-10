@@ -11,7 +11,8 @@ use tracing::{error, info};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::Threading::{
-    CreateWaitableTimerExW, SetWaitableTimer, WaitForSingleObject, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS,
+    CreateWaitableTimerExW, SetWaitableTimer, WaitForSingleObject,
+    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS,
 };
 
 use crate::application::ports::clock::Clock;
@@ -29,7 +30,14 @@ impl WaitableTimer {
     fn create() -> Option<Self> {
         // SAFETY: null security attributes and a null name are the documented defaults; the flags
         // and access rights are constants. No pointers outlive the call.
-        let high = unsafe { CreateWaitableTimerExW(None, None, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS.0) };
+        let high = unsafe {
+            CreateWaitableTimerExW(
+                None,
+                None,
+                CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                TIMER_ALL_ACCESS.0,
+            )
+        };
         match high {
             Ok(handle) => Some(Self(handle)),
             Err(error) => {
@@ -38,7 +46,9 @@ impl WaitableTimer {
                     error.code().0
                 );
                 // SAFETY: same defaults, no high-resolution flag.
-                unsafe { CreateWaitableTimerExW(None, None, 0, TIMER_ALL_ACCESS.0) }.ok().map(Self)
+                unsafe { CreateWaitableTimerExW(None, None, 0, TIMER_ALL_ACCESS.0) }
+                    .ok()
+                    .map(Self)
             }
         }
     }
@@ -81,7 +91,11 @@ impl Win32Clock {
         // treats as "no timing".
         let ok = unsafe { QueryPerformanceFrequency(&mut frequency) }.is_ok();
         Self {
-            frequency: if ok && frequency > 0 { frequency as u64 } else { 0 },
+            frequency: if ok && frequency > 0 {
+                frequency as u64
+            } else {
+                0
+            },
             timer: Mutex::new(None),
             timer_failed: std::sync::atomic::AtomicBool::new(false),
         }
@@ -127,7 +141,8 @@ impl Clock for Win32Clock {
                 Some(timer) => *guard = Some(timer),
                 None => {
                     error!("sedici: limiter disabled: could not create a waitable timer");
-                    self.timer_failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.timer_failed
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                     return false;
                 }
             }
@@ -140,10 +155,13 @@ impl Clock for Win32Clock {
         if due >= 0 {
             due = -1;
         }
-        let Some(timer) = guard.as_ref() else { return false };
+        let Some(timer) = guard.as_ref() else {
+            return false;
+        };
         let ok = timer.wait_relative(due);
         if !ok {
-            self.timer_failed.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.timer_failed
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         ok
     }
@@ -172,7 +190,10 @@ mod tests {
         let clock = Win32Clock::new();
         let start = clock.now();
         let target = start + clock.frequency() / 100; // 10 ms
-        assert!(clock.wait_until(target), "the waitable timer arms and fires");
+        assert!(
+            clock.wait_until(target),
+            "the waitable timer arms and fires"
+        );
         assert!(clock.now() >= start, "time moved forward across the wait");
         assert!(clock.ticks_to_ms(clock.frequency()) >= 999.0);
     }

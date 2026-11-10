@@ -13,12 +13,12 @@ use windows::Win32::Graphics::Direct3D12::{
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN,
-    DXGI_MODE_ROTATION_ROTATE90, DXGI_MODE_ROTATION_ROTATE270, DXGI_SAMPLE_DESC,
+    DXGI_MODE_ROTATION_ROTATE270, DXGI_MODE_ROTATION_ROTATE90, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
-    IDXGIFactory2, IDXGIOutput, IDXGISwapChain, IDXGISwapChain4, DXGI_FRAME_STATISTICS, DXGI_PRESENT,
-    DXGI_PRESENT_PARAMETERS, DXGI_PRESENT_ALLOW_TEARING, DXGI_PRESENT_TEST, DXGI_SWAP_CHAIN_DESC1,
-    DXGI_SWAP_CHAIN_FLAG,
+    IDXGIFactory2, IDXGIOutput, IDXGISwapChain, IDXGISwapChain4, DXGI_FRAME_STATISTICS,
+    DXGI_PRESENT, DXGI_PRESENT_ALLOW_TEARING, DXGI_PRESENT_PARAMETERS, DXGI_PRESENT_TEST,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
 };
 use windows::Win32::Graphics::Gdi::{EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS};
 
@@ -29,7 +29,9 @@ use crate::application::ports::swapchain::{
 };
 use crate::application::presentation::presenter::ListLifecycle;
 
-use super::d3d12::resources::{texture_info, D3d12CommandAllocator, D3d12CommandList, D3d12Texture};
+use super::d3d12::resources::{
+    texture_info, D3d12CommandAllocator, D3d12CommandList, D3d12Texture,
+};
 
 /// The chain plus the queue it presents on, owning both references.
 pub struct DxgiNative {
@@ -79,8 +81,16 @@ impl DxgiNative {
         let mut device: Option<ID3D12Device> = None;
         unsafe { queue.GetDevice(&mut device) }
             .map_err(|error| GpuError::failed("queue device", error.code().0 as u32))?;
-        let device = device.ok_or(GpuError::failed("queue device", crate::domain::gpu_policy::E_FAIL))?;
-        Ok(Self { chain: chain.clone(), queue: queue.clone(), fence: std::sync::OnceLock::new(), device })
+        let device = device.ok_or(GpuError::failed(
+            "queue device",
+            crate::domain::gpu_policy::E_FAIL,
+        ))?;
+        Ok(Self {
+            chain: chain.clone(),
+            queue: queue.clone(),
+            fence: std::sync::OnceLock::new(),
+            device,
+        })
     }
 
     /// The underlying chain, for the COM wrapper's forwards.
@@ -97,7 +107,9 @@ impl DxgiNative {
         let chain_luid = crate::adapters::driven::win32::identity::adapter_luid_chain(chain);
         let queue_luid = crate::adapters::driven::win32::identity::adapter_luid_queue(queue);
         if !crate::adapters::driven::win32::identity::same_adapter(chain_luid, queue_luid) {
-            tracing::error!("fg: swapchain wrap: chain and queue are on different adapters, refused");
+            tracing::error!(
+                "fg: swapchain wrap: chain and queue are on different adapters, refused"
+            );
             return Err(GpuError::failed(
                 "swapchain wrap: different adapters",
                 crate::domain::gpu_policy::E_INVALIDARG,
@@ -112,7 +124,11 @@ impl DxgiNative {
     }
 
     /// A native chain over an existing device and queue, for the offline GPU smoke test.
-    pub fn for_test(chain: &IDXGISwapChain4, queue: &ID3D12CommandQueue, device: &ID3D12Device) -> Self {
+    pub fn for_test(
+        chain: &IDXGISwapChain4,
+        queue: &ID3D12CommandQueue,
+        device: &ID3D12Device,
+    ) -> Self {
         Self {
             chain: chain.clone(),
             queue: queue.clone(),
@@ -143,8 +159,11 @@ impl DxgiNative {
             let mut fullscreen = windows::core::BOOL(0);
             let mut output: Option<IDXGIOutput> = None;
             // SAFETY: both out-parameters are locals that outlive the call.
-            unsafe { self.chain.GetFullscreenState(Some(&mut fullscreen), Some(&mut output)) }
-                .map_err(|error| GpuError::failed("fullscreen state", error.code().0 as u32))?;
+            unsafe {
+                self.chain
+                    .GetFullscreenState(Some(&mut fullscreen), Some(&mut output))
+            }
+            .map_err(|error| GpuError::failed("fullscreen state", error.code().0 as u32))?;
             fullscreen.as_bool()
         };
         let restrict_to = {
@@ -182,7 +201,13 @@ impl DxgiNative {
             // SAFETY: the descs are locals that outlive the call; the factory keeps every reference
             // it needs. `restrict_to` is borrowed for the call only.
             let created = unsafe {
-                factory.CreateSwapChainForHwnd(queue, window, &desc, Some(&fullscreen_desc), restrict_to.as_ref())
+                factory.CreateSwapChainForHwnd(
+                    queue,
+                    window,
+                    &desc,
+                    Some(&fullscreen_desc),
+                    restrict_to.as_ref(),
+                )
             }
             .map_err(|error| GpuError::failed("swapchain recreation", error.code().0 as u32))?;
             let chain: IDXGISwapChain4 = created
@@ -229,10 +254,20 @@ impl DxgiNative {
         let resource: ID3D12Resource = unsafe { self.chain.GetBuffer(index) }
             .map_err(|error| GpuError::failed("back buffer", error.code().0 as u32))?;
         let info = texture_info(&resource);
-        Ok(D3d12Texture { resource, info, state: std::cell::Cell::new(ResourceState::PRESENT) })
+        Ok(D3d12Texture {
+            resource,
+            info,
+            state: std::cell::Cell::new(ResourceState::PRESENT),
+        })
     }
 
-    fn params_to_dxgi(params: &PresentParams) -> (Vec<windows::Win32::Foundation::RECT>, Option<windows::Win32::Foundation::RECT>, Option<windows::Win32::Foundation::POINT>) {
+    fn params_to_dxgi(
+        params: &PresentParams,
+    ) -> (
+        Vec<windows::Win32::Foundation::RECT>,
+        Option<windows::Win32::Foundation::RECT>,
+        Option<windows::Win32::Foundation::POINT>,
+    ) {
         let to_rect = |rect: &Rect| windows::Win32::Foundation::RECT {
             left: rect.left,
             top: rect.top,
@@ -241,7 +276,12 @@ impl DxgiNative {
         };
         let dirty = params.dirty_rects.iter().map(to_rect).collect();
         let scroll = params.scroll_rect.as_ref().map(to_rect);
-        let offset = params.scroll_offset.map(|offset: Offset| windows::Win32::Foundation::POINT { x: offset.x, y: offset.y });
+        let offset = params
+            .scroll_offset
+            .map(|offset: Offset| windows::Win32::Foundation::POINT {
+                x: offset.x,
+                y: offset.y,
+            });
         (dirty, scroll, offset)
     }
 }
@@ -263,7 +303,8 @@ impl NativeSwapchain for DxgiNative {
         // this temporary (the chain's own reference is shared with the game's slot).
         // SAFETY: a balanced pair on a live resource owned by the chain.
         Some(unsafe {
-            let unknown = windows::core::Interface::cast::<windows::core::IUnknown>(buffer.raw()).ok()?;
+            let unknown =
+                windows::core::Interface::cast::<windows::core::IUnknown>(buffer.raw()).ok()?;
             let vtbl = windows::core::Interface::vtable(&unknown);
             let raw = windows::core::Interface::as_raw(&unknown);
             (vtbl.AddRef)(raw);
@@ -293,29 +334,59 @@ impl NativeSwapchain for DxgiNative {
     fn present(&self, sync: u32, flags: PresentFlags) -> Result<(), GpuError> {
         // SAFETY: the chain is live and the call takes no pointers.
         let hr = unsafe { IDXGISwapChain::Present(&self.chain, sync, DXGI_PRESENT(flags.0)) };
-        hr.ok().map_err(|error| GpuError::failed("present", error.code().0 as u32))
+        hr.ok()
+            .map_err(|error| GpuError::failed("present", error.code().0 as u32))
     }
 
-    fn present1(&self, sync: u32, flags: PresentFlags, params: &PresentParams) -> Result<(), GpuError> {
+    fn present1(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: &PresentParams,
+    ) -> Result<(), GpuError> {
         let (dirty, scroll, offset) = Self::params_to_dxgi(params);
         let dxgi = DXGI_PRESENT_PARAMETERS {
             DirtyRectsCount: dirty.len() as u32,
-            pDirtyRects: if dirty.is_empty() { std::ptr::null_mut() } else { dirty.as_ptr() as *mut _ },
-            pScrollRect: scroll.as_ref().map_or(std::ptr::null_mut(), |rect| rect as *const _ as *mut _),
-            pScrollOffset: offset.as_ref().map_or(std::ptr::null_mut(), |point| point as *const _ as *mut _),
+            pDirtyRects: if dirty.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                dirty.as_ptr() as *mut _
+            },
+            pScrollRect: scroll
+                .as_ref()
+                .map_or(std::ptr::null_mut(), |rect| rect as *const _ as *mut _),
+            pScrollOffset: offset
+                .as_ref()
+                .map_or(std::ptr::null_mut(), |point| point as *const _ as *mut _),
         };
         let hr = {
             // SAFETY: every pointer in `dxgi` refers to `dirty`/`scroll`/`offset`, which outlive the
             // call, and the count matches the slice.
             unsafe { self.chain.Present1(sync, DXGI_PRESENT(flags.0), &dxgi) }
         };
-        hr.ok().map_err(|error| GpuError::failed("present1", error.code().0 as u32))
+        hr.ok()
+            .map_err(|error| GpuError::failed("present1", error.code().0 as u32))
     }
 
-    fn resize_buffers(&self, count: u32, width: u32, height: u32, format: PixelFormat, flags: u32) -> Result<(), GpuError> {
+    fn resize_buffers(
+        &self,
+        count: u32,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        flags: u32,
+    ) -> Result<(), GpuError> {
         // SAFETY: no pointers; the count/format follow the chain's description.
-        unsafe { self.chain.ResizeBuffers(count, width, height, format_to_dxgi(format), DXGI_SWAP_CHAIN_FLAG(flags as i32)) }
-            .map_err(|error| GpuError::failed("resize", error.code().0 as u32))
+        unsafe {
+            self.chain.ResizeBuffers(
+                count,
+                width,
+                height,
+                format_to_dxgi(format),
+                DXGI_SWAP_CHAIN_FLAG(flags as i32),
+            )
+        }
+        .map_err(|error| GpuError::failed("resize", error.code().0 as u32))
     }
 
     fn resize_buffers1(
@@ -328,11 +399,15 @@ impl NativeSwapchain for DxgiNative {
         node_masks: &[u32],
     ) -> Result<(), GpuError> {
         if node_masks.len() < count as usize {
-            return Err(GpuError::failed("resize1 masks", crate::domain::gpu_policy::E_INVALIDARG));
+            return Err(GpuError::failed(
+                "resize1 masks",
+                crate::domain::gpu_policy::E_INVALIDARG,
+            ));
         }
         // The chain stays on this queue: every entry names it.
-        let queues: Vec<Option<windows::core::IUnknown>> =
-            (0..count as usize).map(|_| Some(self.queue.cast().unwrap())).collect();
+        let queues: Vec<Option<windows::core::IUnknown>> = (0..count as usize)
+            .map(|_| Some(self.queue.cast().unwrap()))
+            .collect();
         // SAFETY: both slices are locals that outlive the call and hold `count` entries.
         unsafe {
             self.chain.ResizeBuffers1(
@@ -388,11 +463,20 @@ impl NativeSwapchain for DxgiNative {
         let output: IDXGIOutput = unsafe { self.chain.GetContainingOutput() }.ok()?;
         // SAFETY: `desc` is a local out-parameter.
         let desc = unsafe { output.GetDesc() }.ok()?;
-        let mut mode = DEVMODEW { dmSize: std::mem::size_of::<DEVMODEW>() as u16, ..Default::default() };
+        let mut mode = DEVMODEW {
+            dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
         let refresh_hz = {
             // SAFETY: the device name is a fixed array inside `desc` and is NUL-terminated by DXGI;
             // `mode` is a local out-parameter.
-            let ok = unsafe { EnumDisplaySettingsW(windows::core::PCWSTR(desc.DeviceName.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode) };
+            let ok = unsafe {
+                EnumDisplaySettingsW(
+                    windows::core::PCWSTR(desc.DeviceName.as_ptr()),
+                    ENUM_CURRENT_SETTINGS,
+                    &mut mode,
+                )
+            };
             if ok.as_bool() && mode.dmDisplayFrequency > 1 {
                 f64::from(mode.dmDisplayFrequency)
             } else {
@@ -401,10 +485,21 @@ impl NativeSwapchain for DxgiNative {
         };
         let width = i64::from(desc.DesktopCoordinates.right - desc.DesktopCoordinates.left);
         let height = i64::from(desc.DesktopCoordinates.bottom - desc.DesktopCoordinates.top);
-        let rotated_quarter_turn =
-            desc.Rotation == DXGI_MODE_ROTATION_ROTATE90 || desc.Rotation == DXGI_MODE_ROTATION_ROTATE270;
-        let device_name = desc.DeviceName.iter().take_while(|unit| **unit != 0).copied().collect();
-        Some(OutputDesc { device_name, width, height, rotated_quarter_turn, refresh_hz })
+        let rotated_quarter_turn = desc.Rotation == DXGI_MODE_ROTATION_ROTATE90
+            || desc.Rotation == DXGI_MODE_ROTATION_ROTATE270;
+        let device_name = desc
+            .DeviceName
+            .iter()
+            .take_while(|unit| **unit != 0)
+            .copied()
+            .collect();
+        Some(OutputDesc {
+            device_name,
+            width,
+            height,
+            rotated_quarter_turn,
+            refresh_hz,
+        })
     }
 
     fn set_fullscreen_state(&self, fullscreen: bool) -> Result<(), GpuError> {
@@ -428,7 +523,10 @@ impl NativeSwapchain for DxgiNative {
     fn wait_for_retirement(&self, timeout: Duration) -> Result<(), GpuError> {
         let fence = self.fence.get_or_init(|| {
             // SAFETY: a plain fence with no flags; the handle is owned by the idle object.
-            let fence = unsafe { self.device.CreateFence::<ID3D12Fence>(0, D3D12_FENCE_FLAG_NONE) };
+            let fence = unsafe {
+                self.device
+                    .CreateFence::<ID3D12Fence>(0, D3D12_FENCE_FLAG_NONE)
+            };
             Arc::new(fence.expect("a live device can create a fence"))
         });
         // SAFETY: the fence belongs to the same device as the queue.
@@ -446,7 +544,10 @@ impl NativeSwapchain for DxgiNative {
         if registered.is_err() {
             // SAFETY: the handle is owned by this scope.
             let _ = unsafe { windows::Win32::Foundation::CloseHandle(event) };
-            return Err(GpuError::failed("retirement registration", crate::domain::gpu_policy::E_FAIL));
+            return Err(GpuError::failed(
+                "retirement registration",
+                crate::domain::gpu_policy::E_FAIL,
+            ));
         }
         // SAFETY: waiting on an owned event with a bounded millisecond timeout.
         let wait = unsafe {
@@ -464,7 +565,10 @@ impl NativeSwapchain for DxgiNative {
         if unsafe { fence.GetCompletedValue() } >= value {
             Ok(())
         } else {
-            Err(GpuError::failed("retirement", crate::domain::gpu_policy::E_FAIL))
+            Err(GpuError::failed(
+                "retirement",
+                crate::domain::gpu_policy::E_FAIL,
+            ))
         }
     }
 }
@@ -491,4 +595,7 @@ pub const PRESENT_ALLOW_TEARING: DXGI_PRESENT = DXGI_PRESENT_ALLOW_TEARING;
 /// `DXGI_FORMAT_UNKNOWN`, re-exported for the wrapper's resize forwarder.
 pub const FORMAT_UNKNOWN: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT = DXGI_FORMAT_UNKNOWN;
 /// The sample descriptor a recreated chain keeps.
-pub const SAMPLE_COUNT_1: DXGI_SAMPLE_DESC = DXGI_SAMPLE_DESC { Count: 1, Quality: 0 };
+pub const SAMPLE_COUNT_1: DXGI_SAMPLE_DESC = DXGI_SAMPLE_DESC {
+    Count: 1,
+    Quality: 0,
+};

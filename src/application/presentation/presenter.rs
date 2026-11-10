@@ -37,7 +37,6 @@ pub const JOB_OUTPUTS: usize = 3;
 /// The bounded GPU wait; a removed or hung device must not trap teardown forever.
 pub const GPU_TIMEOUT: Duration = Duration::from_millis(5000);
 
-
 /// The bounded GPU wait a "vrr" presenter gives the game's frame when the swapchain drains it.
 pub const DRAIN_TIMEOUT: Duration = Duration::from_millis(5000);
 
@@ -82,7 +81,13 @@ impl Default for DisplayMode {
 impl DisplayMode {
     pub const DEFAULT_PERIOD: f64 = 1.0 / 60.0;
 
-    pub fn new(refresh_hz: f64, height: i64, width: i64, rotated_quarter_turn: bool, lead_seconds: f64) -> Self {
+    pub fn new(
+        refresh_hz: f64,
+        height: i64,
+        width: i64,
+        rotated_quarter_turn: bool,
+        lead_seconds: f64,
+    ) -> Self {
         let period = if refresh_hz.is_finite() && refresh_hz > 1.0 {
             1.0 / refresh_hz
         } else {
@@ -91,7 +96,12 @@ impl DisplayMode {
         let rows = if rotated_quarter_turn { width } else { height };
         let active = rows.max(1) as u32;
         let lead = (f64::from(active) * (lead_seconds / period)).round() as u32;
-        Self { period, active_lines: active, lead_lines: lead, scanline_available: false }
+        Self {
+            period,
+            active_lines: active,
+            lead_lines: lead,
+            scanline_available: false,
+        }
     }
 
     pub fn refresh_hz(&self) -> f64 {
@@ -115,11 +125,19 @@ pub struct JobOutput<T> {
 
 impl<T> JobOutput<T> {
     pub fn real(content: f64) -> Self {
-        Self { image: None, real: true, content }
+        Self {
+            image: None,
+            real: true,
+            content,
+        }
     }
 
     pub fn generated(image: T, content: f64) -> Self {
-        Self { image: Some(image), real: false, content }
+        Self {
+            image: Some(image),
+            real: false,
+            content,
+        }
     }
 }
 
@@ -192,9 +210,9 @@ impl PresentError {
             // to `SwapchainError::InvalidCall`; `E_INVALIDARG` mapped to `InvalidArgument`
             // instead, so a Present after a stopped presenter returned the wrong defined code.
             Self::Stopped => crate::application::presentation::swapchain::DXGI_ERROR_INVALID_CALL,
-            Self::QueueFull => 0x887A_000A,               // DXGI_ERROR_WAS_STILL_DRAWING
-            Self::DeviceHung => 0x887A_0006,              // DXGI_ERROR_DEVICE_HUNG
-            Self::Gpu => 0x8000_4005,                     // E_FAIL
+            Self::QueueFull => 0x887A_000A, // DXGI_ERROR_WAS_STILL_DRAWING
+            Self::DeviceHung => 0x887A_0006, // DXGI_ERROR_DEVICE_HUNG
+            Self::Gpu => 0x8000_4005,       // E_FAIL
         }
     }
 }
@@ -216,7 +234,10 @@ struct SharedQueue<D: GpuDevice> {
 
 impl<D: GpuDevice> SharedPresentQueues<D> {
     pub fn new(keep_for_process: bool) -> Self {
-        Self { entries: Mutex::new(Vec::new()), keep_for_process }
+        Self {
+            entries: Mutex::new(Vec::new()),
+            keep_for_process,
+        }
     }
 
     /// One queue per device, shared by that device's presenters. `key` identifies the device; the
@@ -233,7 +254,12 @@ impl<D: GpuDevice> SharedPresentQueues<D> {
                 .create_queue(QueueKind::Direct, QueuePriority::High)
                 .or_else(|_| device.create_queue(QueueKind::Direct, QueuePriority::Normal))?,
         );
-        entries.push(SharedQueue { key, _device: Arc::clone(device), queue: Arc::clone(&queue), users: 1 });
+        entries.push(SharedQueue {
+            key,
+            _device: Arc::clone(device),
+            queue: Arc::clone(&queue),
+            users: 1,
+        });
         Ok(queue)
     }
 
@@ -261,7 +287,9 @@ impl<D: GpuDevice> SharedPresentQueues<D> {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// The learned content-time-to-flip latency. The structural part is the largest of the last 8
@@ -334,7 +362,8 @@ pub fn guard_floor(
     if last_flip.is_nan() || last_flip <= 0.0 {
         return 0.0;
     }
-    let timer_guard = guard == TearGuard::Timer || (guard == TearGuard::Scanline && !scanline_available);
+    let timer_guard =
+        guard == TearGuard::Timer || (guard == TearGuard::Scanline && !scanline_available);
     let scan_guard = guard == TearGuard::Scanline && scanline_available;
     if timer_guard {
         last_flip + period + 0.0002
@@ -348,7 +377,12 @@ pub fn guard_floor(
 /// On a fixed-refresh panel the scan-line guard can only flip at a blank; accepting a blank up to
 /// this much before the target avoids waiting a whole refresh, which at ~36 fps on 75 Hz would
 /// drop every midpoint.
-pub fn guard_early(scanline_available: bool, guard: TearGuard, period: f64, not_before: f64) -> f64 {
+pub fn guard_early(
+    scanline_available: bool,
+    guard: TearGuard,
+    period: f64,
+    not_before: f64,
+) -> f64 {
     let scan_guard = guard == TearGuard::Scanline && scanline_available;
     if scan_guard && not_before > 0.0 {
         0.0015_f64.min(period * 0.12)
@@ -457,7 +491,11 @@ pub struct Presenter<D, N>
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::Fence: Send + Sync + 'static,
     D::Queue: Send + Sync + 'static,
@@ -473,7 +511,11 @@ impl<D, N> Presenter<D, N>
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::Fence: Send + Sync + 'static,
     D::Queue: Send + Sync + 'static,
@@ -513,9 +555,7 @@ where
                 }
             };
             let list = match device.create_command_list(&allocator) {
-                Ok(list) => {
-                    list
-                }
+                Ok(list) => list,
                 Err(_) => {
                     queues.release(queue_key, true);
                     *why = "present command list creation failed".to_owned();
@@ -535,7 +575,15 @@ where
         };
         let output = native
             .containing_output()
-            .map(|desc| DisplayMode::new(desc.refresh_hz, desc.height, desc.width, desc.rotated_quarter_turn, lead_seconds))
+            .map(|desc| {
+                DisplayMode::new(
+                    desc.refresh_hz,
+                    desc.height,
+                    desc.width,
+                    desc.rotated_quarter_turn,
+                    lead_seconds,
+                )
+            })
             .unwrap_or_default();
         let shared = Arc::new(Shared {
             _device: Arc::clone(&device),
@@ -559,7 +607,11 @@ where
                 stop: false,
                 cancel: false,
             }),
-            jobs: Mutex::new(Queue { jobs: std::collections::VecDeque::with_capacity(PRESENTER_QUEUE_CAPACITY), submitted: 0, completed: 0 }),
+            jobs: Mutex::new(Queue {
+                jobs: std::collections::VecDeque::with_capacity(PRESENTER_QUEUE_CAPACITY),
+                submitted: 0,
+                completed: 0,
+            }),
             wake: Condvar::new(),
             done: Condvar::new(),
             counters: Arc::new(PresenterCounters::default()),
@@ -577,7 +629,12 @@ where
                 return None;
             }
         };
-        Some(Self { shared, thread: Mutex::new(Some(thread)), queue_key, queues })
+        Some(Self {
+            shared,
+            thread: Mutex::new(Some(thread)),
+            queue_key,
+            queues,
+        })
     }
 
     /// Jobs submitted and not yet finished, including the one being presented.
@@ -592,7 +649,9 @@ where
         let waited = self
             .shared
             .done
-            .wait_timeout_while(jobs, timeout, |jobs| jobs.submitted - jobs.completed > max as u64)
+            .wait_timeout_while(jobs, timeout, |jobs| {
+                jobs.submitted - jobs.completed > max as u64
+            })
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         waited.0.submitted - waited.0.completed <= max as u64
     }
@@ -643,7 +702,9 @@ where
     /// for zero outstanding jobs first.
     pub fn drain_gpu(&self) -> Result<(), GpuError> {
         let value = self.shared.fence_value.fetch_add(1, Ordering::AcqRel) + 1;
-        self.shared.queue.signal(self.shared.fence.as_ref(), value)?;
+        self.shared
+            .queue
+            .signal(self.shared.fence.as_ref(), value)?;
         self.shared.fence.as_ref().wait(value, GPU_TIMEOUT)
     }
 
@@ -657,16 +718,24 @@ where
         format: crate::application::ports::gpu::PixelFormat,
         flags: u32,
     ) -> Result<(), GpuError> {
-        let count = if count == 0 { self.shared.native.desc()?.buffer_count } else { count };
+        let count = if count == 0 {
+            self.shared.native.desc()?.buffer_count
+        } else {
+            count
+        };
         let masks = vec![1_u32; count as usize];
-        self.shared.native.resize_buffers1(count, width, height, format, flags, &masks)?;
+        self.shared
+            .native
+            .resize_buffers1(count, width, height, format, flags, &masks)?;
         self.refresh_output();
         Ok(())
     }
 
     /// Re-reads the containing output: refresh period, active rows and lead rows.
     pub fn refresh_output(&self) {
-        let Some(output) = self.shared.native.containing_output() else { return };
+        let Some(output) = self.shared.native.containing_output() else {
+            return;
+        };
         let mode = DisplayMode::new(
             output.refresh_hz,
             output.height,
@@ -675,7 +744,10 @@ where
             self.shared.lead_seconds,
         );
         let mut current = lock(&self.shared.mode);
-        *current = DisplayMode { scanline_available: current.scanline_available, ..mode };
+        *current = DisplayMode {
+            scanline_available: current.scanline_available,
+            ..mode
+        };
     }
 
     pub fn refresh_hz(&self) -> f64 {
@@ -696,7 +768,11 @@ impl<D, N> Drop for Presenter<D, N>
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::Fence: Send + Sync + 'static,
     D::Queue: Send + Sync + 'static,
@@ -753,7 +829,11 @@ fn run<D, N>(shared: Arc<Shared<D, N>>)
 where
     D: GpuDevice + Send + Sync + 'static,
     D::Texture: Send + 'static,
-    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture> + Send + Sync + 'static,
+    D::CommandList: ListLifecycle<Allocator = D::CommandAllocator>
+        + GpuCommandList<D::Texture>
+        + Send
+        + Sync
+        + 'static,
     D::CommandAllocator: Send + 'static,
     D::Fence: Send + Sync + 'static,
     D::Queue: Send + Sync + 'static,
@@ -780,7 +860,10 @@ where
                 if lock(&shared.state).stop {
                     return;
                 }
-                jobs = shared.wake.wait(jobs).unwrap_or_else(|poisoned| poisoned.into_inner());
+                jobs = shared
+                    .wake
+                    .wait(jobs)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
         };
         let result = present_job(&shared, job);
@@ -820,15 +903,20 @@ where
     // then only an upper bound, and arrival time would count queueing as GPU latency.
     let already_ready = job.ready.as_ref().completed() >= job.ready_value;
     let dequeued = now_seconds(shared.clock.as_ref());
-    shared.queue.wait(job.ready.as_ref(), job.ready_value).map_err(|error| match error {
-        GpuError::DeviceRemoved { .. } => PresentError::DeviceHung,
-        _ => PresentError::Gpu,
-    })?;
+    shared
+        .queue
+        .wait(job.ready.as_ref(), job.ready_value)
+        .map_err(|error| match error {
+            GpuError::DeviceRemoved { .. } => PresentError::DeviceHung,
+            _ => PresentError::Gpu,
+        })?;
 
     note_idle_scan(shared);
 
     for index in 0..job.count {
-        let Some(output) = job.outputs[index].as_ref() else { continue };
+        let Some(output) = job.outputs[index].as_ref() else {
+            continue;
+        };
         let real = output.real;
         let content = output.content;
         let gpu_start = now_seconds(shared.clock.as_ref());
@@ -846,9 +934,13 @@ where
                 state.window.gpu_wait_sum += gpu_wait;
                 state.window.gpu_wait_max = state.window.gpu_wait_max.max(gpu_wait);
                 if already_ready {
-                    state.latency.track(job.entry - content, dequeued - job.entry, false);
+                    state
+                        .latency
+                        .track(job.entry - content, dequeued - job.entry, false);
                 } else {
-                    state.latency.track(job.entry - content, ready - job.entry, true);
+                    state
+                        .latency
+                        .track(job.entry - content, ready - job.entry, true);
                 }
             }
             state.latency.latency()
@@ -866,7 +958,10 @@ where
             }
             drop(state);
             if !real {
-                shared.counters.generated_dropped.fetch_add(1, Ordering::Relaxed);
+                shared
+                    .counters
+                    .generated_dropped
+                    .fetch_add(1, Ordering::Relaxed);
             }
             continue;
         }
@@ -890,13 +985,19 @@ where
             }
         }
         if !real {
-            shared.counters.generated_shown.fetch_add(1, Ordering::Relaxed);
+            shared
+                .counters
+                .generated_shown
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     // Retirement point for drain_gpu; also covers DXGI's own present work.
     let value = shared.fence_value.fetch_add(1, Ordering::AcqRel) + 1;
-    shared.queue.signal(shared.fence.as_ref(), value).map_err(|_| PresentError::Gpu)?;
+    shared
+        .queue
+        .signal(shared.fence.as_ref(), value)
+        .map_err(|_| PresentError::Gpu)?;
     Ok(())
 }
 
@@ -939,7 +1040,12 @@ where
         return superseded(true, next.content, latency, now);
     }
     let jobs = lock(&shared.jobs);
-    match jobs.jobs.front().and_then(|next| next.outputs.first()).and_then(Option::as_ref) {
+    match jobs
+        .jobs
+        .front()
+        .and_then(|next| next.outputs.first())
+        .and_then(Option::as_ref)
+    {
         Some(next) => superseded(true, next.content, latency, now),
         None => superseded(false, 0.0, latency, now),
     }
@@ -972,7 +1078,13 @@ where
     };
     let scanline_available = mode.scanline_available && shared.scanline.is_some();
     let scheduled = not_before.max(now_seconds(shared.clock.as_ref()));
-    let floor = guard_floor(last_flip, mode.period, shared.lead_seconds, guard, scanline_available);
+    let floor = guard_floor(
+        last_flip,
+        mode.period,
+        shared.lead_seconds,
+        guard,
+        scanline_available,
+    );
     let early = guard_early(scanline_available, guard, mode.period, not_before);
     wait_until(shared.clock.as_ref(), (not_before - early).max(floor));
     let waited = (now_seconds(shared.clock.as_ref()) - scheduled).max(0.0);
@@ -998,7 +1110,8 @@ where
                     lock(&shared.state).window.guard_timeouts += 1;
                     break;
                 }
-                let eta = (f64::from(open.saturating_sub(scanline.line)) / f64::from(mode.active_lines.max(1)))
+                let eta = (f64::from(open.saturating_sub(scanline.line))
+                    / f64::from(mode.active_lines.max(1)))
                     * mode.period;
                 if eta > 0.002 {
                     wait_until(shared.clock.as_ref(), now + eta - 0.001);
@@ -1046,15 +1159,26 @@ where
         let mut thread = lock(&shared.state);
         let slot = thread.next_list;
         thread.next_list ^= 1;
-        thread.allocators[slot].reset().map_err(|_| PresentError::Gpu)?;
+        thread.allocators[slot]
+            .reset()
+            .map_err(|_| PresentError::Gpu)?;
         let list = &thread.lists[slot];
-        list.reset_list(&thread.allocators[slot]).map_err(|_| PresentError::Gpu)?;
-        list.transition(&destination, ResourceState::PRESENT, ResourceState::COPY_DEST);
+        list.reset_list(&thread.allocators[slot])
+            .map_err(|_| PresentError::Gpu)?;
+        list.transition(
+            &destination,
+            ResourceState::PRESENT,
+            ResourceState::COPY_DEST,
+        );
         if state != ResourceState::COPY_SOURCE {
             list.transition(source, state, ResourceState::COPY_SOURCE);
         }
         list.copy_resource(&destination, source);
-        list.transition(&destination, ResourceState::COPY_DEST, ResourceState::PRESENT);
+        list.transition(
+            &destination,
+            ResourceState::COPY_DEST,
+            ResourceState::PRESENT,
+        );
         if state != ResourceState::COPY_SOURCE {
             list.transition(source, ResourceState::COPY_SOURCE, state);
         }
@@ -1063,10 +1187,16 @@ where
             overlay.draw(list, &destination, generated);
         }
         list.close_list().map_err(|_| PresentError::Gpu)?;
-        shared.queue.execute(&[list]).map_err(|_| PresentError::Gpu)?;
+        shared
+            .queue
+            .execute(&[list])
+            .map_err(|_| PresentError::Gpu)?;
     }
     let value = shared.fence_value.fetch_add(1, Ordering::AcqRel) + 1;
-    shared.queue.signal(shared.fence.as_ref(), value).map_err(|_| PresentError::Gpu)?;
+    shared
+        .queue
+        .signal(shared.fence.as_ref(), value)
+        .map_err(|_| PresentError::Gpu)?;
     Ok(())
 }
 
@@ -1077,13 +1207,21 @@ where
     N: NativeSwapchain<Buffer = D::Texture>,
 {
     let value = shared.fence_value.load(Ordering::Acquire);
-    shared.fence.as_ref().wait(value, GPU_TIMEOUT).map_err(|error| match error {
-        GpuError::Timeout | GpuError::DeviceRemoved { .. } => PresentError::DeviceHung,
-        _ => PresentError::Gpu,
-    })
+    shared
+        .fence
+        .as_ref()
+        .wait(value, GPU_TIMEOUT)
+        .map_err(|error| match error {
+            GpuError::Timeout | GpuError::DeviceRemoved { .. } => PresentError::DeviceHung,
+            _ => PresentError::Gpu,
+        })
 }
 
-fn native_present<D, N>(shared: &Arc<Shared<D, N>>, job: &PresentJob<D>, generated: bool) -> Result<(), PresentError>
+fn native_present<D, N>(
+    shared: &Arc<Shared<D, N>>,
+    job: &PresentJob<D>,
+    generated: bool,
+) -> Result<(), PresentError>
 where
     D: GpuDevice,
     D::CommandList: ListLifecycle<Allocator = D::CommandAllocator> + GpuCommandList<D::Texture>,
@@ -1095,7 +1233,11 @@ where
         Some(scanline) => {
             let quarter = (4 * scanline.line / mode.active_lines.max(1)).min(3) as usize;
             let mut state = lock(&shared.state);
-            let index = if scanline.in_vertical_blank { 0 } else { 1 + quarter };
+            let index = if scanline.in_vertical_blank {
+                0
+            } else {
+                1 + quarter
+            };
             state.window.scan[index] += 1;
         }
         None => lock(&shared.state).window.scan[5] += 1,
@@ -1137,7 +1279,13 @@ where
 }
 
 fn log_window(window: &PresentWindow) {
-    let average = |sum: f64, count: u32| if count > 0 { sum / f64::from(count) } else { 0.0 };
+    let average = |sum: f64, count: u32| {
+        if count > 0 {
+            sum / f64::from(count)
+        } else {
+            0.0
+        }
+    };
     let ms = |seconds: f64| seconds * 1000.0;
     tracing::info!(
         "fg: vrr present jobs={} generated{{shown={} dropped={}}} real{{shown={} dropped={}}} late={} latency_ms={:.2} short_gaps={}/{} back_to_back={} gap_min_ms={:.2} gpu_wait_ms{{avg={:.2} max={:.2}}} guard{{holds={} avg_ms={:.2} max_ms={:.2} timeouts={}}} present_call_ms{{avg={:.2} max={:.2}}} scan_at_flip{{blank={} q1={} q2={} q3={} q4={} unread={}}} idle_in_blank={}/{}",
@@ -1212,7 +1360,11 @@ mod tests {
     #[rstest]
     #[case(TearGuard::Timer, true, 1.0 / 60.0 + 0.0002)]
     #[case(TearGuard::Scanline, false, 1.0 / 60.0 + 0.0002)]
-    fn timer_guard_keeps_a_full_refresh(#[case] guard: TearGuard, #[case] scanline: bool, #[case] want: f64) {
+    fn timer_guard_keeps_a_full_refresh(
+        #[case] guard: TearGuard,
+        #[case] scanline: bool,
+        #[case] want: f64,
+    ) {
         let floor = guard_floor(10.0, 1.0 / 60.0, 0.00025, guard, scanline);
         assert!((floor - (10.0 + want)).abs() < 1e-9);
     }
@@ -1221,7 +1373,10 @@ mod tests {
     fn scanline_guard_reaches_back_before_the_previous_scan_ends() {
         let floor = guard_floor(10.0, 1.0 / 60.0, 0.00025, TearGuard::Scanline, true);
         assert!((floor - (10.0 + 1.0 / 60.0 - 0.00025 - 0.0005)).abs() < 1e-9);
-        assert_eq!(guard_floor(0.0, 1.0 / 60.0, 0.00025, TearGuard::Scanline, true), 0.0);
+        assert_eq!(
+            guard_floor(0.0, 1.0 / 60.0, 0.00025, TearGuard::Scanline, true),
+            0.0
+        );
     }
 
     #[rstest]
@@ -1243,10 +1398,16 @@ mod tests {
         let mode = DisplayMode::new(75.0, 1080, 1920, false, 0.00025);
         assert!((mode.period - 1.0 / 75.0).abs() < 1e-12);
         assert_eq!(mode.active_lines, 1080);
-        assert_eq!(mode.lead_lines, (1080.0_f64 * (0.00025 * 75.0)).round() as u32);
+        assert_eq!(
+            mode.lead_lines,
+            (1080.0_f64 * (0.00025 * 75.0)).round() as u32
+        );
         let rotated = DisplayMode::new(60.0, 1080, 1920, true, 0.00025);
         assert_eq!(rotated.active_lines, 1920);
-        assert!((DisplayMode::new(0.0, 0, 0, false, 0.0).period - DisplayMode::DEFAULT_PERIOD).abs() < 1e-12);
+        assert!(
+            (DisplayMode::new(0.0, 0, 0, false, 0.0).period - DisplayMode::DEFAULT_PERIOD).abs()
+                < 1e-12
+        );
     }
 
     /// K167: the C++ `Presenter::submit` returns `DXGI_ERROR_INVALID_CALL` when it has stopped and

@@ -54,7 +54,9 @@ pub fn settings() -> Option<&'static LoadedSettings> {
 
 /// The fault injector the offline host uses to arm a bookkeeping failure.
 pub fn faults() -> Option<std::sync::Arc<Faults>> {
-    RUNTIME.get().map(|runtime| std::sync::Arc::clone(&runtime.faults))
+    RUNTIME
+        .get()
+        .map(|runtime| std::sync::Arc::clone(&runtime.faults))
 }
 
 /// Whether the router has been installed.
@@ -90,16 +92,18 @@ fn start_up() {
     // Load the configuration once, on this first call, and log the report. A malformed file falls
     // back to defaults and says so (never an error to the game).
     let store = TomlConfigStore::beside_module();
-    let loaded = crate::adapters::driven::config_toml::load_and_log(&store, |name| {
-        std::env::var(name).ok()
-    });
+    let loaded =
+        crate::adapters::driven::config_toml::load_and_log(&store, |name| std::env::var(name).ok());
 
     // Build and install the router. The adapter that owns the backend device supplies the three
     // seams; when none is linked (the offline host installs its own router), the exports keep
     // answering their documented error codes.
     install_router(&faults);
 
-    let _ = RUNTIME.set(Runtime { faults, settings: loaded });
+    let _ = RUNTIME.set(Runtime {
+        faults,
+        settings: loaded,
+    });
 }
 
 /// Installs the process router when the D3D12 adapter is present.

@@ -18,8 +18,9 @@
 
 use std::sync::Arc;
 
-use windows::core::{implement, GUID, Interface, Result as WinResult, HRESULT};
+use windows::core::IUnknown;
 use windows::core::BOOL;
+use windows::core::{implement, Interface, Result as WinResult, GUID, HRESULT};
 use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Direct3D12::{ID3D12GraphicsCommandList, ID3D12Resource};
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -28,24 +29,25 @@ use windows::Win32::Graphics::Dxgi::Common::{
 use windows::Win32::Graphics::Dxgi::{
     IDXGIDeviceSubObject_Impl, IDXGIObject_Impl, IDXGIOutput, IDXGISwapChain1_Impl,
     IDXGISwapChain2_Impl, IDXGISwapChain3_Impl, IDXGISwapChain4, IDXGISwapChain4_Impl,
-    IDXGISwapChain_Impl,
-    DXGI_FRAME_STATISTICS, DXGI_HDR_METADATA_TYPE, DXGI_MATRIX_3X2_F, DXGI_PRESENT,
-    DXGI_PRESENT_PARAMETERS, DXGI_RGBA, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_DESC1,
+    IDXGISwapChain_Impl, DXGI_FRAME_STATISTICS, DXGI_HDR_METADATA_TYPE, DXGI_MATRIX_3X2_F,
+    DXGI_PRESENT, DXGI_PRESENT_PARAMETERS, DXGI_RGBA, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_DESC1,
     DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
 };
-use windows::core::IUnknown;
 
 use crate::application::ports::gpu::PixelFormat;
-use crate::application::ports::swapchain::{
-    Offset, PresentFlags, PresentParams, Rect,
-};
+use crate::application::ports::swapchain::{Offset, PresentFlags, PresentParams, Rect};
 use crate::application::presentation::swapchain::SwapchainError;
 
 /// The application logic the COM surface delegates to. Implemented below for the production
 /// [`crate::application::presentation::swapchain::Swapchain`]; tests implement it directly.
 pub trait PresentBackend: Send + Sync {
     /// `Present`/`Present1`. `params` is `Some` when the game called `Present1`.
-    fn present(&self, sync: u32, flags: PresentFlags, params: Option<PresentParams>) -> Result<(), SwapchainError>;
+    fn present(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: Option<PresentParams>,
+    ) -> Result<(), SwapchainError>;
 
     fn resize(
         &self,
@@ -96,14 +98,21 @@ impl std::fmt::Debug for DxgiWrapper {
 /// Wraps `native` and returns the game-facing object. The wrapper holds its own reference to the
 /// chain; the caller keeps whichever reference the FFX contract gives it.
 pub fn wrap(native: &IDXGISwapChain4, backend: Arc<dyn PresentBackend>) -> IDXGISwapChain4 {
-    DxgiWrapper { native: native.clone(), backend }.into()
+    DxgiWrapper {
+        native: native.clone(),
+        backend,
+    }
+    .into()
 }
 
 impl DxgiWrapper {
     /// The COM object over a wrapped chain. The object holds its own reference to the native chain
     /// and forwards everything the application does not intercept to it.
     pub fn new(native: &IDXGISwapChain4, backend: Arc<dyn PresentBackend>) -> DxgiWrapper {
-        DxgiWrapper { native: native.clone(), backend }
+        DxgiWrapper {
+            native: native.clone(),
+            backend,
+        }
     }
 
     /// The COM object over the production wrapper: the chain it presents through, and the
@@ -155,7 +164,12 @@ unsafe fn copy_params(params: *const DXGI_PRESENT_PARAMETERS) -> Option<PresentP
         // SAFETY: DXGI documents `pDirtyRects` as `DirtyRectsCount` rects.
         unsafe { std::slice::from_raw_parts(params.pDirtyRects, params.DirtyRectsCount as usize) }
             .iter()
-            .map(|rect| Rect { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+            .map(|rect| Rect {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            })
             .collect()
     };
     Some(PresentParams {
@@ -163,29 +177,51 @@ unsafe fn copy_params(params: *const DXGI_PRESENT_PARAMETERS) -> Option<PresentP
         // SAFETY: a non-null scroll rect points at one rect.
         scroll_rect: (!params.pScrollRect.is_null()).then(|| {
             let rect = unsafe { *params.pScrollRect };
-            Rect { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+            Rect {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            }
         }),
         // SAFETY: a non-null scroll offset points at one point.
         scroll_offset: (!params.pScrollOffset.is_null()).then(|| {
             let point = unsafe { *params.pScrollOffset };
-            Offset { x: point.x, y: point.y }
+            Offset {
+                x: point.x,
+                y: point.y,
+            }
         }),
     })
 }
 
 /// The `IDXGIObject` methods forward to the native chain.
 impl IDXGIObject_Impl for DxgiWrapper_Impl {
-    fn SetPrivateData(&self, name: *const GUID, datasize: u32, pdata: *const core::ffi::c_void) -> WinResult<()> {
+    fn SetPrivateData(
+        &self,
+        name: *const GUID,
+        datasize: u32,
+        pdata: *const core::ffi::c_void,
+    ) -> WinResult<()> {
         // SAFETY: the parameters are the caller's; the native chain validates them.
         unsafe { self.native.SetPrivateData(name, datasize, pdata) }
     }
 
-    fn SetPrivateDataInterface(&self, name: *const GUID, punknown: windows::core::Ref<'_, IUnknown>) -> WinResult<()> {
+    fn SetPrivateDataInterface(
+        &self,
+        name: *const GUID,
+        punknown: windows::core::Ref<'_, IUnknown>,
+    ) -> WinResult<()> {
         // SAFETY: passing the caller's interface reference through unchanged.
         unsafe { self.native.SetPrivateDataInterface(name, punknown.as_ref()) }
     }
 
-    fn GetPrivateData(&self, name: *const GUID, pdatasize: *mut u32, pdata: *mut core::ffi::c_void) -> WinResult<()> {
+    fn GetPrivateData(
+        &self,
+        name: *const GUID,
+        pdatasize: *mut u32,
+        pdata: *mut core::ffi::c_void,
+    ) -> WinResult<()> {
         // SAFETY: the caller's out-parameters are forwarded unchanged.
         unsafe { self.native.GetPrivateData(name, pdatasize, pdata) }
     }
@@ -206,15 +242,25 @@ impl IDXGIDeviceSubObject_Impl for DxgiWrapper_Impl {
 
 impl IDXGISwapChain_Impl for DxgiWrapper_Impl {
     fn Present(&self, syncinterval: u32, flags: DXGI_PRESENT) -> HRESULT {
-        match self.backend.present(syncinterval, present_flags(flags), None) {
+        match self
+            .backend
+            .present(syncinterval, present_flags(flags), None)
+        {
             Ok(()) => HRESULT(0),
             Err(error) => hresult(error),
         }
     }
 
-    fn GetBuffer(&self, buffer: u32, riid: *const GUID, ppsurface: *mut *mut core::ffi::c_void) -> WinResult<()> {
+    fn GetBuffer(
+        &self,
+        buffer: u32,
+        riid: *const GUID,
+        ppsurface: *mut *mut core::ffi::c_void,
+    ) -> WinResult<()> {
         if ppsurface.is_null() {
-            return Err(windows::core::Error::from(windows::Win32::Foundation::E_POINTER));
+            return Err(windows::core::Error::from(
+                windows::Win32::Foundation::E_POINTER,
+            ));
         }
         // SAFETY: the slot is non-null and valid for one write.
         unsafe { *ppsurface = std::ptr::null_mut() };
@@ -227,14 +273,25 @@ impl IDXGISwapChain_Impl for DxgiWrapper_Impl {
         query_interface_of(object.as_ref(), riid, ppsurface)
     }
 
-    fn SetFullscreenState(&self, fullscreen: BOOL, ptarget: windows::core::Ref<'_, IDXGIOutput>) -> WinResult<()> {
+    fn SetFullscreenState(
+        &self,
+        fullscreen: BOOL,
+        ptarget: windows::core::Ref<'_, IDXGIOutput>,
+    ) -> WinResult<()> {
         // A mode change must not race a flip issued from the presenter thread.
         self.backend.before_fullscreen_change();
         // SAFETY: the target reference is forwarded unchanged.
-        unsafe { self.native.SetFullscreenState(fullscreen.as_bool(), ptarget.as_ref()) }
+        unsafe {
+            self.native
+                .SetFullscreenState(fullscreen.as_bool(), ptarget.as_ref())
+        }
     }
 
-    fn GetFullscreenState(&self, pfullscreen: *mut BOOL, pptarget: windows::core::OutRef<'_, IDXGIOutput>) -> WinResult<()> {
+    fn GetFullscreenState(
+        &self,
+        pfullscreen: *mut BOOL,
+        pptarget: windows::core::OutRef<'_, IDXGIOutput>,
+    ) -> WinResult<()> {
         // SAFETY: the caller's out-parameters are forwarded unchanged. The output slot is
         // optional, so a null one stays null.
         // SAFETY: `OutRef` is `#[repr(transparent)]` over the interface's out pointer, so the cast
@@ -305,18 +362,30 @@ impl IDXGISwapChain1_Impl for DxgiWrapper_Impl {
         unsafe { self.native.GetHwnd() }
     }
 
-    fn GetCoreWindow(&self, refiid: *const GUID, ppunk: *mut *mut core::ffi::c_void) -> WinResult<()> {
+    fn GetCoreWindow(
+        &self,
+        refiid: *const GUID,
+        ppunk: *mut *mut core::ffi::c_void,
+    ) -> WinResult<()> {
         let window = unsafe { self.native.GetCoreWindow::<IUnknown>() }.ok();
         query_interface_of(window.as_ref(), refiid, ppunk)
     }
 
-    fn Present1(&self, syncinterval: u32, presentflags: DXGI_PRESENT, ppresentparameters: *const DXGI_PRESENT_PARAMETERS) -> HRESULT {
+    fn Present1(
+        &self,
+        syncinterval: u32,
+        presentflags: DXGI_PRESENT,
+        ppresentparameters: *const DXGI_PRESENT_PARAMETERS,
+    ) -> HRESULT {
         if ppresentparameters.is_null() {
             return hresult(SwapchainError::InvalidCall);
         }
         // SAFETY: the caller passes a valid Present1 parameter block for the duration of the call.
         let params = unsafe { copy_params(ppresentparameters) };
-        match self.backend.present(syncinterval, present_flags(presentflags), params) {
+        match self
+            .backend
+            .present(syncinterval, present_flags(presentflags), params)
+        {
             Ok(()) => HRESULT(0),
             Err(error) => hresult(error),
         }
@@ -433,26 +502,44 @@ impl IDXGISwapChain3_Impl for DxgiWrapper_Impl {
                 .any(|queue| queue.is_none())
         };
         if foreign {
-            return Err(windows::core::Error::from(hresult(SwapchainError::ForeignPresentQueue)));
+            return Err(windows::core::Error::from(hresult(
+                SwapchainError::ForeignPresentQueue,
+            )));
         }
         let format = (format != windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN)
             .then(|| pixel_format(format));
         self.backend
-            .resize_buffers1(buffercount, width, height, format, swapchainflags.0 as u32, &masks)
+            .resize_buffers1(
+                buffercount,
+                width,
+                height,
+                format,
+                swapchainflags.0 as u32,
+                &masks,
+            )
             .map_err(|error| windows::core::Error::from(hresult(error)))
     }
 }
 
 impl IDXGISwapChain4_Impl for DxgiWrapper_Impl {
-    fn SetHDRMetaData(&self, r#type: DXGI_HDR_METADATA_TYPE, size: u32, pmetadata: *const core::ffi::c_void) -> WinResult<()> {
+    fn SetHDRMetaData(
+        &self,
+        r#type: DXGI_HDR_METADATA_TYPE,
+        size: u32,
+        pmetadata: *const core::ffi::c_void,
+    ) -> WinResult<()> {
         // SAFETY: the metadata buffer is the caller's and valid for `size` bytes for the call.
         unsafe {
             let bytes = if pmetadata.is_null() {
                 None
             } else {
-                Some(std::slice::from_raw_parts(pmetadata.cast::<u8>(), size as usize))
+                Some(std::slice::from_raw_parts(
+                    pmetadata.cast::<u8>(),
+                    size as usize,
+                ))
             };
-            self.native.SetHDRMetaData(r#type, bytes)
+            self.native
+                .SetHDRMetaData(r#type, bytes)
                 .map_err(|error| windows::core::Error::from_hresult(error.code()))
         }
     }
@@ -474,10 +561,11 @@ fn query_interface_of(
             };
             hr.ok()
         }
-        None => Err(windows::core::Error::from_hresult(HRESULT(0x8000_4005_u32 as i32))),
+        None => Err(windows::core::Error::from_hresult(HRESULT(
+            0x8000_4005_u32 as i32,
+        ))),
     }
 }
-
 
 fn pixel_format(format: DXGI_FORMAT) -> PixelFormat {
     if format == windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM {
@@ -493,7 +581,10 @@ fn pixel_format(format: DXGI_FORMAT) -> PixelFormat {
 pub fn interpolation_objects(
     backend: &dyn PresentBackend,
 ) -> (Option<ID3D12GraphicsCommandList>, Option<ID3D12Resource>) {
-    (backend.interpolation_list(), backend.interpolation_texture())
+    (
+        backend.interpolation_list(),
+        backend.interpolation_texture(),
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -556,12 +647,15 @@ impl PresentBackend
     }
 
     fn interpolation_list(&self) -> Option<ID3D12GraphicsCommandList> {
-        let list = crate::application::presentation::swapchain::Swapchain::interpolation_list(self).ok()?;
+        let list = crate::application::presentation::swapchain::Swapchain::interpolation_list(self)
+            .ok()?;
         Some(list.raw().clone())
     }
 
     fn interpolation_texture(&self) -> Option<ID3D12Resource> {
-        let texture = crate::application::presentation::swapchain::Swapchain::interpolation_texture(self).ok()?;
+        let texture =
+            crate::application::presentation::swapchain::Swapchain::interpolation_texture(self)
+                .ok()?;
         Some(texture.raw().clone())
     }
 

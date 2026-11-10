@@ -32,7 +32,6 @@ use amd_fidelityfx_framegeneration_dx12::domain::frame::{
     ColorFormat, FrameParams, MIDPOINT_ALPHA,
 };
 
-
 const DISPLAY_WIDTH: u32 = 480;
 const DISPLAY_HEIGHT: u32 = 270;
 const RENDER_WIDTH: u32 = 320;
@@ -51,10 +50,38 @@ struct Scene {
 }
 
 const SCENES: [Scene; 4] = [
-    Scene { name: "rightward pan", travel_x: 0.10, travel_y: 0.0, bar_width: 0.12, start_x: 0.35, start_y: 0.50 },
-    Scene { name: "leftward pan", travel_x: -0.05, travel_y: 0.0, bar_width: 0.20, start_x: 0.70, start_y: 0.50 },
-    Scene { name: "diagonal thin bar", travel_x: 0.06, travel_y: 0.04, bar_width: 0.03, start_x: 0.30, start_y: 0.40 },
-    Scene { name: "fast bar", travel_x: 0.25, travel_y: 0.0, bar_width: 0.12, start_x: 0.20, start_y: 0.50 },
+    Scene {
+        name: "rightward pan",
+        travel_x: 0.10,
+        travel_y: 0.0,
+        bar_width: 0.12,
+        start_x: 0.35,
+        start_y: 0.50,
+    },
+    Scene {
+        name: "leftward pan",
+        travel_x: -0.05,
+        travel_y: 0.0,
+        bar_width: 0.20,
+        start_x: 0.70,
+        start_y: 0.50,
+    },
+    Scene {
+        name: "diagonal thin bar",
+        travel_x: 0.06,
+        travel_y: 0.04,
+        bar_width: 0.03,
+        start_x: 0.30,
+        start_y: 0.40,
+    },
+    Scene {
+        name: "fast bar",
+        travel_x: 0.25,
+        travel_y: 0.0,
+        bar_width: 0.12,
+        start_x: 0.20,
+        start_y: 0.50,
+    },
 ];
 
 struct Image {
@@ -78,7 +105,11 @@ fn make_scene(scene: &Scene, t: f32, width: u32, height: u32) -> Image {
     let travel_pixels_x = scene.travel_x * width_f;
     let travel_pixels_y = scene.travel_y * height_f;
     let feather = 1.25;
-    let half_height = if scene.travel_y != 0.0 { 0.15 * height_f } else { 0.5 * height_f };
+    let half_height = if scene.travel_y != 0.0 {
+        0.15 * height_f
+    } else {
+        0.5 * height_f
+    };
 
     let mut image = Image {
         color: vec![0.0; (width * height * 4) as usize],
@@ -92,8 +123,13 @@ fn make_scene(scene: &Scene, t: f32, width: u32, height: u32) -> Image {
             let u = (x as f32 + 0.5) / width_f;
             let pixel_x = x as f32 + 0.5;
             let pixel_y = y as f32 + 0.5;
-            let horizontal = smooth_step(half_width, half_width - feather, (pixel_x - centre_x).abs());
-            let vertical = smooth_step(half_height, half_height - feather, (pixel_y - centre_y).abs());
+            let horizontal =
+                smooth_step(half_width, half_width - feather, (pixel_x - centre_x).abs());
+            let vertical = smooth_step(
+                half_height,
+                half_height - feather,
+                (pixel_y - centre_y).abs(),
+            );
             let inside = horizontal * vertical;
             let index = (y * width + x) as usize;
 
@@ -231,7 +267,11 @@ fn ssim(reference: &[u8], candidate: &[u8], width: u32, height: u32) -> f64 {
             let covariance = sum_ab / n - mean_a * mean_b;
             let numerator = (2.0 * mean_a * mean_b + C1) * (2.0 * covariance + C2);
             let denominator = (mean_a * mean_a + mean_b * mean_b + C1) * (var_a + var_b + C2);
-            total += if denominator != 0.0 { numerator / denominator } else { 0.0 };
+            total += if denominator != 0.0 {
+                numerator / denominator
+            } else {
+                0.0
+            };
             windows += 1;
             x += STRIDE;
         }
@@ -243,7 +283,6 @@ fn ssim(reference: &[u8], candidate: &[u8], width: u32, height: u32) -> f64 {
         total / windows as f64
     }
 }
-
 
 /// The host: one device, queue, allocator, list and fence, as `fgcheck_common.h` had.
 struct Host {
@@ -258,26 +297,43 @@ struct Host {
 impl Host {
     fn new() -> Option<Self> {
         let device = D3d12Device::create_default().ok().flatten()?;
-        let queue = device.create_queue(QueueKind::Direct, QueuePriority::Normal).ok()?;
+        let queue = device
+            .create_queue(QueueKind::Direct, QueuePriority::Normal)
+            .ok()?;
         let allocator = device.create_command_allocator(QueueKind::Direct).ok()?;
         let list = device.create_command_list(&allocator).ok()?;
         let fence = device.create_fence(0).ok()?;
-        Some(Self { device, queue, allocator, list, fence, fence_value: 0 })
+        Some(Self {
+            device,
+            queue,
+            allocator,
+            list,
+            fence,
+            fence_value: 0,
+        })
     }
 
     /// Resets the list for a fresh recording.
     fn begin(&self) -> Result<(), String> {
         self.allocator.reset().map_err(|error| error.to_string())?;
-        self.list.reset(&self.allocator).map_err(|error| error.to_string())
+        self.list
+            .reset(&self.allocator)
+            .map_err(|error| error.to_string())
     }
 
     /// Closes, executes and waits for the recording.
     fn submit(&mut self) -> Result<(), String> {
         self.list.close().map_err(|error| error.to_string())?;
-        self.queue.execute(&[&self.list]).map_err(|error| error.to_string())?;
+        self.queue
+            .execute(&[&self.list])
+            .map_err(|error| error.to_string())?;
         self.fence_value += 1;
-        self.queue.signal(&self.fence, self.fence_value).map_err(|error| error.to_string())?;
-        self.fence.wait(self.fence_value, WAIT).map_err(|error| error.to_string())
+        self.queue
+            .signal(&self.fence, self.fence_value)
+            .map_err(|error| error.to_string())?;
+        self.fence
+            .wait(self.fence_value, WAIT)
+            .map_err(|error| error.to_string())
     }
 
     fn texture(
@@ -288,7 +344,9 @@ impl Host {
         flags: TextureFlags,
     ) -> Result<<D3d12Device as GpuDevice>::Texture, String> {
         let desc = TextureDesc::texture2d(width, height, format, flags);
-        self.device.create_texture(&desc).map_err(|error| error.to_string())
+        self.device
+            .create_texture(&desc)
+            .map_err(|error| error.to_string())
     }
 
     /// Uploads rows through a staging buffer and leaves the texture in COMMON.
@@ -336,7 +394,10 @@ impl Host {
             .readback_texture(texture, &staging, from_state, from_state)
             .map_err(|error| error.to_string())?;
         self.submit()?;
-        let bytes = self.device.read_buffer(&staging).map_err(|error| error.to_string())?;
+        let bytes = self
+            .device
+            .read_buffer(&staging)
+            .map_err(|error| error.to_string())?;
         let row_bytes = (info.width * 4) as usize;
         let mut packed = Vec::with_capacity(row_bytes * info.height as usize);
         for y in 0..info.height as usize {
@@ -360,7 +421,11 @@ struct Pair {
 fn build_frame(scene: &Scene, t: f32) -> Pair {
     let display = make_scene(scene, t, DISPLAY_WIDTH, DISPLAY_HEIGHT);
     let render = make_scene(scene, t, RENDER_WIDTH, RENDER_HEIGHT);
-    let depth: Vec<u8> = render.depth.iter().flat_map(|value| value.to_le_bytes()).collect();
+    let depth: Vec<u8> = render
+        .depth
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect();
     Pair {
         color: quantise(&display.color),
         depth,
@@ -392,16 +457,20 @@ struct Frames {
 }
 
 impl Frames {
-    fn upload(
-        host: &mut Host,
-        scene: &Scene,
-        time: f32,
-    ) -> Result<Self, String> {
+    fn upload(host: &mut Host, scene: &Scene, time: f32) -> Result<Self, String> {
         let pair = build_frame(scene, time);
-        let color =
-            host.texture(PixelFormat::R8G8B8A8Unorm, DISPLAY_WIDTH, DISPLAY_HEIGHT, TextureFlags::NONE)?;
-        let depth =
-            host.texture(PixelFormat::R32Float, RENDER_WIDTH, RENDER_HEIGHT, TextureFlags::NONE)?;
+        let color = host.texture(
+            PixelFormat::R8G8B8A8Unorm,
+            DISPLAY_WIDTH,
+            DISPLAY_HEIGHT,
+            TextureFlags::NONE,
+        )?;
+        let depth = host.texture(
+            PixelFormat::R32Float,
+            RENDER_WIDTH,
+            RENDER_HEIGHT,
+            TextureFlags::NONE,
+        )?;
         let motion = host.texture(
             PixelFormat::R16G16B16A16Float,
             RENDER_WIDTH,
@@ -413,7 +482,11 @@ impl Frames {
         host.upload(&depth, &pair.depth, RENDER_WIDTH, RENDER_HEIGHT, 4)?;
         host.upload(&motion, &pair.motion, RENDER_WIDTH, RENDER_HEIGHT, 8)?;
         host.submit()?;
-        Ok(Self { colors: vec![color], depths: vec![depth], motions: vec![motion] })
+        Ok(Self {
+            colors: vec![color],
+            depths: vec![depth],
+            motions: vec![motion],
+        })
     }
 }
 
@@ -423,7 +496,9 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
         return Err("no D3D12 adapter".to_string());
     };
     let mut generator = Stage1::create(&host.device).map_err(|error| error.to_string())?;
-    generator.configure(&params()).map_err(|error| error.to_string())?;
+    generator
+        .configure(&params())
+        .map_err(|error| error.to_string())?;
 
     // Consecutive real frames: the first seeds history, the second synthesizes the midpoint
     // between them. The C++ loop did the same with `source = iteration % 2` and a reset on the
@@ -450,8 +525,16 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
     let mut midpoint: Option<Vec<u8>> = None;
     for (source, color) in colors.iter().enumerate() {
         let mut frame = InputFrame::new(*color);
-        frame.depth = Some(if source == 0 { &previous.depths[0] } else { &current.depths[0] });
-        frame.motion = Some(if source == 0 { &previous.motions[0] } else { &current.motions[0] });
+        frame.depth = Some(if source == 0 {
+            &previous.depths[0]
+        } else {
+            &current.depths[0]
+        });
+        frame.motion = Some(if source == 0 {
+            &previous.motions[0]
+        } else {
+            &current.motions[0]
+        });
         frame.depth_format = PixelFormat::R32Float;
         frame.motion_format = PixelFormat::R16G16B16A16Float;
         let phase = GeneratePhase {
@@ -470,7 +553,8 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
     }
 
     let generated = midpoint.ok_or("no generated midpoint")?;
-    let reference = quantise(&make_scene(scene, MIDPOINT_ALPHA, DISPLAY_WIDTH, DISPLAY_HEIGHT).color);
+    let reference =
+        quantise(&make_scene(scene, MIDPOINT_ALPHA, DISPLAY_WIDTH, DISPLAY_HEIGHT).color);
     let score = psnr(&reference, &generated);
     let structural = ssim(&reference, &generated, DISPLAY_WIDTH, DISPLAY_HEIGHT);
     let nearest = psnr(&reference, &previous_color);
@@ -488,25 +572,49 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
         ));
     }
     if score < 35.0 {
-        return Err(format!("{}: midpoint {score:.2} dB is below the 35 dB floor", scene.name));
+        return Err(format!(
+            "{}: midpoint {score:.2} dB is below the 35 dB floor",
+            scene.name
+        ));
     }
 
     // Phases in one list: two frames from one prepare, at 1/3 and 2/3, into two outputs recorded in
     // one command list. Each must be closer to the true scene at its time than the nearer real
     // frame, which a wrong or shared alpha would not be. The first call seeds history.
-    let third =
-        GeneratePhase { output: &output, output_state: ResourceState::COMMON, alpha: 1.0 / 3.0 };
-    let two_thirds =
-        GeneratePhase { output: &second, output_state: ResourceState::COMMON, alpha: 2.0 / 3.0 };
+    let third = GeneratePhase {
+        output: &output,
+        output_state: ResourceState::COMMON,
+        alpha: 1.0 / 3.0,
+    };
+    let two_thirds = GeneratePhase {
+        output: &second,
+        output_state: ResourceState::COMMON,
+        alpha: 2.0 / 3.0,
+    };
     for (source, color) in colors.iter().enumerate() {
         let mut frame = InputFrame::new(*color);
-        frame.depth = Some(if source == 0 { &previous.depths[0] } else { &current.depths[0] });
-        frame.motion = Some(if source == 0 { &previous.motions[0] } else { &current.motions[0] });
+        frame.depth = Some(if source == 0 {
+            &previous.depths[0]
+        } else {
+            &current.depths[0]
+        });
+        frame.motion = Some(if source == 0 {
+            &previous.motions[0]
+        } else {
+            &current.motions[0]
+        });
         frame.depth_format = PixelFormat::R32Float;
         frame.motion_format = PixelFormat::R16G16B16A16Float;
         host.begin()?;
         generator
-            .generate(&host.list, &frame, &[third, two_thirds], source == 0, None, None)
+            .generate(
+                &host.list,
+                &frame,
+                &[third, two_thirds],
+                source == 0,
+                None,
+                None,
+            )
             .map_err(|error| error.to_string())?;
         host.submit()?;
     }
@@ -526,7 +634,10 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
         scene.name
     );
     if !(generated_third > nearest_third && generated_two_thirds > nearest_two_thirds) {
-        return Err(format!("{}: phases do not beat the nearest real frame", scene.name));
+        return Err(format!(
+            "{}: phases do not beat the nearest real frame",
+            scene.name
+        ));
     }
 
     // HUD preservation: the game's backbuffer carries a HUD the HUD-less input does not. A known
@@ -542,8 +653,12 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
         }
     }
     let hud_bytes = quantise(&hud_color);
-    let hud_texture =
-        host.texture(PixelFormat::R8G8B8A8Unorm, DISPLAY_WIDTH, DISPLAY_HEIGHT, TextureFlags::NONE)?;
+    let hud_texture = host.texture(
+        PixelFormat::R8G8B8A8Unorm,
+        DISPLAY_WIDTH,
+        DISPLAY_HEIGHT,
+        TextureFlags::NONE,
+    )?;
     host.begin()?;
     host.upload(&hud_texture, &hud_bytes, DISPLAY_WIDTH, DISPLAY_HEIGHT, 4)?;
     host.submit()?;
@@ -553,7 +668,10 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
     frame.motion = Some(&current.motions[0]);
     frame.depth_format = PixelFormat::R32Float;
     frame.motion_format = PixelFormat::R16G16B16A16Float;
-    let hud = HudSource { real: &hud_texture, real_state: ResourceState::COMMON };
+    let hud = HudSource {
+        real: &hud_texture,
+        real_state: ResourceState::COMMON,
+    };
     let phase = GeneratePhase {
         output: &output,
         output_state: ResourceState::COPY_SOURCE,
@@ -577,10 +695,17 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
             }
         }
     }
-    let preserved = if inside == 0 { 0.0 } else { inside_white as f64 / inside as f64 };
+    let preserved = if inside == 0 {
+        0.0
+    } else {
+        inside_white as f64 / inside as f64
+    };
     eprintln!("{}: hud preservation {:.1}%", scene.name, preserved * 100.0);
     if preserved <= 0.95 {
-        return Err(format!("{}: HUD layer did not survive compositing", scene.name));
+        return Err(format!(
+            "{}: HUD layer did not survive compositing",
+            scene.name
+        ));
     }
 
     // K53: a reset seed emits the real frame, not a HUD-less phase. With a HUD source the output is
@@ -599,10 +724,16 @@ fn run_scene(scene: &Scene) -> Result<(), String> {
         host.readback(&output, ResourceState::COPY_SOURCE)
     };
     if seed(Some(hud))? != hud_bytes {
-        return Err(format!("{}: a HUD seed is not the game's own frame", scene.name));
+        return Err(format!(
+            "{}: a HUD seed is not the game's own frame",
+            scene.name
+        ));
     }
     if seed(None)? != current_color {
-        return Err(format!("{}: a HUD-less seed is not the HUD-less colour", scene.name));
+        return Err(format!(
+            "{}: a HUD-less seed is not the HUD-less colour",
+            scene.name
+        ));
     }
     Ok(())
 }
@@ -614,7 +745,9 @@ fn synthetic_scenes_meet_the_ffx_quality_thresholds() {
         return;
     };
     if let Err(error) = Stage1::create(&host.device) {
-        eprintln!("SKIP stage 1 quality: the adapter cannot create the Stage 1 pipelines: {error:?}");
+        eprintln!(
+            "SKIP stage 1 quality: the adapter cannot create the Stage 1 pipelines: {error:?}"
+        );
         return;
     }
     drop(host);

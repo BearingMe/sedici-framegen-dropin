@@ -25,9 +25,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::application::faults::Faults;
-use crate::application::ffx_model::{
-    ConfigureDesc, CreateContextDesc, DispatchDesc, OpaqueHandle,
-};
+use crate::application::ffx_model::{ConfigureDesc, CreateContextDesc, DispatchDesc, OpaqueHandle};
 use crate::application::ports::generator::{
     FrameGenerator, GeneratePhase, GeneratorError, HudSource, InputFrame,
 };
@@ -188,7 +186,8 @@ pub mod reasons {
     pub const GENERATE_WITHOUT_PREPARE: &str = "generate without prepare";
     pub const SPLIT_BEFORE_REGISTRATION: &str =
         "split generation before prepare submission registration";
-    pub const SPLIT_WITHOUT_DEPENDENCY: &str = "split generation without a prepare queue dependency";
+    pub const SPLIT_WITHOUT_DEPENDENCY: &str =
+        "split generation without a prepare queue dependency";
     pub const FRAME_ID_MISMATCH: &str = "configure/prepare frame ID mismatch";
     pub const GENERATE_WITHOUT_HUDLESS: &str = "generate without a HUD-less colour resource";
     pub const HUDLESS_FORMAT: &str = "HUD-less colour does not match the back buffer format";
@@ -384,7 +383,9 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
     }
 
     pub fn device_lost(&self) -> bool {
-        self.device.as_ref().is_some_and(|binding| binding.device.removed_reason().is_some())
+        self.device
+            .as_ref()
+            .is_some_and(|binding| binding.device.removed_reason().is_some())
     }
 
     pub fn enabled(&self) -> bool {
@@ -473,7 +474,11 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
             self.display_height,
             self.max_render_width,
             self.max_render_height,
-            if self.create_flags & ENABLE_DEPTH_INVERTED != 0 { ", depth inverted" } else { "" },
+            if self.create_flags & ENABLE_DEPTH_INVERTED != 0 {
+                ", depth inverted"
+            } else {
+                ""
+            },
             if self.create_flags & ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS != 0 {
                 ", display-res motion"
             } else {
@@ -608,10 +613,7 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
             return Err(self.fail(reasons::PREPARE_OUTSIDE_SIZES));
         }
 
-        let depth = self
-            .objects
-            .texture(prepare.depth.handle)
-            .ok_or(());
+        let depth = self.objects.texture(prepare.depth.handle).ok_or(());
         let motion = self
             .objects
             .texture(prepare.motion_vectors.handle)
@@ -730,8 +732,15 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
         if list == 0 || output == 0 {
             return Err(self.fail(reasons::GENERATE_WITHOUT_OUTPUT));
         }
-        let alpha = self.stage.as_ref().map_or(MIDPOINT_ALPHA, |stage| stage.params().alpha);
-        let phase = PhaseSpec { output, output_state, alpha };
+        let alpha = self
+            .stage
+            .as_ref()
+            .map_or(MIDPOINT_ALPHA, |stage| stage.params().alpha);
+        let phase = PhaseSpec {
+            output,
+            output_state,
+            alpha,
+        };
         self.generate_phases(list, &[phase], hud)
     }
 
@@ -796,9 +805,10 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
             motion_format: PixelFormat::R16G16B16A16Float,
         };
         let hud_texture = hud.and_then(|handle| self.objects.texture(handle));
-        let hud_ref = hud_texture
-            .as_ref()
-            .map(|texture| HudSource { real: texture, real_state: ResourceState::PRESENT });
+        let hud_ref = hud_texture.as_ref().map(|texture| HudSource {
+            real: texture,
+            real_state: ResourceState::PRESENT,
+        });
 
         let recorded: Vec<GeneratePhase<'_, D::Texture>> = outputs
             .iter()
@@ -870,7 +880,10 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
         if retirement.completed() == u64::MAX {
             return Err(self.fail(reasons::PREPARE_DEVICE_REMOVED));
         }
-        if queue.wait(retirement.as_ref(), self.retirement_value).is_err() {
+        if queue
+            .wait(retirement.as_ref(), self.retirement_value)
+            .is_err()
+        {
             return Err(self.fail(reasons::QUEUE_WAIT_FAILED));
         }
         self.prepare_waited = true;
@@ -969,11 +982,15 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
     fn lock(&self) -> std::sync::MutexGuard<'_, Context<D, G>> {
         // A panic elsewhere while holding the lock must not fail a game call: recover the state
         // rather than propagate the poison (bookkeeping never fails a game call).
-        self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.context
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
-impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> ContextHandle for ContextSink<D, G> {
+impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> ContextHandle
+    for ContextSink<D, G>
+{
     fn record(
         &self,
         list: OpaqueHandle,
@@ -981,11 +998,19 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
         output: OpaqueHandle,
         output_state: ResourceState,
     ) -> bool {
-        let alpha = self.lock().stage.as_ref().map_or(MIDPOINT_ALPHA, |stage| stage.params().alpha);
+        let alpha = self
+            .lock()
+            .stage
+            .as_ref()
+            .map_or(MIDPOINT_ALPHA, |stage| stage.params().alpha);
         self.record_phases(
             list,
             real,
-            &[PhaseSpec { output, output_state, alpha }],
+            &[PhaseSpec {
+                output,
+                output_state,
+                alpha,
+            }],
         )
     }
 
@@ -1033,6 +1058,3 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Conte
 /// given (`m_generated_state` in `record_generated`, and the per-phase
 /// `D3D12_RESOURCE_STATE_COPY_SOURCE` on the "vrr" path).
 pub const GENERATED_OUTPUT_STATE: ResourceState = ResourceState::COPY_SOURCE;
-
-
-

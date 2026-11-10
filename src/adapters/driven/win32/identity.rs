@@ -38,7 +38,9 @@ pub fn adapter_luid_chain(chain: &IDXGISwapChain4) -> Option<LUID> {
 /// the same object (the comparison only ran when the pointers differed).
 pub fn same_adapter(chain: Option<LUID>, queue: Option<LUID>) -> bool {
     match (chain, queue) {
-        (Some(chain), Some(queue)) => chain.LowPart == queue.LowPart && chain.HighPart == queue.HighPart,
+        (Some(chain), Some(queue)) => {
+            chain.LowPart == queue.LowPart && chain.HighPart == queue.HighPart
+        }
         _ => true,
     }
 }
@@ -49,7 +51,9 @@ pub fn same_adapter(chain: Option<LUID>, queue: Option<LUID>) -> bool {
 /// overlay then stays on whatever window an earlier create captured, as the C++ did.
 pub fn chain_window(chain: &IDXGISwapChain4) -> Option<HWND> {
     // SAFETY: a pure query on a live chain; a chain without a window answers with an error.
-    unsafe { chain.GetHwnd() }.ok().filter(|window| !window.0.is_null())
+    unsafe { chain.GetHwnd() }
+        .ok()
+        .filter(|window| !window.0.is_null())
 }
 
 /// The address of a live COM object, as an opaque value (never dereferenced).
@@ -57,13 +61,15 @@ pub fn object_address<T: Interface>(object: &T) -> usize {
     Interface::as_raw(object) as usize
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn luid(low: u32, high: i32) -> LUID {
-        LUID { LowPart: low, HighPart: high }
+        LUID {
+            LowPart: low,
+            HighPart: high,
+        }
     }
 
     #[test]

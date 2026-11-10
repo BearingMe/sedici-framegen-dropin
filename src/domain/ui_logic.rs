@@ -25,7 +25,8 @@ pub fn target_units_from_fps(fps: f64) -> i32 {
     if !fps.is_finite() {
         return TARGET_MIN_UNITS;
     }
-    ((fps * 2.0).round() as i64).clamp(i64::from(TARGET_MIN_UNITS), i64::from(TARGET_MAX_UNITS)) as i32
+    ((fps * 2.0).round() as i64).clamp(i64::from(TARGET_MIN_UNITS), i64::from(TARGET_MAX_UNITS))
+        as i32
 }
 
 pub fn target_fps_from_units(units: i32) -> f64 {
@@ -42,7 +43,10 @@ pub struct PendingTarget {
 
 impl Default for PendingTarget {
     fn default() -> Self {
-        Self { units: 73, dirty: false } // 36.5 fps
+        Self {
+            units: 73,
+            dirty: false,
+        } // 36.5 fps
     }
 }
 
@@ -68,7 +72,9 @@ pub fn ui_passes_to_game(msg: u32, wparam: u64, lparam: i64) -> bool {
     const WM_SYSKEYDOWN: u32 = 0x0104;
     const WM_SYSKEYUP: u32 = 0x0105;
     const VK_F4: u64 = 0x73;
-    (msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP) && wparam == VK_F4 && ((lparam as u64) >> 29) & 1 != 0
+    (msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
+        && wparam == VK_F4
+        && ((lparam as u64) >> 29) & 1 != 0
 }
 
 #[cfg(test)]

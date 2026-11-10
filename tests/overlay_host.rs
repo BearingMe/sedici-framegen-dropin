@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::device::D3d12Device;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12CommandList;
+use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12Texture;
 use amd_fidelityfx_framegeneration_dx12::adapters::driven::overlay_ui::host::{
     OverlayHost, OverlayServices,
 };
@@ -34,7 +35,6 @@ use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
 use amd_fidelityfx_framegeneration_dx12::application::ports::input::{
     CursorGuard, Hotkey, HotkeyEvent, InterceptionSummary, KeyAction, WindowHandle,
 };
-use amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12Texture;
 use amd_fidelityfx_framegeneration_dx12::application::ports::overlay::OverlayHook;
 use amd_fidelityfx_framegeneration_dx12::domain::config::{Settings, UiMode};
 use rstest::rstest;
@@ -56,7 +56,10 @@ impl TraceCapture {
         // A thread-local default subscriber: `tracing` keeps it for this test thread only, so the
         // suite's other tests are unaffected.
         let guard = tracing::subscriber::set_default(subscriber);
-        Self { lines, _guard: guard }
+        Self {
+            lines,
+            _guard: guard,
+        }
     }
 
     fn lines(&self) -> Vec<String> {
@@ -181,12 +184,14 @@ fn fixture() -> Option<Fixture> {
     use windows::Win32::Foundation::HINSTANCE;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WS_POPUP, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WNDCLASSW,
+        CreateWindowExW, RegisterClassW, CW_USEDEFAULT, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW,
+        WS_POPUP,
     };
 
     let device = D3d12Device::create_default().ok().flatten()?;
-    let queue = device.create_queue(QueueKind::Direct, QueuePriority::Normal).ok()?;
+    let queue = device
+        .create_queue(QueueKind::Direct, QueuePriority::Normal)
+        .ok()?;
     let allocator = device.create_command_allocator(QueueKind::Direct).ok()?;
     let list = device.create_command_list(&allocator).ok()?;
     let fence = device.create_fence(0).ok()?;
@@ -225,7 +230,16 @@ fn fixture() -> Option<Fixture> {
         )
         .ok()?
     };
-    Some(Fixture { window, device, queue, allocator, list, fence, value: 0, output })
+    Some(Fixture {
+        window,
+        device,
+        queue,
+        allocator,
+        list,
+        fence,
+        value: 0,
+        output,
+    })
 }
 
 impl Fixture {
@@ -237,9 +251,13 @@ impl Fixture {
     /// Closes and submits the list the host recorded into, then waits for it.
     fn submit(&mut self) -> Result<(), String> {
         self.list.close().map_err(|e| e.to_string())?;
-        self.queue.execute(&[&self.list]).map_err(|e| e.to_string())?;
+        self.queue
+            .execute(&[&self.list])
+            .map_err(|e| e.to_string())?;
         self.value += 1;
-        self.queue.signal(&self.fence, self.value).map_err(|e| e.to_string())?;
+        self.queue
+            .signal(&self.fence, self.value)
+            .map_err(|e| e.to_string())?;
         self.fence.wait(self.value, WAIT).map_err(|e| e.to_string())
     }
 }
@@ -256,13 +274,26 @@ impl ConfigStore for NoStore {
         true
     }
     fn stamp(&self, _path: &std::path::Path) -> FileStamp {
-        FileStamp { valid: true, exists: true, file_id: 1, ..FileStamp::default() }
+        FileStamp {
+            valid: true,
+            exists: true,
+            file_id: 1,
+            ..FileStamp::default()
+        }
     }
     fn load_text(&self, _path: &std::path::Path) -> Result<String, String> {
         Ok("[ui]\nmode = \"mini\"\n".to_owned())
     }
-    fn save(&self, _path: &std::path::Path, _values: &ConfigValues, _expected: Option<&FileStamp>) -> SaveOutcome {
-        SaveOutcome { written: true, ..SaveOutcome::default() }
+    fn save(
+        &self,
+        _path: &std::path::Path,
+        _values: &ConfigValues,
+        _expected: Option<&FileStamp>,
+    ) -> SaveOutcome {
+        SaveOutcome {
+            written: true,
+            ..SaveOutcome::default()
+        }
     }
 }
 
@@ -311,11 +342,19 @@ fn a_few_presents_draw_through_the_host_and_report_cadence(#[case] mode: UiMode)
         OverlayHook::<D3d12Texture>::presented(&host, false);
     }
     let status = host.status();
-    assert!(!status.disabled, "a Mini/Full output must never disable the overlay: {:?}", host.disabled_reason());
+    assert!(
+        !status.disabled,
+        "a Mini/Full output must never disable the overlay: {:?}",
+        host.disabled_reason()
+    );
     assert_eq!(status.presented, (3, 0));
     // One rgba8 output, the only format the overlay blender supports (K164). The other formats
     // disable the overlay for the session by design, which `tests/overlay_ui.rs` already covers.
-    assert_eq!(status.draws.0 + status.draws.1, 3, "each output drew once: {status:?}");
+    assert_eq!(
+        status.draws.0 + status.draws.1,
+        3,
+        "each output drew once: {status:?}"
+    );
 
     // The cadence window is 60 outputs wide for the first eight reports; three outputs have no
     // report yet, so drive the recorder to the boundary through the host's own presenter path.
@@ -329,7 +368,9 @@ fn a_few_presents_draw_through_the_host_and_report_cadence(#[case] mode: UiMode)
         .unwrap_or_else(|| panic!("no cadence report line in {lines:?}"));
     assert!(report.contains("real=60 generated=0"), "{report}");
     assert!(
-        lines.iter().any(|line| line.contains("sedici: overlay present callback active")),
+        lines
+            .iter()
+            .any(|line| line.contains("sedici: overlay present callback active")),
         "the one-off link line names the callback resources: {lines:?}"
     );
 }
@@ -369,8 +410,15 @@ fn a_disabled_host_stops_drawing_and_presenting() {
     let host = host(&fixture, Arc::clone(&services), Arc::clone(&guard));
     host.disable("the renderer failed");
     assert!(host.disabled());
-    assert_eq!(host.disabled_reason().as_deref(), Some("the renderer failed"));
-    assert_eq!(live_mode(&services), UiMode::Off, "a disabled overlay publishes Off");
+    assert_eq!(
+        host.disabled_reason().as_deref(),
+        Some("the renderer failed")
+    );
+    assert_eq!(
+        live_mode(&services),
+        UiMode::Off,
+        "a disabled overlay publishes Off"
+    );
     assert!(!guard.active(), "the cursor is given back");
     // Further outputs draw nothing; the cadence is a property of presentation and still counts.
     host.draw(&fixture.list, &fixture.output, false);
@@ -405,7 +453,12 @@ fn the_host_requests_full_capture_only_from_the_render_path_when_focus_arrives_l
 /// against changes shape.
 #[test]
 fn the_host_implements_the_overlay_hook() {
-    fn assert_hook<T: OverlayHook<amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12Texture>>() {}
+    fn assert_hook<
+        T: OverlayHook<
+            amd_fidelityfx_framegeneration_dx12::adapters::driven::d3d12::resources::D3d12Texture,
+        >,
+    >() {
+    }
     assert_hook::<OverlayHost>();
     let _ = OverlayUi::new();
     // Keep the fixture's own types named, so a change to one fails this compile.

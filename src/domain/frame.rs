@@ -169,7 +169,10 @@ impl FrameParams {
             depth_scale: if self.depth_inverted { -1.0 } else { 1.0 },
             depth_bias: if self.depth_inverted { 1.0 } else { 0.0 },
             render_scale: dw / rw,
-            motion_vector_scale: [self.motion_vector_scale_x / rw, self.motion_vector_scale_y / rh],
+            motion_vector_scale: [
+                self.motion_vector_scale_x / rw,
+                self.motion_vector_scale_y / rh,
+            ],
             padding: [0.0, 0.0],
         }
     }
@@ -327,7 +330,10 @@ mod tests {
         let params = valid_params();
         let c = params.constants();
         assert_eq!(c.render_size, [320.0, 180.0, 1.0 / 320.0, 1.0 / 180.0]);
-        assert_eq!(c.presentation_size, [480.0, 270.0, 1.0 / 480.0, 1.0 / 270.0]);
+        assert_eq!(
+            c.presentation_size,
+            [480.0, 270.0, 1.0 / 480.0, 1.0 / 270.0]
+        );
         assert_eq!(c.delta, [0.5, 0.25, 0.75, 0.125]);
         assert_eq!(c.depth_scale, -1.0);
         assert_eq!(c.depth_bias, 1.0);

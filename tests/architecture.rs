@@ -18,16 +18,24 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn sources(layer: &str) -> Vec<(PathBuf, String)> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(layer);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join(layer);
     let mut files = Vec::new();
     rust_files(&root, &mut files);
-    files.into_iter().map(|p| (p.clone(), fs::read_to_string(&p).expect("read"))).collect()
+    files
+        .into_iter()
+        .map(|p| (p.clone(), fs::read_to_string(&p).expect("read")))
+        .collect()
 }
 
 /// Code lines only: comments and the `#[cfg(test)]` tail are not part of the production layer.
 fn production_lines(text: &str) -> Vec<&str> {
     let body = text.split("#[cfg(test)]").next().unwrap_or(text);
-    body.lines().map(str::trim).filter(|l| !l.starts_with("//")).collect()
+    body.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with("//"))
+        .collect()
 }
 
 fn violations(layer: &str, forbidden: &[&str]) -> Vec<String> {
@@ -47,19 +55,27 @@ fn violations(layer: &str, forbidden: &[&str]) -> Vec<String> {
 #[case("application", &["windows::", "crate::adapters", "crate::entry"])]
 fn layer_imports(#[case] layer: &str, #[case] forbidden: &[&str]) {
     let found = violations(layer, forbidden);
-    assert!(found.is_empty(), "{layer} breaks layering:\n{}", found.join("\n"));
+    assert!(
+        found.is_empty(),
+        "{layer} breaks layering:\n{}",
+        found.join("\n")
+    );
 }
 
 #[rstest]
 #[case("domain")]
 #[case("application")]
 fn no_unsafe_outside_adapters(#[case] layer: &str) {
-    let found = violations(layer, &["unsafe {", "unsafe fn", "unsafe impl", "extern \"system\""]);
+    let found = violations(
+        layer,
+        &["unsafe {", "unsafe fn", "unsafe impl", "extern \"system\""],
+    );
     assert!(found.is_empty(), "unsafe in {layer}:\n{}", found.join("\n"));
 }
 
 #[test]
 fn crate_root_denies_unsafe() {
-    let lib = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs")).expect("lib.rs");
+    let lib = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+        .expect("lib.rs");
     assert!(lib.contains("#![deny(unsafe_code)]"));
 }

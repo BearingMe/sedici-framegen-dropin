@@ -15,14 +15,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetCapture, GetKeyState, ReleaseCapture, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, LoadCursorW, PostMessageW, SetCursor, SetWindowLongPtrW,
-    GWLP_WNDPROC, IDC_ARROW, WM_CHAR, WM_DESTROY, WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NCDESTROY, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS,
-    WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, LoadCursorW, PostMessageW, SetCursor,
+    SetWindowLongPtrW, GWLP_WNDPROC, IDC_ARROW, WM_CHAR, WM_DESTROY, WM_INPUT, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY,
+    WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SYSCHAR,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
-use crate::application::ports::input::{CursorGuard, Hotkey, HotkeyEvent, KeyAction, Modifiers, WindowHandle};
+use crate::application::ports::input::{
+    CursorGuard, Hotkey, HotkeyEvent, KeyAction, Modifiers, WindowHandle,
+};
 use crate::domain::ui_logic::ui_passes_to_game;
 
 /// `WM_APP + 1`: the overlay's own "re-evaluate capture" message.
@@ -93,7 +96,11 @@ pub fn current_modifiers() -> Modifiers {
         // SAFETY: `GetKeyState` takes a virtual-key code and reads this thread's key state.
         (unsafe { GetKeyState(vk.0 as i32) } & 0x8000_u16 as i16) != 0
     };
-    Modifiers { ctrl: held(VK_CONTROL), alt: held(VK_MENU), shift: held(VK_SHIFT) }
+    Modifiers {
+        ctrl: held(VK_CONTROL),
+        alt: held(VK_MENU),
+        shift: held(VK_SHIFT),
+    }
 }
 
 /// What the window procedure decided about one message.
@@ -158,7 +165,9 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         if !originals.iter().any(|(handle, _)| *handle == window.0) {
             // SAFETY: replacing the window procedure is the documented subclasses idiom. We store
             // the previous procedure and chain to it; allocation happens before the change.
-            let previous = unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, window_proc_entry as *const () as isize) };
+            let previous = unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, window_proc_entry as *const () as isize)
+            };
             if previous == 0 {
                 // A zero return can be a valid previous procedure; the C++ distinguishes via
                 // GetLastError, which this binding does not surface, so treat any value as the
@@ -175,7 +184,9 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
     /// forwards the decision to it (the production host implements [`OverlayInputHost`]); a bare
     /// one over a test host leaves capture whenever the host does not report it active.
     pub fn on_hotkey_message(&self, window: WindowHandle) {
-        let Some(current) = self.current_window() else { return };
+        let Some(current) = self.current_window() else {
+            return;
+        };
         if current != window {
             self.guard.leave_window(window, true);
             return;
@@ -206,7 +217,13 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
     }
 
     /// The core per-message decision, free of Win32 so tests can drive it.
-    pub fn dispatch(&self, window: WindowHandle, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Dispatch {
+    pub fn dispatch(
+        &self,
+        window: WindowHandle,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Dispatch {
         if let Some(host) = self.capture_host.clone() {
             return self.dispatch_production(host.as_ref(), window, msg, wparam, lparam);
         }
@@ -218,33 +235,52 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
 
         // A consumed hotkey key-down also consumes its matching key-up, even if modifiers or mode
         // changed between the two. Never consume an unrelated key-up.
-        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk
-            && self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-                return Dispatch::Consumed(LRESULT(0));
-            }
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+            && wparam.0 as u32 == self.hotkey.vk
+            && self
+                .hotkey_down_window
+                .compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            return Dispatch::Consumed(LRESULT(0));
+        }
         if msg == WM_KILLFOCUS || msg == WM_NCDESTROY {
-            let _ = self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
+            let _ = self.hotkey_down_window.compare_exchange(
+                window.0,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
         }
         if msg == WM_DESTROY || msg == WM_NCDESTROY {
             self.guard.leave_window(window, false);
         }
         if msg == WM_SETFOCUS {
-            self.queued.lock().unwrap_or_else(|e| e.into_inner()).push(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+            self.queued
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(InputMessage {
+                    msg,
+                    wparam: wparam.0,
+                    lparam: lparam.0,
+                });
         }
 
         // Hotkey press.
-        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
-            && wparam.0 as u32 == self.hotkey.vk {
-                let modifiers = current_modifiers();
-                if self.hotkey.matches(modifiers) {
-                    // Bit 30 of lparam is the previous key state; ignore auto-repeat.
-                    if (lparam.0 as u64 >> 30) & 1 == 0 {
-                        self.hotkey_down_window.store(window.0, Ordering::Release);
-                        self.host.on_hotkey(HotkeyEvent { action: KeyAction::Pressed, window });
-                    }
-                    return Dispatch::Consumed(LRESULT(0));
+        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam.0 as u32 == self.hotkey.vk {
+            let modifiers = current_modifiers();
+            if self.hotkey.matches(modifiers) {
+                // Bit 30 of lparam is the previous key state; ignore auto-repeat.
+                if (lparam.0 as u64 >> 30) & 1 == 0 {
+                    self.hotkey_down_window.store(window.0, Ordering::Release);
+                    self.host.on_hotkey(HotkeyEvent {
+                        action: KeyAction::Pressed,
+                        window,
+                    });
                 }
+                return Dispatch::Consumed(LRESULT(0));
             }
+        }
 
         // Otherwise the Full menu consumes input while it owns the cursor, except Alt+F4 (K126).
         if !self.disabled.load(Ordering::Acquire) && self.host.cursor_active() {
@@ -254,7 +290,9 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             }
             if msg == WM_INPUT {
                 // SAFETY: no arguments beyond the window; `DefWindowProcW` is the documented default.
-                return Dispatch::Consumed(unsafe { DefWindowProcW(hwnd_of(window), msg, wparam, lparam) });
+                return Dispatch::Consumed(unsafe {
+                    DefWindowProcW(hwnd_of(window), msg, wparam, lparam)
+                });
             }
             if !ui_passes_to_game(msg, wparam.0 as u64, lparam.0 as i64) && is_consumed_input(msg) {
                 {
@@ -262,9 +300,17 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
                     if queued.len() >= MAX_QUEUED_MESSAGES {
                         queued.remove(0);
                     }
-                    queued.push(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+                    queued.push(InputMessage {
+                        msg,
+                        wparam: wparam.0,
+                        lparam: lparam.0,
+                    });
                 }
-                self.host.on_input(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+                self.host.on_input(InputMessage {
+                    msg,
+                    wparam: wparam.0,
+                    lparam: lparam.0,
+                });
                 if msg == WM_MOUSEMOVE {
                     set_arrow();
                 }
@@ -299,30 +345,49 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         }
         // A consumed hotkey key-down also consumes its matching key-up, even if modifiers or the
         // mode changed between the two. Never consume an unrelated key-up.
-        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk
-            && self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
-                return Dispatch::Consumed(LRESULT(0));
-            }
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+            && wparam.0 as u32 == self.hotkey.vk
+            && self
+                .hotkey_down_window
+                .compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            return Dispatch::Consumed(LRESULT(0));
+        }
         if msg == WM_KILLFOCUS || msg == WM_NCDESTROY {
-            let _ = self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
+            let _ = self.hotkey_down_window.compare_exchange(
+                window.0,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
         }
         if msg == WM_DESTROY || msg == WM_NCDESTROY {
             self.guard.leave_window(window, false);
         }
         if msg == WM_SETFOCUS && !self.disabled.load(Ordering::Acquire) {
-            host.on_input(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+            host.on_input(InputMessage {
+                msg,
+                wparam: wparam.0,
+                lparam: lparam.0,
+            });
             // Full capture retries after the window regains focus (the C++ posted kHotkeyMessage).
             post_capture_message(window);
         }
         if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
-            && wparam.0 as u32 == self.hotkey.vk && self.hotkey.matches(current_modifiers()) {
-                // Bit 30 of lparam is the previous key state; ignore auto-repeat.
-                if (lparam.0 as u64 >> 30) & 1 == 0 {
-                    self.hotkey_down_window.store(window.0, Ordering::Release);
-                    host.on_hotkey(HotkeyEvent { action: KeyAction::Pressed, window });
-                }
-                return Dispatch::Consumed(LRESULT(0));
+            && wparam.0 as u32 == self.hotkey.vk
+            && self.hotkey.matches(current_modifiers())
+        {
+            // Bit 30 of lparam is the previous key state; ignore auto-repeat.
+            if (lparam.0 as u64 >> 30) & 1 == 0 {
+                self.hotkey_down_window.store(window.0, Ordering::Release);
+                host.on_hotkey(HotkeyEvent {
+                    action: KeyAction::Pressed,
+                    window,
+                });
             }
+            return Dispatch::Consumed(LRESULT(0));
+        }
         // The Full menu owns the cursor: consume the game's input, except Alt+F4 (K126).
         if !self.disabled.load(Ordering::Acquire) && host.cursor_active() {
             if msg == WM_SETCURSOR {
@@ -331,10 +396,16 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             }
             if msg == WM_INPUT {
                 // SAFETY: no arguments beyond the window; `DefWindowProcW` is the documented default.
-                return Dispatch::Consumed(unsafe { DefWindowProcW(hwnd_of(window), msg, wparam, lparam) });
+                return Dispatch::Consumed(unsafe {
+                    DefWindowProcW(hwnd_of(window), msg, wparam, lparam)
+                });
             }
             if !ui_passes_to_game(msg, wparam.0 as u64, lparam.0 as i64) && is_consumed_input(msg) {
-                host.on_input(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+                host.on_input(InputMessage {
+                    msg,
+                    wparam: wparam.0,
+                    lparam: lparam.0,
+                });
                 if msg == WM_MOUSEMOVE {
                     set_arrow();
                 }
@@ -353,10 +424,23 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
     pub fn disable(&self) {
         self.disabled.store(true, Ordering::Release);
         self.guard.disable();
-        let windows: Vec<isize> = self.original.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(w, _)| *w).collect();
+        let windows: Vec<isize> = self
+            .original
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(w, _)| *w)
+            .collect();
         for window in windows {
             // SAFETY: posting a message to a live window; a destroyed window fails harmlessly.
-            let _ = unsafe { PostMessageW(Some(hwnd_of(WindowHandle(window))), HOTKEY_MESSAGE, WPARAM(0), LPARAM(0)) };
+            let _ = unsafe {
+                PostMessageW(
+                    Some(hwnd_of(WindowHandle(window))),
+                    HOTKEY_MESSAGE,
+                    WPARAM(0),
+                    LPARAM(0),
+                )
+            };
         }
     }
 
@@ -366,12 +450,19 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         self.host.on_destroyed(window);
         let mut originals = self.original.lock().unwrap_or_else(|e| e.into_inner());
         originals.retain(|(handle, _)| *handle != window.0);
-        let _ = self.current.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self
+            .current
+            .compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
     }
 
     /// The procedure stored for `window`, if any.
     fn original_for(&self, window: WindowHandle) -> Option<isize> {
-        self.original.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(h, _)| *h == window.0).map(|(_, p)| *p)
+        self.original
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(h, _)| *h == window.0)
+            .map(|(_, p)| *p)
     }
 }
 
@@ -407,14 +498,17 @@ fn window_proc_entry(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LR
 
 /// Registers `input` as the process's window-procedure handler; the caller must keep it alive for
 /// as long as the subclassed windows exist.
-pub fn install_trampoline<H: WindowInputHost + 'static, G: CursorGuard + 'static>(input: &'static WindowInput<H, G>) {
+pub fn install_trampoline<H: WindowInputHost + 'static, G: CursorGuard + 'static>(
+    input: &'static WindowInput<H, G>,
+) {
     let handler: Trampoline = Box::new(move |window, msg, wparam, lparam| {
         let result = match input.dispatch(window, msg, wparam, lparam) {
             Dispatch::Consumed(value) => value,
             Dispatch::Forward => match input.original_for(window) {
                 // SAFETY: chain to the procedure we replaced; the handle is a live window.
                 Some(original) if original != 0 => unsafe {
-                    let proc: windows::Win32::UI::WindowsAndMessaging::WNDPROC = std::mem::transmute(original);
+                    let proc: windows::Win32::UI::WindowsAndMessaging::WNDPROC =
+                        std::mem::transmute(original);
                     CallWindowProcW(proc, hwnd_of(window), msg, wparam, lparam)
                 },
                 _ => unsafe { DefWindowProcW(hwnd_of(window), msg, wparam, lparam) },
@@ -480,7 +574,10 @@ static INSTALLED_HANDLER: std::sync::Once = std::sync::Once::new();
 static GLOBAL_HOST: Mutex<Option<Arc<dyn OverlayInputHost>>> = Mutex::new(None);
 
 fn global_host() -> Option<Arc<dyn OverlayInputHost>> {
-    GLOBAL_HOST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    GLOBAL_HOST
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 /// Subclasses `window` for the overlay's hotkey, input and cursor handling (ports
@@ -494,11 +591,17 @@ fn global_host() -> Option<Arc<dyn OverlayInputHost>> {
 ///
 /// A failed installation is logged and otherwise non-fatal: the game keeps its own procedure and the
 /// overlay stays unavailable for the session.
-pub fn capture_window_global(hotkey: Hotkey, window: WindowHandle, host: Arc<dyn OverlayInputHost>) {
+pub fn capture_window_global(
+    hotkey: Hotkey,
+    window: WindowHandle,
+    host: Arc<dyn OverlayInputHost>,
+) {
     if window.is_none() {
         return;
     }
-    *GLOBAL_HOST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(host);
+    *GLOBAL_HOST
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(host);
     // Leaked for the process lifetime, like the C++ statics it replaces: the window procedure holds
     // no reference and the subclass lives as long as any window does.
     static INPUT: std::sync::OnceLock<&'static WindowInput<ForwardHost, RealCursorGuard>> =
@@ -531,8 +634,7 @@ impl WindowInputHost for ForwardHost {
         global_host().is_some_and(|host| host.cursor_active())
     }
     fn disabled(&self) -> bool {
-        GLOBAL_DISABLED.load(Ordering::Acquire)
-            || global_host().is_some_and(|host| host.disabled())
+        GLOBAL_DISABLED.load(Ordering::Acquire) || global_host().is_some_and(|host| host.disabled())
     }
     fn on_hotkey(&self, event: HotkeyEvent) {
         if let Some(host) = global_host() {
@@ -663,11 +765,19 @@ mod tests {
         }
     }
 
-    fn input() -> (std::sync::Arc<TestHost>, std::sync::Arc<TestGuard>, WindowInput<TestHostRef, TestGuardRef>) {
+    fn input() -> (
+        std::sync::Arc<TestHost>,
+        std::sync::Arc<TestGuard>,
+        WindowInput<TestHostRef, TestGuardRef>,
+    ) {
         let host = std::sync::Arc::new(TestHost::default());
         let guard = std::sync::Arc::new(TestGuard::default());
         guard.available.store(true, Ordering::Relaxed);
-        let input = WindowInput::new(TestHostRef(host.clone()), TestGuardRef(guard.clone()), Hotkey::parse("alt+f10"));
+        let input = WindowInput::new(
+            TestHostRef(host.clone()),
+            TestGuardRef(guard.clone()),
+            Hotkey::parse("alt+f10"),
+        );
         (host, guard, input)
     }
 
@@ -721,8 +831,15 @@ mod tests {
     fn a_full_menu_swallows_game_input() {
         let (host, _, input) = input();
         host.active.store(true, Ordering::Release);
-        assert_eq!(input.dispatch(WINDOW, WM_MOUSEMOVE, WPARAM(0), LPARAM(0)), Dispatch::Consumed(LRESULT(0)));
-        assert_eq!(input.take_queued().len(), 1, "the mouse move reaches the overlay");
+        assert_eq!(
+            input.dispatch(WINDOW, WM_MOUSEMOVE, WPARAM(0), LPARAM(0)),
+            Dispatch::Consumed(LRESULT(0))
+        );
+        assert_eq!(
+            input.take_queued().len(),
+            1,
+            "the mouse move reaches the overlay"
+        );
         assert!(!host.inputs.lock().unwrap().is_empty());
     }
 
@@ -731,7 +848,10 @@ mod tests {
         let (host, _, input) = input();
         host.active.store(true, Ordering::Release);
         // WM_SYSKEYDOWN F4 with Alt held (lparam bit 29).
-        assert_eq!(input.dispatch(WINDOW, WM_SYSKEYDOWN, WPARAM(0x73), LPARAM(1 << 29)), Dispatch::Forward);
+        assert_eq!(
+            input.dispatch(WINDOW, WM_SYSKEYDOWN, WPARAM(0x73), LPARAM(1 << 29)),
+            Dispatch::Forward
+        );
         assert!(input.take_queued().is_empty());
     }
 
@@ -742,14 +862,20 @@ mod tests {
         // state, so this branch is driven by the paired-up logic only when the press matched. Set
         // the down-window directly the way a matched press would.
         input.hotkey_down_window.store(WINDOW.0, Ordering::Release);
-        assert_eq!(input.dispatch(WINDOW, WM_SYSKEYUP, WPARAM(0x79), LPARAM(0)), Dispatch::Consumed(LRESULT(0)));
+        assert_eq!(
+            input.dispatch(WINDOW, WM_SYSKEYUP, WPARAM(0x79), LPARAM(0)),
+            Dispatch::Consumed(LRESULT(0))
+        );
         let _ = host;
     }
 
     #[test]
     fn an_unpaired_key_up_is_forwarded() {
         let (_, _, input) = input();
-        assert_eq!(input.dispatch(WINDOW, WM_SYSKEYUP, WPARAM(0x79), LPARAM(0)), Dispatch::Forward);
+        assert_eq!(
+            input.dispatch(WINDOW, WM_SYSKEYUP, WPARAM(0x79), LPARAM(0)),
+            Dispatch::Forward
+        );
     }
 
     #[test]
@@ -757,16 +883,25 @@ mod tests {
         let (_, guard, input) = input();
         input.capture_window(WINDOW);
         guard.enters.store(0, Ordering::Relaxed);
-        assert_eq!(input.dispatch(WINDOW, WM_NCDESTROY, WPARAM(0), LPARAM(0)), Dispatch::Forward);
+        assert_eq!(
+            input.dispatch(WINDOW, WM_NCDESTROY, WPARAM(0), LPARAM(0)),
+            Dispatch::Forward
+        );
         assert_eq!(guard.leaves.load(Ordering::Relaxed), 1);
-        assert!(input.original_for(WINDOW).is_some(), "the chain is remembered until the forward completes");
+        assert!(
+            input.original_for(WINDOW).is_some(),
+            "the chain is remembered until the forward completes"
+        );
     }
 
     #[test]
     fn set_cursor_is_consumed_and_returns_true() {
         let (host, _, input) = input();
         host.active.store(true, Ordering::Release);
-        assert_eq!(input.dispatch(WINDOW, WM_SETCURSOR, WPARAM(0), LPARAM(0)), Dispatch::Consumed(LRESULT(1)));
+        assert_eq!(
+            input.dispatch(WINDOW, WM_SETCURSOR, WPARAM(0), LPARAM(0)),
+            Dispatch::Consumed(LRESULT(1))
+        );
     }
 
     #[test]
@@ -774,7 +909,10 @@ mod tests {
         let (host, _, input) = input();
         host.active.store(true, Ordering::Release);
         // Not the game's window, so `DefWindowProcW` returns 0.
-        assert!(matches!(input.dispatch(WINDOW, WM_INPUT, WPARAM(0), LPARAM(0)), Dispatch::Consumed(_)));
+        assert!(matches!(
+            input.dispatch(WINDOW, WM_INPUT, WPARAM(0), LPARAM(0)),
+            Dispatch::Consumed(_)
+        ));
     }
 
     #[rstest]

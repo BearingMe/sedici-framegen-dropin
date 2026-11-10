@@ -15,9 +15,7 @@ use std::fmt::Write as _;
 
 use crate::application::settings::io::{IoCompletion, IoKind};
 use crate::application::settings::live::Live;
-use crate::application::settings::tx::{
-    ApplyResult, ApplyStatus, SaveTicket, SettingsTx,
-};
+use crate::application::settings::tx::{ApplyResult, ApplyStatus, SaveTicket, SettingsTx};
 use crate::application::stats::Stats;
 use crate::domain::config::{Settings, Source, UiMode};
 use crate::domain::timing::{TimingRing, TimingStats};
@@ -66,7 +64,15 @@ pub struct PresentFrame {
 /// The link information the C++ printed once, on its first callback (K123: the shape of the line
 /// is read by `tools/analyze_log.ps1`). Pointers are formatted by the adapter; only the parts that
 /// are values are assembled here.
-pub fn active_line(device: &str, command_list: &str, output: &str, size: Option<(u32, u32)>, format: u32, state: u32, ui: bool) -> String {
+pub fn active_line(
+    device: &str,
+    command_list: &str,
+    output: &str,
+    size: Option<(u32, u32)>,
+    format: u32,
+    state: u32,
+    ui: bool,
+) -> String {
     let mut out = String::new();
     let _ = write!(
         out,
@@ -88,7 +94,14 @@ pub fn active_line(device: &str, command_list: &str, output: &str, size: Option<
 
 /// The periodic `overlay present` line, at every cadence report. `fps` values and the span use the
 /// C++ stream precision (two and one decimals after the fps fields, three for the span).
-pub fn stats_line(frames: u64, real: u64, generated: u64, output_fps: f64, real_fps: f64, span_ms: f64) -> String {
+pub fn stats_line(
+    frames: u64,
+    real: u64,
+    generated: u64,
+    output_fps: f64,
+    real_fps: f64,
+    span_ms: f64,
+) -> String {
     let mut out = String::new();
     let _ = write!(
         out,
@@ -124,7 +137,10 @@ pub struct CadenceOutput {
 
 impl OutputCadence {
     pub fn new() -> Self {
-        Self { early_reports: EARLY_REPORTS, ..Self::default() }
+        Self {
+            early_reports: EARLY_REPORTS,
+            ..Self::default()
+        }
     }
 
     /// Records one output present. `swapchain_events` is the stats' event count; a change starts a
@@ -165,7 +181,11 @@ impl OutputCadence {
             self.real += 1;
         }
 
-        let report_every = if self.early_reports > 0 { EARLY_REPORT_EVERY } else { REPORT_EVERY };
+        let report_every = if self.early_reports > 0 {
+            EARLY_REPORT_EVERY
+        } else {
+            REPORT_EVERY
+        };
         if self.calls >= report_every {
             if self.early_reports > 0 {
                 self.early_reports -= 1;
@@ -193,9 +213,24 @@ impl OutputCadence {
             0.0
         };
         let seconds = span_ms / 1000.0;
-        let output_fps = if seconds > 0.0 { intervals as f64 / seconds } else { 0.0 };
-        let real_fps = if seconds > 0.0 { self.real as f64 / seconds } else { 0.0 };
-        stats_line(self.calls, self.real, self.generated, output_fps, real_fps, span_ms)
+        let output_fps = if seconds > 0.0 {
+            intervals as f64 / seconds
+        } else {
+            0.0
+        };
+        let real_fps = if seconds > 0.0 {
+            self.real as f64 / seconds
+        } else {
+            0.0
+        };
+        stats_line(
+            self.calls,
+            self.real,
+            self.generated,
+            output_fps,
+            real_fps,
+            span_ms,
+        )
     }
 
     /// The early reports still to come in this window.
@@ -359,7 +394,6 @@ pub enum OverlayView {
     Full(FullView),
 }
 
-
 /// The menu's own state. One instance per DLL, behind the render lock.
 pub struct OverlayState {
     last_mode: UiMode,
@@ -426,7 +460,11 @@ impl OverlayState {
     pub fn effective_scale(&self, height: u32, live: &Live) -> f32 {
         let values = live.snapshot();
         if values.scale_mode == crate::domain::config::UiScaleMode::Auto {
-            let scale = if height > 0 { height as f32 / 1080.0 } else { 1.0 };
+            let scale = if height > 0 {
+                height as f32 / 1080.0
+            } else {
+                1.0
+            };
             scale.clamp(0.5, 2.0)
         } else {
             values.ui_scale.clamp(0.5, 2.0)
@@ -525,7 +563,11 @@ impl OverlayState {
 
     /// Builds the Mini view.
     pub fn mini_view(real: TimingStats, output: TimingStats) -> MiniView {
-        MiniView { real_fps: real.fps, output_fps: output.fps, output_p99_ms: output.p99_ms }
+        MiniView {
+            real_fps: real.fps,
+            output_fps: output.fps,
+            output_p99_ms: output.p99_ms,
+        }
     }
 
     /// The edit gate the C++ used: controls are enabled only once the baseline exists and no save is
@@ -935,8 +977,20 @@ mod tests {
         assert_eq!(reports[0].0, 59);
         assert_eq!(reports[7].0, 479);
         assert_eq!(reports[8].0, 779);
-        assert!(reports[0].1.starts_with("sedici: overlay present frames=60 real="), "{}", reports[0].1);
-        assert!(reports[8].1.starts_with("sedici: overlay present frames=300"), "{}", reports[8].1);
+        assert!(
+            reports[0]
+                .1
+                .starts_with("sedici: overlay present frames=60 real="),
+            "{}",
+            reports[0].1
+        );
+        assert!(
+            reports[8]
+                .1
+                .starts_with("sedici: overlay present frames=300"),
+            "{}",
+            reports[8].1
+        );
         assert_eq!(cadence.early_reports_left(), 0);
     }
 
@@ -981,7 +1035,11 @@ mod tests {
 
     #[test]
     fn mini_line_matches_the_cpp_format() {
-        let mini = MiniView { real_fps: 60.0, output_fps: 119.94, output_p99_ms: 9.06 };
+        let mini = MiniView {
+            real_fps: 60.0,
+            output_fps: 119.94,
+            output_p99_ms: 9.06,
+        };
         assert_eq!(mini.line(), "real 60.0  |  out 119.9  |  p99 9.1 ms");
     }
 
@@ -995,7 +1053,10 @@ mod tests {
         assert_eq!(state.save_status(), "Loading settings...");
         let request = state.take_begin_request().expect("begin request");
         assert_ne!(request.0, 0, "the edit generation is non-zero");
-        assert!(state.take_begin_request().is_none(), "the request is taken once");
+        assert!(
+            state.take_begin_request().is_none(),
+            "the request is taken once"
+        );
     }
 
     #[test]
@@ -1007,12 +1068,22 @@ mod tests {
         // A completion from an earlier Full-menu instance.
         state.on_io_completion(
             UiMode::Full,
-            &IoCompletion { kind: IoKind::BeginEdit, view_epoch: epoch.wrapping_sub(1), begin_ok: true, ..IoCompletion::default() },
+            &IoCompletion {
+                kind: IoKind::BeginEdit,
+                view_epoch: epoch.wrapping_sub(1),
+                begin_ok: true,
+                ..IoCompletion::default()
+            },
         );
         assert!(!state.snapshot_valid());
         state.on_io_completion(
             UiMode::Full,
-            &IoCompletion { kind: IoKind::BeginEdit, view_epoch: epoch, begin_ok: true, ..IoCompletion::default() },
+            &IoCompletion {
+                kind: IoKind::BeginEdit,
+                view_epoch: epoch,
+                begin_ok: true,
+                ..IoCompletion::default()
+            },
         );
         assert!(state.snapshot_valid());
         assert_eq!(state.save_status(), "");
@@ -1042,7 +1113,10 @@ mod tests {
         state.snapshot_valid = true;
         let units = crate::domain::ui_logic::target_units_from_fps(70.0);
         let outcome = state.apply(OverlayAction::SlideTarget(units), &tx);
-        assert!(outcome.status.is_none(), "sliding only edits the pending value");
+        assert!(
+            outcome.status.is_none(),
+            "sliding only edits the pending value"
+        );
         let outcome = state.apply(OverlayAction::ApplyTarget, &tx);
         assert_eq!(outcome.status, None, "an applied change reports nothing");
         assert_eq!(live.snapshot().target_fps, 70.0);
@@ -1062,7 +1136,10 @@ mod tests {
             state.pending_target.follow_live(live.snapshot().target_fps);
             previous = state.pending_target.units;
         }
-        assert_eq!(state.pending_target.units, 100, "K118: the drag is not rounded back");
+        assert_eq!(
+            state.pending_target.units, 100,
+            "K118: the drag is not rounded back"
+        );
         assert!(state.pending_target.dirty);
     }
 
@@ -1096,7 +1173,12 @@ mod tests {
         assert!(tx.begin_edit_for(generation));
         state.on_io_completion(
             UiMode::Full,
-            &IoCompletion { kind: IoKind::BeginEdit, view_epoch: epoch, begin_ok: true, ..IoCompletion::default() },
+            &IoCompletion {
+                kind: IoKind::BeginEdit,
+                view_epoch: epoch,
+                begin_ok: true,
+                ..IoCompletion::default()
+            },
         );
         state.apply(OverlayAction::SlideTarget(120), &tx);
         assert_eq!(state.apply(OverlayAction::ApplyTarget, &tx).status, None);
@@ -1104,7 +1186,11 @@ mod tests {
         let outcome = state.apply(OverlayAction::Cancel, &tx);
         assert_eq!(outcome.mode, Some(UiMode::Mini));
         assert_eq!(outcome.status.as_deref(), Some("Cancelled"));
-        assert_eq!(live.snapshot().target_fps, 36.5, "cancel restores the baseline");
+        assert_eq!(
+            live.snapshot().target_fps,
+            36.5,
+            "cancel restores the baseline"
+        );
     }
 
     #[test]
@@ -1120,7 +1206,10 @@ mod tests {
         let mut state = OverlayState::new();
         let outcome = state.apply(OverlayAction::Save, &tx);
         assert!(outcome.rejected);
-        assert_eq!(state.save_status(), "Settings changed; reopen the menu before saving");
+        assert_eq!(
+            state.save_status(),
+            "Settings changed; reopen the menu before saving"
+        );
     }
 
     #[rstest]
@@ -1166,8 +1255,16 @@ mod tests {
         state.snapshot_valid = true;
         let stats = Stats::new(1_000_000);
         let view = state.full_view(
-            &live, tx.config(), TimingStats::default(), TimingStats::default(),
-            Vec::new(), Vec::new(), &stats, true, (1280, 720), false,
+            &live,
+            tx.config(),
+            TimingStats::default(),
+            TimingStats::default(),
+            Vec::new(),
+            Vec::new(),
+            &stats,
+            true,
+            (1280, 720),
+            false,
         );
         assert_eq!(view.pending_units, 73);
         assert!(!view.pending_dirty);
@@ -1194,10 +1291,22 @@ mod tests {
     #[test]
     fn the_scale_choice_snaps_an_older_value() {
         use crate::domain::config::UiScaleMode;
-        assert_eq!(ScaleChoice::from_live(UiScaleMode::Auto, 1.75), ScaleChoice(0));
-        assert_eq!(ScaleChoice::from_live(UiScaleMode::Fixed, 1.75), ScaleChoice(3));
-        assert_eq!(ScaleChoice::from_live(UiScaleMode::Fixed, 0.86), ScaleChoice(2));
-        assert_eq!(ScaleChoice::from_live(UiScaleMode::Fixed, 0.5), ScaleChoice(1));
+        assert_eq!(
+            ScaleChoice::from_live(UiScaleMode::Auto, 1.75),
+            ScaleChoice(0)
+        );
+        assert_eq!(
+            ScaleChoice::from_live(UiScaleMode::Fixed, 1.75),
+            ScaleChoice(3)
+        );
+        assert_eq!(
+            ScaleChoice::from_live(UiScaleMode::Fixed, 0.86),
+            ScaleChoice(2)
+        );
+        assert_eq!(
+            ScaleChoice::from_live(UiScaleMode::Fixed, 0.5),
+            ScaleChoice(1)
+        );
     }
 
     #[test]
@@ -1206,11 +1315,23 @@ mod tests {
         assert!(tx.begin_edit());
         let mut state = OverlayState::new();
         state.snapshot_valid = true;
-        assert_eq!(state.apply(OverlayAction::SetScaleChoice(2), &tx).status, None);
+        assert_eq!(
+            state.apply(OverlayAction::SetScaleChoice(2), &tx).status,
+            None
+        );
         assert!((live.ui_scale() - 0.9).abs() < 1e-6);
-        assert_eq!(live.ui_scale_mode(), crate::domain::config::UiScaleMode::Fixed);
-        assert_eq!(state.apply(OverlayAction::SetScaleChoice(0), &tx).status, None);
-        assert_eq!(live.ui_scale_mode(), crate::domain::config::UiScaleMode::Auto);
+        assert_eq!(
+            live.ui_scale_mode(),
+            crate::domain::config::UiScaleMode::Fixed
+        );
+        assert_eq!(
+            state.apply(OverlayAction::SetScaleChoice(0), &tx).status,
+            None
+        );
+        assert_eq!(
+            live.ui_scale_mode(),
+            crate::domain::config::UiScaleMode::Auto
+        );
     }
 
     #[test]
@@ -1262,7 +1383,10 @@ mod tests {
 
     /// An I/O scheduler over the test transaction whose jobs never start (a refused spawn), so the
     /// frame machine sees an idle scheduler with no completion.
-    fn test_io(tx: &Arc<SettingsTx>, store: &Arc<MemoryStore>) -> crate::application::settings::io::SettingsIo {
+    fn test_io(
+        tx: &Arc<SettingsTx>,
+        store: &Arc<MemoryStore>,
+    ) -> crate::application::settings::io::SettingsIo {
         let _ = store;
         struct NoWorker;
         impl crate::application::settings::io::WorkerHost for NoWorker {
@@ -1316,7 +1440,10 @@ mod tests {
         let (generation, _) = out.begin.expect("begin request");
         live.set_ui_mode(UiMode::Mini);
         state.frame(frame_inputs(UiMode::Mini, &live, &tx, &stats, &timing, &io));
-        assert!(!tx.begin_edit_for(generation), "the outstanding edit is stale");
+        assert!(
+            !tx.begin_edit_for(generation),
+            "the outstanding edit is stale"
+        );
     }
 
     #[test]

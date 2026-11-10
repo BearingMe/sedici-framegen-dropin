@@ -9,14 +9,15 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use amd_fidelityfx_framegeneration_dx12::application::context::ContextHandle;
 use amd_fidelityfx_framegeneration_dx12::application::context::{
     DeviceBinding, FrameObjects, Retirement,
 };
 use amd_fidelityfx_framegeneration_dx12::application::faults::{BookkeepingFault, Faults};
 use amd_fidelityfx_framegeneration_dx12::application::ffx_model::{
-    BackendDx12, ConfigureDesc, CreateContextDesc, Dimensions, DispatchDesc, FrameGenerationConfigure,
-    FrameGenerationCreate, GetVersions, Prepare, PrepareV1, QueryDesc, Resource,
-    ResourceDescription, ReturnCode, SurfaceFormat, SwapchainForHwnd, SwapchainNew,
+    BackendDx12, ConfigureDesc, CreateContextDesc, Dimensions, DispatchDesc,
+    FrameGenerationConfigure, FrameGenerationCreate, GetVersions, Prepare, PrepareV1, QueryDesc,
+    Resource, ResourceDescription, ReturnCode, SurfaceFormat, SwapchainForHwnd, SwapchainNew,
     SwapchainWrap,
 };
 use amd_fidelityfx_framegeneration_dx12::application::ports::generator::{
@@ -31,7 +32,6 @@ use amd_fidelityfx_framegeneration_dx12::application::router::{
     DeviceResolver, MemoryTokens, Router, SwapchainFactory, DISPATCH_FRAMEGENERATION_PREPARE,
 };
 use amd_fidelityfx_framegeneration_dx12::application::session::{WrapOrigin, Wrapper};
-use amd_fidelityfx_framegeneration_dx12::application::context::ContextHandle;
 use amd_fidelityfx_framegeneration_dx12::domain::frame::FrameParams;
 use rstest::rstest;
 
@@ -175,7 +175,10 @@ impl GpuDevice for FakeDevice {
     fn create_command_allocator(&self, _: QueueKind) -> Result<Self::CommandAllocator, GpuError> {
         Ok(FakeAllocator)
     }
-    fn create_command_list(&self, _: &Self::CommandAllocator) -> Result<Self::CommandList, GpuError> {
+    fn create_command_list(
+        &self,
+        _: &Self::CommandAllocator,
+    ) -> Result<Self::CommandList, GpuError> {
         Ok(FakeList)
     }
     fn create_fence(&self, _: u64) -> Result<Self::Fence, GpuError> {
@@ -219,7 +222,11 @@ impl FrameGenerator<FakeDevice> for FakeGenerator {
         self.configured = true;
         Ok(())
     }
-    fn prepare(&mut self, _: &Self::List, _: &InputFrame<'_, FakeTexture>) -> Result<(), GeneratorError> {
+    fn prepare(
+        &mut self,
+        _: &Self::List,
+        _: &InputFrame<'_, FakeTexture>,
+    ) -> Result<(), GeneratorError> {
         if self.prepared {
             return Err(GeneratorError::PrepareRejected);
         }
@@ -303,7 +310,11 @@ impl FrameObjects<FakeDevice, FakeList> for FakeObjects {
         self.textures.lock().unwrap().get(&handle).cloned()
     }
     fn list(&self, handle: usize) -> Option<FakeList> {
-        self.lists.lock().unwrap().contains(&handle).then_some(FakeList)
+        self.lists
+            .lock()
+            .unwrap()
+            .contains(&handle)
+            .then_some(FakeList)
     }
 }
 
@@ -315,7 +326,10 @@ struct FakeDevices {
 impl DeviceResolver<FakeDevice> for FakeDevices {
     fn resolve(&self, handle: usize) -> Option<DeviceBinding<FakeDevice>> {
         (handle != 0).then(|| DeviceBinding {
-            device: FakeDevice { removed: self.removed, counter: Arc::clone(&self.counter) },
+            device: FakeDevice {
+                removed: self.removed,
+                counter: Arc::clone(&self.counter),
+            },
             identity: handle,
         })
     }
@@ -347,7 +361,11 @@ impl Wrapper for FakeWrapper {
         Some(0xBEEF)
     }
     fn interpolation_texture(&self) -> Option<Resource> {
-        Some(Resource { handle: 0xFEED, description: ResourceDescription::default(), state: 0 })
+        Some(Resource {
+            handle: 0xFEED,
+            description: ResourceDescription::default(),
+            state: 0,
+        })
     }
 }
 
@@ -358,7 +376,10 @@ impl SwapchainFactory for FakeSwapchains {
         _: &CreateContextDesc,
         _: WrapOrigin,
         _owner: usize,
-    ) -> Result<(usize, Arc<dyn Wrapper>), amd_fidelityfx_framegeneration_dx12::application::ffx_model::Rejection> {
+    ) -> Result<
+        (usize, Arc<dyn Wrapper>),
+        amd_fidelityfx_framegeneration_dx12::application::ffx_model::Rejection,
+    > {
         Ok((0x5000, Arc::new(FakeWrapper::default())))
     }
 }
@@ -377,15 +398,28 @@ struct Harness {
 fn harness() -> Harness {
     let faults = Arc::new(Faults::new());
     let objects = Arc::new(FakeObjects::new());
-    let tokens = Arc::new(MemoryTokens::new(Arc::clone(&faults), 0x1_0000, 0x1000, 0x10));
+    let tokens = Arc::new(MemoryTokens::new(
+        Arc::clone(&faults),
+        0x1_0000,
+        0x1000,
+        0x10,
+    ));
     let router = Router::new(
         Arc::clone(&objects) as Arc<dyn FrameObjects<FakeDevice, FakeList>>,
-        Arc::new(FakeDevices { removed: false, counter: Arc::new(AtomicU32::new(0)) }),
+        Arc::new(FakeDevices {
+            removed: false,
+            counter: Arc::new(AtomicU32::new(0)),
+        }),
         Arc::new(FakeSwapchains),
         tokens,
         Arc::clone(&faults),
     );
-    Harness { router, faults, objects, fence: Arc::new(AtomicU32::new(0)) }
+    Harness {
+        router,
+        faults,
+        objects,
+        fence: Arc::new(AtomicU32::new(0)),
+    }
 }
 
 const DEVICE: usize = 0x1000;
@@ -398,8 +432,14 @@ fn create_desc() -> CreateContextDesc {
     CreateContextDesc {
         frame_generation: Some(FrameGenerationCreate {
             flags: 1 << 3,
-            display_size: Dimensions { width: 1920, height: 1080 },
-            max_render_size: Dimensions { width: 1920, height: 1080 },
+            display_size: Dimensions {
+                width: 1920,
+                height: 1080,
+            },
+            max_render_size: Dimensions {
+                width: 1920,
+                height: 1080,
+            },
             back_buffer_format: SurfaceFormat(10),
         }),
         backend_dx12: Some(BackendDx12 { device: DEVICE }),
@@ -411,7 +451,10 @@ fn configure(enabled: bool, frame_id: u64) -> ConfigureDesc {
     ConfigureDesc {
         frame_generation: Some(FrameGenerationConfigure {
             frame_generation_enabled: enabled,
-            hud_less_color: Resource { handle: COLOR, ..Resource::default() },
+            hud_less_color: Resource {
+                handle: COLOR,
+                ..Resource::default()
+            },
             frame_id,
             ..FrameGenerationConfigure::default()
         }),
@@ -426,13 +469,23 @@ fn prepare(frame_id: u64) -> DispatchDesc {
             prepare: Prepare {
                 frame_id,
                 command_list: LIST,
-                render_size: Dimensions { width: 1920, height: 1080 },
-                motion_vector_scale: amd_fidelityfx_framegeneration_dx12::application::ffx_model::Float2 {
-                    x: 1920.0,
-                    y: 1080.0,
+                render_size: Dimensions {
+                    width: 1920,
+                    height: 1080,
                 },
-                depth: Resource { handle: DEPTH, ..Resource::default() },
-                motion_vectors: Resource { handle: MOTION, ..Resource::default() },
+                motion_vector_scale:
+                    amd_fidelityfx_framegeneration_dx12::application::ffx_model::Float2 {
+                        x: 1920.0,
+                        y: 1080.0,
+                    },
+                depth: Resource {
+                    handle: DEPTH,
+                    ..Resource::default()
+                },
+                motion_vectors: Resource {
+                    handle: MOTION,
+                    ..Resource::default()
+                },
                 ..Prepare::default()
             },
             unused_reset: false,
@@ -443,7 +496,8 @@ fn prepare(frame_id: u64) -> DispatchDesc {
 
 fn setup_objects(h: &Harness) {
     h.objects.add(DEPTH, 1920, 1080, PixelFormat::R32Float);
-    h.objects.add(MOTION, 1920, 1080, PixelFormat::R16G16B16A16Float);
+    h.objects
+        .add(MOTION, 1920, 1080, PixelFormat::R16G16B16A16Float);
     h.objects.add(COLOR, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
     h.objects.lists.lock().unwrap().insert(LIST);
 }
@@ -533,7 +587,10 @@ fn a_create_chain_that_names_no_sedici_context_is_unknown() {
     let h = harness();
     let error = h
         .router
-        .create(&CreateContextDesc { unknown_types: vec![0x7fff_fffe], ..Default::default() })
+        .create(&CreateContextDesc {
+            unknown_types: vec![0x7fff_fffe],
+            ..Default::default()
+        })
         .expect_err("no context named");
     assert_eq!(error.ffx, ReturnCode::ErrorUnknownDesctype);
 }
@@ -546,11 +603,12 @@ fn a_create_chain_that_names_no_sedici_context_is_unknown() {
 #[case::no_desc(SwapchainNew { swapchain_slot: 1, desc: None, dxgi_factory: 1, game_queue: 1 })]
 #[case::no_factory(SwapchainNew { swapchain_slot: 1, desc: Some(Default::default()), dxgi_factory: 0, game_queue: 1 })]
 #[case::no_queue(SwapchainNew { swapchain_slot: 1, desc: Some(Default::default()), dxgi_factory: 1, game_queue: 0 })]
-fn a_new_swapchain_create_missing_an_input_is_a_local_error(
-    #[case] swapchain_new: SwapchainNew,
-) {
+fn a_new_swapchain_create_missing_an_input_is_a_local_error(#[case] swapchain_new: SwapchainNew) {
     let h = harness();
-    let desc = CreateContextDesc { swapchain_new: Some(swapchain_new), ..Default::default() };
+    let desc = CreateContextDesc {
+        swapchain_new: Some(swapchain_new),
+        ..Default::default()
+    };
     let error = h.router.create(&desc).expect_err("missing swapchain input");
     assert_eq!(error.ffx, ReturnCode::Error);
 }
@@ -564,7 +622,10 @@ fn a_new_swapchain_create_missing_an_input_is_a_local_error(
 #[case::no_queue(SwapchainForHwnd { swapchain_slot: 1, hwnd: 1, desc: Some(Default::default()), fullscreen_desc: 0, dxgi_factory: 1, game_queue: 0 })]
 fn a_hwnd_swapchain_create_missing_an_input_is_a_local_error(#[case] form: SwapchainForHwnd) {
     let h = harness();
-    let desc = CreateContextDesc { swapchain_for_hwnd: Some(form), ..Default::default() };
+    let desc = CreateContextDesc {
+        swapchain_for_hwnd: Some(form),
+        ..Default::default()
+    };
     let error = h.router.create(&desc).expect_err("missing swapchain input");
     assert_eq!(error.ffx, ReturnCode::Error);
 }
@@ -573,7 +634,11 @@ fn a_hwnd_swapchain_create_missing_an_input_is_a_local_error(#[case] form: Swapc
 fn a_wrap_without_a_swapchain_or_queue_is_refused() {
     let h = harness();
     let desc = CreateContextDesc {
-        swapchain_wrap: Some(SwapchainWrap { swapchain_slot: 1, swapchain: 0, game_queue: 1 }),
+        swapchain_wrap: Some(SwapchainWrap {
+            swapchain_slot: 1,
+            swapchain: 0,
+            game_queue: 1,
+        }),
         ..Default::default()
     };
     let error = h.router.create(&desc).expect_err("no chain");
@@ -584,7 +649,11 @@ fn a_wrap_without_a_swapchain_or_queue_is_refused() {
 fn a_create_naming_both_a_wrap_and_frame_generation_is_refused() {
     let h = harness();
     let mut desc = create_desc();
-    desc.swapchain_wrap = Some(SwapchainWrap { swapchain_slot: 1, swapchain: 2, game_queue: 3 });
+    desc.swapchain_wrap = Some(SwapchainWrap {
+        swapchain_slot: 1,
+        swapchain: 2,
+        game_queue: 3,
+    });
     let error = h.router.create(&desc).expect_err("both forms");
     assert_eq!(error.ffx, ReturnCode::Error);
     assert_eq!(
@@ -607,9 +676,24 @@ fn null_and_foreign_handles_are_parameter_errors() {
     let h = harness();
     for (op, ffx) in [
         ("destroy", h.router.destroy(0x10).unwrap_err().ffx),
-        ("configure", h.router.configure(0x10, &configure(true, 1)).unwrap_err().ffx),
-        ("dispatch", h.router.dispatch(0x10, &prepare(1)).unwrap_err().ffx),
-        ("query", h.router.query(Some(0x10), &QueryDesc::default()).unwrap_err().ffx),
+        (
+            "configure",
+            h.router
+                .configure(0x10, &configure(true, 1))
+                .unwrap_err()
+                .ffx,
+        ),
+        (
+            "dispatch",
+            h.router.dispatch(0x10, &prepare(1)).unwrap_err().ffx,
+        ),
+        (
+            "query",
+            h.router
+                .query(Some(0x10), &QueryDesc::default())
+                .unwrap_err()
+                .ffx,
+        ),
     ] {
         assert_eq!(ffx, ReturnCode::ErrorParameter, "{op} on a foreign handle");
     }
@@ -623,43 +707,87 @@ fn a_destroyed_token_is_stale_and_never_reused() {
     assert_eq!(h.router.destroy(created.context).map_err(|e| e.ffx), Ok(()));
 
     // The token was issued, so every later call knows it is ours-but-dead, not foreign.
-    assert_eq!(h.router.destroy(created.context).unwrap_err().ffx, ReturnCode::Error);
     assert_eq!(
-        h.router.configure(created.context, &configure(true, 1)).unwrap_err().ffx,
+        h.router.destroy(created.context).unwrap_err().ffx,
         ReturnCode::Error
     );
     assert_eq!(
-        h.router.dispatch(created.context, &prepare(1)).unwrap_err().ffx,
+        h.router
+            .configure(created.context, &configure(true, 1))
+            .unwrap_err()
+            .ffx,
         ReturnCode::Error
     );
     assert_eq!(
-        h.router.query(Some(created.context), &QueryDesc::default()).unwrap_err().ffx,
+        h.router
+            .dispatch(created.context, &prepare(1))
+            .unwrap_err()
+            .ffx,
+        ReturnCode::Error
+    );
+    assert_eq!(
+        h.router
+            .query(Some(created.context), &QueryDesc::default())
+            .unwrap_err()
+            .ffx,
         ReturnCode::Error
     );
 
     let newer = h.router.create(&create_desc()).expect("new create");
-    assert_ne!(newer.context, created.context, "a new context gets a fresh token");
+    assert_ne!(
+        newer.context, created.context,
+        "a new context gets a fresh token"
+    );
 }
 
 #[test]
 fn a_null_descriptor_on_a_live_context_is_a_local_error() {
     let h = harness();
     let created = h.router.create(&create_desc()).expect("create");
-    let null_configure = ConfigureDesc { null_descriptor: true, ..Default::default() };
-    assert_eq!(h.router.configure(created.context, &null_configure).unwrap_err().ffx, ReturnCode::Error);
-    let null_dispatch = DispatchDesc { null_descriptor: true, ..Default::default() };
-    assert_eq!(h.router.dispatch(created.context, &null_dispatch).unwrap_err().ffx, ReturnCode::Error);
+    let null_configure = ConfigureDesc {
+        null_descriptor: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        h.router
+            .configure(created.context, &null_configure)
+            .unwrap_err()
+            .ffx,
+        ReturnCode::Error
+    );
+    let null_dispatch = DispatchDesc {
+        null_descriptor: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        h.router
+            .dispatch(created.context, &null_dispatch)
+            .unwrap_err()
+            .ffx,
+        ReturnCode::Error
+    );
 }
 
 #[test]
 fn a_dispatch_of_an_unknown_type_is_refused_and_the_game_own_dispatch_is_acknowledged() {
     let h = harness();
     let created = h.router.create(&create_desc()).expect("create");
-    let unknown = DispatchDesc { root_type: Some(0x7F5E_0000), ..Default::default() };
-    assert_eq!(h.router.dispatch(created.context, &unknown).unwrap_err().ffx, ReturnCode::Error);
+    let unknown = DispatchDesc {
+        root_type: Some(0x7F5E_0000),
+        ..Default::default()
+    };
+    assert_eq!(
+        h.router
+            .dispatch(created.context, &unknown)
+            .unwrap_err()
+            .ffx,
+        ReturnCode::Error
+    );
 
     let game = DispatchDesc {
-        root_type: Some(amd_fidelityfx_framegeneration_dx12::application::router::DISPATCH_FRAMEGENERATION),
+        root_type: Some(
+            amd_fidelityfx_framegeneration_dx12::application::router::DISPATCH_FRAMEGENERATION,
+        ),
         ..Default::default()
     };
     assert_eq!(
@@ -679,13 +807,21 @@ fn a_session_prepares_and_the_sink_generates_through_the_context() {
     let wrap = h
         .router
         .create(&CreateContextDesc {
-            swapchain_wrap: Some(SwapchainWrap { swapchain_slot: 1, swapchain: 2, game_queue: 3 }),
+            swapchain_wrap: Some(SwapchainWrap {
+                swapchain_slot: 1,
+                swapchain: 2,
+                game_queue: 3,
+            }),
             ..Default::default()
         })
         .expect("wrap create");
     let created = h.router.create(&create_desc()).expect("fg create");
-    h.router.configure(created.context, &configure(true, 7)).expect("configure");
-    h.router.dispatch(created.context, &prepare(7)).expect("prepare");
+    h.router
+        .configure(created.context, &configure(true, 7))
+        .expect("configure");
+    h.router
+        .dispatch(created.context, &prepare(7))
+        .expect("prepare");
 
     // The context never got a wrapper from `configure` in this fake, so generation is not recorded
     // here; the sink behaviour is exercised by the context unit path below. The state machine's
@@ -702,7 +838,9 @@ fn a_session_prepares_and_the_sink_generates_through_the_context() {
 #[case(BookkeepingFault::OwnerAllocation)]
 #[case(BookkeepingFault::RouteRegistryAllocation)]
 #[case(BookkeepingFault::BackendCreation)]
-fn an_injected_create_fault_is_a_local_error_that_issues_no_handle(#[case] fault: BookkeepingFault) {
+fn an_injected_create_fault_is_a_local_error_that_issues_no_handle(
+    #[case] fault: BookkeepingFault,
+) {
     let h = harness();
     h.faults.arm(fault);
     let error = h.router.create(&create_desc()).expect_err("fault");
@@ -717,7 +855,11 @@ fn an_injected_wrapper_registry_fault_leaves_the_native_chain_untouched() {
     let h = harness();
     h.faults.arm(BookkeepingFault::BackendCreation);
     let desc = CreateContextDesc {
-        swapchain_wrap: Some(SwapchainWrap { swapchain_slot: 1, swapchain: 2, game_queue: 3 }),
+        swapchain_wrap: Some(SwapchainWrap {
+            swapchain_slot: 1,
+            swapchain: 2,
+            game_queue: 3,
+        }),
         ..Default::default()
     };
     let error = h.router.create(&desc).expect_err("fault");
@@ -734,11 +876,17 @@ fn a_refused_destroy_parks_the_owner_and_a_retry_does_not_double_park() {
     // recorded or submitted work, so release the hold and it is reaped on the next router call.
     h.faults.set_retirement_hold(true);
     let before = h.router.parked_count();
-    assert_eq!(h.router.destroy(created.context).unwrap_err().ffx, ReturnCode::Error);
+    assert_eq!(
+        h.router.destroy(created.context).unwrap_err().ffx,
+        ReturnCode::Error
+    );
     assert_eq!(h.router.parked_count(), before + 1);
 
     // The token is stale at once; a repeat destroy does not park a second time.
-    assert_eq!(h.router.destroy(created.context).unwrap_err().ffx, ReturnCode::Error);
+    assert_eq!(
+        h.router.destroy(created.context).unwrap_err().ffx,
+        ReturnCode::Error
+    );
     assert_eq!(h.router.parked_count(), before + 1);
 
     // A router call reaps; while held nothing is released.
@@ -747,10 +895,17 @@ fn a_refused_destroy_parks_the_owner_and_a_retry_does_not_double_park() {
 
     // Release the hold: the next router call frees the owner.
     h.faults.set_retirement_hold(false);
-    let _ = h.router.query(None, &QueryDesc {
-        get_versions: Some(GetVersions { create_desc_type: 0x0002_0001, output_count_slot: 1, ..Default::default() }),
-        ..Default::default()
-    });
+    let _ = h.router.query(
+        None,
+        &QueryDesc {
+            get_versions: Some(GetVersions {
+                create_desc_type: 0x0002_0001,
+                output_count_slot: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
     assert_eq!(h.router.parked_count(), before);
 }
 
@@ -760,9 +915,13 @@ fn any_generation_enabled_follows_the_last_configure() {
     setup_objects(&h);
     let created = h.router.create(&create_desc()).expect("create");
     assert!(!h.router.any_generation_enabled());
-    h.router.configure(created.context, &configure(true, 1)).expect("on");
+    h.router
+        .configure(created.context, &configure(true, 1))
+        .expect("on");
     assert!(h.router.any_generation_enabled());
-    h.router.configure(created.context, &configure(false, 2)).expect("off");
+    h.router
+        .configure(created.context, &configure(false, 2))
+        .expect("off");
     assert!(!h.router.any_generation_enabled());
 }
 
@@ -777,7 +936,11 @@ fn a_swapchain_create_issues_a_chain_handle(#[case] wrap: bool) {
     let h = harness();
     let desc = if wrap {
         CreateContextDesc {
-            swapchain_wrap: Some(SwapchainWrap { swapchain_slot: 1, swapchain: 2, game_queue: 3 }),
+            swapchain_wrap: Some(SwapchainWrap {
+                swapchain_slot: 1,
+                swapchain: 2,
+                game_queue: 3,
+            }),
             ..Default::default()
         }
     } else {
@@ -809,7 +972,12 @@ fn a_swapchain_create_issues_a_chain_handle(#[case] wrap: bool) {
             },
         )
         .expect("list");
-    assert!(matches!(list, amd_fidelityfx_framegeneration_dx12::application::ffx_model::QueryReply::CommandList(0xBEEF)));
+    assert!(matches!(
+        list,
+        amd_fidelityfx_framegeneration_dx12::application::ffx_model::QueryReply::CommandList(
+            0xBEEF
+        )
+    ));
     let texture = h
         .router
         .query(
@@ -834,25 +1002,41 @@ fn a_swapchain_create_issues_a_chain_handle(#[case] wrap: bool) {
         .router
         .query(
             Some(created.context),
-            &QueryDesc { swapchain_gpu_memory_usage: Some(Default::default()), ..Default::default() },
+            &QueryDesc {
+                swapchain_gpu_memory_usage: Some(Default::default()),
+                ..Default::default()
+            },
         )
         .expect_err("unsupported");
     assert_eq!(refused.ffx, ReturnCode::Error);
 
     // A dispatch on the wrapper is refused.
-    assert_eq!(h.router.dispatch(created.context, &prepare(1)).unwrap_err().ffx, ReturnCode::Error);
+    assert_eq!(
+        h.router
+            .dispatch(created.context, &prepare(1))
+            .unwrap_err()
+            .ffx,
+        ReturnCode::Error
+    );
 }
 
 #[test]
 fn a_destroy_of_a_wrap_closes_its_generator_gate() {
     let h = harness();
     let desc = CreateContextDesc {
-        swapchain_wrap: Some(SwapchainWrap { swapchain_slot: 1, swapchain: 2, game_queue: 3 }),
+        swapchain_wrap: Some(SwapchainWrap {
+            swapchain_slot: 1,
+            swapchain: 2,
+            game_queue: 3,
+        }),
         ..Default::default()
     };
     let created = h.router.create(&desc).expect("wrap");
     h.router.destroy(created.context).expect("destroy wrap");
-    assert_eq!(h.router.destroy(created.context).unwrap_err().ffx, ReturnCode::Error);
+    assert_eq!(
+        h.router.destroy(created.context).unwrap_err().ffx,
+        ReturnCode::Error
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -873,7 +1057,10 @@ mod context_path {
 
     fn device(identity: usize) -> DeviceBinding<FakeDevice> {
         DeviceBinding {
-            device: FakeDevice { removed: false, counter: Arc::new(AtomicU32::new(0)) },
+            device: FakeDevice {
+                removed: false,
+                counter: Arc::new(AtomicU32::new(0)),
+            },
             identity,
         }
     }
@@ -887,7 +1074,10 @@ mod context_path {
         assert!(context.create(&desc, device(DEVICE)).is_err());
 
         let mut empty = create_desc();
-        empty.frame_generation.as_mut().unwrap().display_size = Dimensions { width: 0, height: 0 };
+        empty.frame_generation.as_mut().unwrap().display_size = Dimensions {
+            width: 0,
+            height: 0,
+        };
         assert!(context.create(&empty, device(DEVICE)).is_err());
     }
 
@@ -896,16 +1086,22 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         // A HUD-less colour in a different format from the back buffer is refused at generate
         // time, before any recording, with the exact reason code.
-        h.objects.add(0x9999, 1920, 1080, PixelFormat::R16G16B16A16Float);
+        h.objects
+            .add(0x9999, 1920, 1080, PixelFormat::R16G16B16A16Float);
         context
             .configure(&ConfigureDesc {
                 frame_generation: Some(FrameGenerationConfigure {
                     frame_generation_enabled: true,
-                    hud_less_color: Resource { handle: 0x9999, ..Resource::default() },
+                    hud_less_color: Resource {
+                        handle: 0x9999,
+                        ..Resource::default()
+                    },
                     frame_id: 1,
                     ..FrameGenerationConfigure::default()
                 }),
@@ -913,17 +1109,25 @@ mod context_path {
             })
             .expect("configure a wrong-format HUD-less colour");
         context.prepare(&prepare(1)).expect("prepare");
-        let error = context.generate(LIST, 0x7777, ResourceState::COMMON, Some(COLOR)).unwrap_err();
-        assert_eq!(error.reason(), amd_fidelityfx_framegeneration_dx12::application::context::reasons::HUDLESS_FORMAT);
+        let error = context
+            .generate(LIST, 0x7777, ResourceState::COMMON, Some(COLOR))
+            .unwrap_err();
+        assert_eq!(
+            error.reason(),
+            amd_fidelityfx_framegeneration_dx12::application::context::reasons::HUDLESS_FORMAT
+        );
     }
 
     #[test]
     fn generate_records_once_and_the_prepare_slot_is_single() {
         let h = harness();
         setup_objects(&h);
-        h.objects.add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
+        h.objects
+            .add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
         assert!(context.pending());
@@ -934,7 +1138,9 @@ mod context_path {
         assert_eq!(context.frames_generated(), 1);
 
         // A second generate without a fresh prepare is refused.
-        let error = context.generate(LIST, 0x7777, ResourceState::COMMON, Some(COLOR)).unwrap_err();
+        let error = context
+            .generate(LIST, 0x7777, ResourceState::COMMON, Some(COLOR))
+            .unwrap_err();
         assert_eq!(
             error.reason(),
             amd_fidelityfx_framegeneration_dx12::application::context::reasons::GENERATE_WITHOUT_PREPARE
@@ -946,7 +1152,9 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
 
@@ -964,7 +1172,9 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
         assert!(context.has_untracked_work());
@@ -987,7 +1197,9 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
 
@@ -1006,9 +1218,12 @@ mod context_path {
     fn an_abandoned_generation_forces_a_reset_seed_next_frame() {
         let h = harness();
         setup_objects(&h);
-        h.objects.add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
+        h.objects
+            .add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
         context.abandon_generation();
@@ -1025,12 +1240,20 @@ mod context_path {
             Arc::clone(&h.faults),
         );
         let binding = DeviceBinding {
-            device: FakeDevice { removed: true, counter: Arc::new(AtomicU32::new(0)) },
+            device: FakeDevice {
+                removed: true,
+                counter: Arc::new(AtomicU32::new(0)),
+            },
             identity: DEVICE,
         };
-        context.create(&create_desc(), binding).expect("create on a removed device is still a create");
+        context
+            .create(&create_desc(), binding)
+            .expect("create on a removed device is still a create");
         assert!(context.device_lost());
-        assert!(context.retired(), "a removed device executes nothing more (K38)");
+        assert!(
+            context.retired(),
+            "a removed device executes nothing more (K38)"
+        );
         context.destroy().expect("destroy on a removed device");
     }
 
@@ -1038,16 +1261,24 @@ mod context_path {
     fn the_split_recording_path_requires_an_ordered_submission() {
         let h = harness();
         setup_objects(&h);
-        h.objects.add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
+        h.objects
+            .add(0x7777, 1920, 1080, PixelFormat::R8G8B8A8Unorm);
         h.objects.lists.lock().unwrap().insert(0x4444);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
         context.prepare(&prepare(1)).expect("prepare");
-        context.track_submission(
-            Arc::new(FakeRetirement { completed: Arc::clone(&h.fence), device: DEVICE }),
-            5,
-        ).expect("track");
+        context
+            .track_submission(
+                Arc::new(FakeRetirement {
+                    completed: Arc::clone(&h.fence),
+                    device: DEVICE,
+                }),
+                5,
+            )
+            .expect("track");
         h.fence.store(5, Ordering::Release);
 
         // The generation list differs from the prepare list and the queue dependency was not
@@ -1074,7 +1305,9 @@ mod context_path {
         let fg = desc.frame_generation.as_mut().unwrap();
         fg.flags |= (1 << 5) | (1 << 0); // HDR | async workloads
         fg.back_buffer_format = SurfaceFormat(17); // R10G10B10A2_UNORM
-        context.create(&desc, device(DEVICE)).expect("HDR 10-bit create");
+        context
+            .create(&desc, device(DEVICE))
+            .expect("HDR 10-bit create");
         assert_eq!(
             context.color_format(),
             amd_fidelityfx_framegeneration_dx12::domain::frame::ColorFormat::R10G10B10A2Unorm
@@ -1086,7 +1319,9 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         context.configure(&configure(true, 1)).expect("configure");
 
         // Nothing recorded yet: destroy is allowed.
@@ -1098,11 +1333,16 @@ mod context_path {
         let h = harness();
         setup_objects(&h);
         let mut context = context(&h);
-        context.create(&create_desc(), device(DEVICE)).expect("create");
+        context
+            .create(&create_desc(), device(DEVICE))
+            .expect("create");
         let legacy = ConfigureDesc {
             legacy_frame_generation: Some(FrameGenerationConfigureLegacy {
                 frame_generation_enabled: true,
-                hud_less_color: Resource { handle: COLOR, ..Resource::default() },
+                hud_less_color: Resource {
+                    handle: COLOR,
+                    ..Resource::default()
+                },
                 frame_id: 1,
                 ..FrameGenerationConfigureLegacy::default()
             }),

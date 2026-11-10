@@ -130,7 +130,12 @@ struct Bucket {
 
 impl Default for Bucket {
     fn default() -> Self {
-        Self { key: 0, tokens: BURST, last: 0.0, suppressed: 0 }
+        Self {
+            key: 0,
+            tokens: BURST,
+            last: 0.0,
+            suppressed: 0,
+        }
     }
 }
 
@@ -159,9 +164,14 @@ fn admit(buckets: &mut [Bucket; BUCKETS], message: &str, now_ms: f64) -> Option<
     let key = message_key(message);
     let bucket = &mut buckets[(key % BUCKETS as u64) as usize];
     if bucket.key != key {
-        *bucket = Bucket { key, last: now_ms, ..Bucket::default() };
+        *bucket = Bucket {
+            key,
+            last: now_ms,
+            ..Bucket::default()
+        };
     }
-    bucket.tokens = BURST.min(bucket.tokens + (now_ms - bucket.last) * (REFILL_PER_SECOND / 1000.0));
+    bucket.tokens =
+        BURST.min(bucket.tokens + (now_ms - bucket.last) * (REFILL_PER_SECOND / 1000.0));
     bucket.last = now_ms;
     if bucket.tokens < 1.0 {
         bucket.suppressed += 1;
@@ -239,7 +249,10 @@ struct Shared {
 impl Shared {
     fn new(level: LogLevel) -> Self {
         Self {
-            counters: Counters { sink_ok: AtomicU64::new(1), ..Counters::default() },
+            counters: Counters {
+                sink_ok: AtomicU64::new(1),
+                ..Counters::default()
+            },
             buckets: Mutex::new([Bucket::default(); BUCKETS]),
             level: Mutex::new(level),
             queue_drops: OnceLock::new(),
@@ -275,7 +288,10 @@ impl FileSink {
                 elapsed_ms()
             ));
             self.reported_dropped = dropped;
-            self.shared.counters.dropped_unreported.fetch_add(new_drops, Ordering::Relaxed);
+            self.shared
+                .counters
+                .dropped_unreported
+                .fetch_add(new_drops, Ordering::Relaxed);
         }
         let lost = self.shared.counters.lost_unreported.load(Ordering::Relaxed);
         if lost > 0 && self.shared.counters.outage_reported.load(Ordering::Relaxed) != 0 {
@@ -294,10 +310,14 @@ impl Write for FileSink {
         let mut text = self.prefix();
         text.push_str(&String::from_utf8_lossy(buf));
         let path = self.directory.join(LOG_FILE);
-        let result = OpenOptions::new().create(true).append(true).open(&path).and_then(|mut file| {
-            file.write_all(text.as_bytes())?;
-            file.flush()
-        });
+        let result = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| {
+                file.write_all(text.as_bytes())?;
+                file.flush()
+            });
         let counters = &self.shared.counters;
         match result {
             Ok(()) => {
@@ -355,7 +375,10 @@ impl tracing::field::Visit for EventFields {
             // `tracing` wraps a formatted message in `format_args!`, whose Debug is the text;
             // a plain string field arrives quoted.
             let text = format!("{value:?}");
-            let unquoted = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(&text);
+            let unquoted = text
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .unwrap_or(&text);
             self.message.push_str(unquoted);
         }
     }
@@ -392,7 +415,10 @@ struct LogLayer {
 impl<S: tracing::Subscriber> Layer<S> for LogLayer {
     /// The level is live, so a callsite's interest can change: ask on every event rather than
     /// letting the dispatcher cache `never`.
-    fn register_callsite(&self, _metadata: &'static tracing::Metadata<'static>) -> tracing::subscriber::Interest {
+    fn register_callsite(
+        &self,
+        _metadata: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
         tracing::subscriber::Interest::sometimes()
     }
 
@@ -413,11 +439,16 @@ impl<S: tracing::Subscriber> Layer<S> for LogLayer {
             match admit(&mut buckets, &fields.message, now) {
                 Some(repeats) => {
                     if repeats > 0 {
-                        fields.message.push_str(&format!(" [+{repeats} similar suppressed]"));
+                        fields
+                            .message
+                            .push_str(&format!(" [+{repeats} similar suppressed]"));
                     }
                 }
                 None => {
-                    self.shared.counters.suppressed.fetch_add(1, Ordering::Relaxed);
+                    self.shared
+                        .counters
+                        .suppressed
+                        .fetch_add(1, Ordering::Relaxed);
                     return;
                 }
             }
@@ -428,7 +459,9 @@ impl<S: tracing::Subscriber> Layer<S> for LogLayer {
         counters.queued.fetch_add(1, Ordering::Relaxed);
         // The appender's queue can hold `RING_SLOTS`; the layer's own gate keeps the accepted
         // count in step with the writer, so depth never runs away.
-        counters.max_depth.fetch_max(counters.depth(), Ordering::Relaxed);
+        counters
+            .max_depth
+            .fetch_max(counters.depth(), Ordering::Relaxed);
         let _ = self.writer.lock().unwrap().write_all(line.as_bytes());
     }
 }
@@ -446,7 +479,9 @@ pub struct LogHandle {
 
 impl std::fmt::Debug for LogHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LogHandle").field("level", &self.level()).finish()
+        f.debug_struct("LogHandle")
+            .field("level", &self.level())
+            .finish()
     }
 }
 
@@ -477,7 +512,11 @@ pub fn init(directory: impl AsRef<Path>, level: Option<LogLevel>) -> LogHandle {
     let level = level.or_else(LogLevel::from_env).unwrap_or_default();
     let shared = Arc::new(Shared::new(level));
 
-    let sink = FileSink { directory: directory.as_ref().to_path_buf(), shared: Arc::clone(&shared), reported_dropped: 0 };
+    let sink = FileSink {
+        directory: directory.as_ref().to_path_buf(),
+        shared: Arc::clone(&shared),
+        reported_dropped: 0,
+    };
     let (writer, guard) = NonBlockingBuilder::default()
         .buffered_lines_limit(RING_SLOTS)
         .lossy(true)
@@ -485,10 +524,16 @@ pub fn init(directory: impl AsRef<Path>, level: Option<LogLevel>) -> LogHandle {
         .finish(sink);
     let _ = shared.queue_drops.set(writer.error_counter());
 
-    let layer = LogLayer { writer: Mutex::new(writer), shared: Arc::clone(&shared) };
+    let layer = LogLayer {
+        writer: Mutex::new(writer),
+        shared: Arc::clone(&shared),
+    };
     let installed = tracing::subscriber::set_global_default(registry().with(layer)).is_ok();
     let _ = SHARED.set(Arc::clone(&shared));
-    LogHandle { shared, guard: if installed { Some(guard) } else { None } }
+    LogHandle {
+        shared,
+        guard: if installed { Some(guard) } else { None },
+    }
 }
 
 /// The live log level of the installed log; [`LogLevel::Info`] before [`init`].
@@ -519,7 +564,9 @@ pub fn log_stats() -> LogStats {
 /// Waits until the queue is empty and the writer is idle. False on timeout. Runs once at load
 /// and from the offline tests, never on a Present path.
 pub fn flush(timeout: Duration) -> bool {
-    let Some(shared) = SHARED.get() else { return true };
+    let Some(shared) = SHARED.get() else {
+        return true;
+    };
     let deadline = Instant::now() + timeout;
     while shared.counters.depth() != 0 {
         if Instant::now() >= deadline {
@@ -557,7 +604,10 @@ mod tests {
 
     #[test]
     fn digits_do_not_distinguish_messages() {
-        assert_eq!(message_key("frame 7 took 3 ms"), message_key("frame 8 took 12 ms"));
+        assert_eq!(
+            message_key("frame 7 took 3 ms"),
+            message_key("frame 8 took 12 ms")
+        );
         assert_ne!(message_key("frame 7"), message_key("frames"));
     }
 
@@ -617,7 +667,10 @@ mod tests {
         };
         assert!(sink.write(b"line\n").is_err());
         let stats = shared.counters.snapshot();
-        assert_eq!((stats.sink_failures, stats.lost, stats.sink_ok), (1, 1, false));
+        assert_eq!(
+            (stats.sink_failures, stats.lost, stats.sink_ok),
+            (1, 1, false)
+        );
     }
 
     /// End to end against a scratch file: the shape `analyze_log.ps1` matches, the level gate,
@@ -659,7 +712,11 @@ mod tests {
         assert!(text.contains("raw line"));
         // 8 admitted from the burst, then one refilled after the storm's own suppressed count
         // is reported on the next admitted line.
-        assert!(text.matches("repeat storm").count() <= 9, "{}", text.matches("repeat storm").count());
+        assert!(
+            text.matches("repeat storm").count() <= 9,
+            "{}",
+            text.matches("repeat storm").count()
+        );
         assert!(text.contains("similar suppressed]"));
 
         let stats = log_stats();

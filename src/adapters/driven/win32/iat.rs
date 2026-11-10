@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use tracing::info;
-use windows::core::{s, w, PCSTR, PCWSTR};
-use windows::Win32::Foundation::{FARPROC, FALSE, HWND, RECT, TRUE};
 use windows::core::BOOL;
+use windows::core::{s, w, PCSTR, PCWSTR};
+use windows::Win32::Foundation::{FALSE, FARPROC, HWND, RECT, TRUE};
 use windows::Win32::System::Diagnostics::Debug::{
     IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT, IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_NT_HEADERS64,
 };
@@ -24,17 +24,20 @@ use windows::Win32::System::LibraryLoader::{
 use windows::Win32::System::Memory::{VirtualProtect, PAGE_READWRITE};
 use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::System::SystemServices::{
-    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_IMPORT_DESCRIPTOR, IMAGE_NT_SIGNATURE, IMAGE_ORDINAL_FLAG64,
+    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_IMPORT_DESCRIPTOR, IMAGE_NT_SIGNATURE,
+    IMAGE_ORDINAL_FLAG64,
 };
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::System::WindowsProgramming::{IMAGE_DELAYLOAD_DESCRIPTOR, IMAGE_THUNK_DATA64};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
-    ClipCursor, GetClipCursor, GetForegroundWindow, GetWindowThreadProcessId, LoadCursorW, SetCursor, SetCursorPos,
-    ShowCursor, IDC_ARROW,
+    ClipCursor, GetClipCursor, GetForegroundWindow, GetWindowThreadProcessId, LoadCursorW,
+    SetCursor, SetCursorPos, ShowCursor, IDC_ARROW,
 };
 
-use crate::adapters::driven::win32::modules::{executable, is_system_module, loaded_modules, Module};
+use crate::adapters::driven::win32::modules::{
+    executable, is_system_module, loaded_modules, Module,
+};
 use crate::application::ports::input::{CursorGuard, InterceptionSummary, WindowHandle};
 
 type SetCursorPosFn = unsafe extern "system" fn(i32, i32) -> BOOL;
@@ -64,12 +67,20 @@ fn resolve_real(name: PCSTR, cell: &'static OnceLock<usize>, fallback: usize) ->
 
 pub fn real_set_cursor_pos() -> usize {
     // SAFETY: taking an imported function's address; no call is made.
-    resolve_real(s!("SetCursorPos"), &REAL_SET_CURSOR_POS, SetCursorPos as *const () as usize)
+    resolve_real(
+        s!("SetCursorPos"),
+        &REAL_SET_CURSOR_POS,
+        SetCursorPos as *const () as usize,
+    )
 }
 
 pub fn real_clip_cursor() -> usize {
     // SAFETY: taking an imported function's address; no call is made.
-    resolve_real(s!("ClipCursor"), &REAL_CLIP_CURSOR, ClipCursor as *const () as usize)
+    resolve_real(
+        s!("ClipCursor"),
+        &REAL_CLIP_CURSOR,
+        ClipCursor as *const () as usize,
+    )
 }
 
 fn call_real_set_cursor_pos(x: i32, y: i32) -> BOOL {
@@ -98,11 +109,21 @@ struct Ownership {
     show_adjustments: i32,
 }
 
-static OWNERSHIP: Mutex<Ownership> =
-    Mutex::new(Ownership { clip_rect: RECT { left: 0, top: 0, right: 0, bottom: 0 }, clip_set: false, show_adjustments: 0 });
+static OWNERSHIP: Mutex<Ownership> = Mutex::new(Ownership {
+    clip_rect: RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    },
+    clip_set: false,
+    show_adjustments: 0,
+});
 
 fn lock_ownership() -> MutexGuard<'static, Ownership> {
-    OWNERSHIP.lock().unwrap_or_else(|poison| poison.into_inner())
+    OWNERSHIP
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 /// The driving adapter mirrors the live UI mode here; only Full capture suppresses cursor calls.
@@ -113,7 +134,11 @@ pub fn set_full_mode(enabled: bool) {
 /// Mirrors `capturing()` in the C++: inert except during foreground Full capture.
 fn capturing() -> bool {
     let window = WINDOW.load(Ordering::Acquire);
-    if window == 0 || DISABLED.load(Ordering::Acquire) || !FULL_MODE.load(Ordering::Acquire) || !ACTIVE.load(Ordering::Acquire) {
+    if window == 0
+        || DISABLED.load(Ordering::Acquire)
+        || !FULL_MODE.load(Ordering::Acquire)
+        || !ACTIVE.load(Ordering::Acquire)
+    {
         return false;
     }
     // SAFETY: no arguments; returns the foreground window or null.
@@ -166,7 +191,12 @@ fn lock_patcher() -> MutexGuard<'static, Option<Patcher>> {
 }
 
 fn empty_patcher() -> Patcher {
-    Patcher { patched: Vec::new(), summary: InterceptionSummary::default(), last_scan: 0, reported: false }
+    Patcher {
+        patched: Vec::new(),
+        summary: InterceptionSummary::default(),
+        last_scan: 0,
+        reported: false,
+    }
 }
 
 /// Replaces the pointer in an import slot only if it still holds `expected`.
@@ -174,7 +204,16 @@ fn replace_slot(slot: *mut usize, expected: usize, replacement: usize) -> bool {
     let mut old = PAGE_READWRITE;
     // SAFETY: the slot is a live word inside a loaded image; the protection change covers one
     // pointer and `old` is a local out-parameter.
-    if unsafe { VirtualProtect(slot.cast(), std::mem::size_of::<usize>(), PAGE_READWRITE, &mut old) }.is_err() {
+    if unsafe {
+        VirtualProtect(
+            slot.cast(),
+            std::mem::size_of::<usize>(),
+            PAGE_READWRITE,
+            &mut old,
+        )
+    }
+    .is_err()
+    {
         return false;
     }
     // SAFETY: aligned pointer-sized access to module memory holding an import address. The compare
@@ -189,7 +228,13 @@ fn replace_slot(slot: *mut usize, expected: usize, replacement: usize) -> bool {
     previous == expected
 }
 
-fn patch_if_cursor_import(patcher: &mut Patcher, api: &str, slot: *mut usize, saw_position: &mut bool, saw_clip: &mut bool) {
+fn patch_if_cursor_import(
+    patcher: &mut Patcher,
+    api: &str,
+    slot: *mut usize,
+    saw_position: &mut bool,
+    saw_clip: &mut bool,
+) {
     let position = match api {
         "SetCursorPos" => true,
         "ClipCursor" => false,
@@ -220,7 +265,10 @@ fn patch_if_cursor_import(patcher: &mut Patcher, api: &str, slot: *mut usize, sa
         patcher.summary.skipped_slots += 1;
         return;
     }
-    patcher.patched.push(PatchedSlot { slot, original: expected });
+    patcher.patched.push(PatchedSlot {
+        slot,
+        original: expected,
+    });
     if position {
         patcher.summary.set_cursor_pos_slots += 1;
     } else {
@@ -233,7 +281,12 @@ fn is_ordinal(thunk: u64) -> bool {
 }
 
 /// Scans one loaded image. `base` must be the module's mapped image base.
-fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, saw_clip: &mut bool) {
+fn scan_module(
+    patcher: &mut Patcher,
+    base: *const u8,
+    saw_position: &mut bool,
+    saw_clip: &mut bool,
+) {
     if base.is_null() {
         return;
     }
@@ -244,7 +297,9 @@ fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, 
         return;
     }
     // SAFETY: `e_lfanew` is the RVA of the NT headers inside the same image.
-    let nt = unsafe { std::ptr::read_unaligned(base.add(dos.e_lfanew as usize).cast::<IMAGE_NT_HEADERS64>()) };
+    let nt = unsafe {
+        std::ptr::read_unaligned(base.add(dos.e_lfanew as usize).cast::<IMAGE_NT_HEADERS64>())
+    };
     if nt.Signature != IMAGE_NT_SIGNATURE {
         return;
     }
@@ -252,7 +307,10 @@ fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, 
     let imports = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize];
     if imports.VirtualAddress != 0 {
         // SAFETY: import descriptors sit at the image RVA; the list is null-terminated.
-        let mut desc = unsafe { base.add(imports.VirtualAddress as usize).cast::<IMAGE_IMPORT_DESCRIPTOR>() };
+        let mut desc = unsafe {
+            base.add(imports.VirtualAddress as usize)
+                .cast::<IMAGE_IMPORT_DESCRIPTOR>()
+        };
         loop {
             let entry = unsafe { std::ptr::read_unaligned(desc) };
             if entry.Name == 0 {
@@ -261,8 +319,15 @@ fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, 
             let original_thunk = unsafe { entry.Anonymous.OriginalFirstThunk };
             if original_thunk != 0 {
                 // SAFETY: the thunk arrays are at their RVAs and run to a null entry.
-                let mut names = unsafe { base.add(original_thunk as usize).cast::<IMAGE_THUNK_DATA64>() };
-                let mut slots = unsafe { base.add(entry.FirstThunk as usize).cast::<IMAGE_THUNK_DATA64>().cast_mut() };
+                let mut names = unsafe {
+                    base.add(original_thunk as usize)
+                        .cast::<IMAGE_THUNK_DATA64>()
+                };
+                let mut slots = unsafe {
+                    base.add(entry.FirstThunk as usize)
+                        .cast::<IMAGE_THUNK_DATA64>()
+                        .cast_mut()
+                };
                 loop {
                     let address_of_data = unsafe { (*names).u1.AddressOfData };
                     if address_of_data == 0 {
@@ -284,7 +349,10 @@ fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, 
     let delayed = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT.0 as usize];
     if delayed.VirtualAddress != 0 {
         // SAFETY: delay descriptors sit at the image RVA; the list is null-terminated.
-        let mut desc = unsafe { base.add(delayed.VirtualAddress as usize).cast::<IMAGE_DELAYLOAD_DESCRIPTOR>() };
+        let mut desc = unsafe {
+            base.add(delayed.VirtualAddress as usize)
+                .cast::<IMAGE_DELAYLOAD_DESCRIPTOR>()
+        };
         loop {
             let entry = unsafe { std::ptr::read_unaligned(desc) };
             if entry.DllNameRVA == 0 {
@@ -292,9 +360,19 @@ fn scan_module(patcher: &mut Patcher, base: *const u8, saw_position: &mut bool, 
             }
             const RVA_BASED: u32 = 1;
             let attributes = unsafe { entry.Attributes.AllAttributes };
-            if attributes & RVA_BASED != 0 && entry.ImportNameTableRVA != 0 && entry.ImportAddressTableRVA != 0 {
-                let mut names = unsafe { base.add(entry.ImportNameTableRVA as usize).cast::<IMAGE_THUNK_DATA64>() };
-                let mut slots = unsafe { base.add(entry.ImportAddressTableRVA as usize).cast::<IMAGE_THUNK_DATA64>().cast_mut() };
+            if attributes & RVA_BASED != 0
+                && entry.ImportNameTableRVA != 0
+                && entry.ImportAddressTableRVA != 0
+            {
+                let mut names = unsafe {
+                    base.add(entry.ImportNameTableRVA as usize)
+                        .cast::<IMAGE_THUNK_DATA64>()
+                };
+                let mut slots = unsafe {
+                    base.add(entry.ImportAddressTableRVA as usize)
+                        .cast::<IMAGE_THUNK_DATA64>()
+                        .cast_mut()
+                };
                 loop {
                     let address_of_data = unsafe { (*names).u1.AddressOfData };
                     if address_of_data == 0 {
@@ -339,7 +417,10 @@ fn install(patcher: &mut Patcher) -> bool {
     if !patcher.patched.is_empty() && now.wrapping_sub(patcher.last_scan) < RESCAN_MS {
         return true;
     }
-    if patcher.patched.is_empty() && patcher.last_scan != 0 && now.wrapping_sub(patcher.last_scan) < RETRY_MS {
+    if patcher.patched.is_empty()
+        && patcher.last_scan != 0
+        && now.wrapping_sub(patcher.last_scan) < RETRY_MS
+    {
         return false;
     }
     patcher.last_scan = now;
@@ -357,25 +438,38 @@ fn install(patcher: &mut Patcher) -> bool {
     let executable = executable();
     let modules = loaded_modules();
 
-    let before = (patcher.summary.set_cursor_pos_slots, patcher.summary.clip_cursor_slots);
+    let before = (
+        patcher.summary.set_cursor_pos_slots,
+        patcher.summary.clip_cursor_slots,
+    );
     let first_scan = patcher.summary.modules_scanned == 0;
     let mut saw_position = false;
     let mut saw_clip = false;
     let mut scanned = 0_u32;
     for module in modules {
         // Sedici's own imports stay alone unless Sedici is the executable (the offline test host).
-        if module.0.is_invalid() || (!self_module.0.is_invalid() && module == self_module && Some(module) != executable) {
+        if module.0.is_invalid()
+            || (!self_module.0.is_invalid() && module == self_module && Some(module) != executable)
+        {
             continue;
         }
         if Some(module) != executable && is_system_module(module) {
             continue;
         }
         scanned += 1;
-        scan_module(patcher, module.0 .0 as *const u8, &mut saw_position, &mut saw_clip);
+        scan_module(
+            patcher,
+            module.0 .0 as *const u8,
+            &mut saw_position,
+            &mut saw_clip,
+        );
     }
     patcher.summary.modules_scanned = scanned;
 
-    let changed = (patcher.summary.set_cursor_pos_slots, patcher.summary.clip_cursor_slots) != before;
+    let changed = (
+        patcher.summary.set_cursor_pos_slots,
+        patcher.summary.clip_cursor_slots,
+    ) != before;
     if changed || first_scan {
         patcher.reported = true;
         info!(
@@ -494,7 +588,10 @@ impl CursorGuard for CursorInterception {
     fn leave_window(&self, window: WindowHandle, restore_clip: bool) {
         let mut ownership = lock_ownership();
         let hwnd = hwnd_of(window);
-        if hwnd.is_invalid() || WINDOW.load(Ordering::Acquire) != window.0 || !ACTIVE.load(Ordering::Acquire) {
+        if hwnd.is_invalid()
+            || WINDOW.load(Ordering::Acquire) != window.0
+            || !ACTIVE.load(Ordering::Acquire)
+        {
             return;
         }
         // SAFETY: as in `enter`; the caller holds the window.
@@ -510,7 +607,11 @@ impl CursorGuard for CursorInterception {
         }
         // SAFETY: no arguments.
         if restore_clip && unsafe { GetForegroundWindow() } == hwnd {
-            let ptr = if ownership.clip_set { &ownership.clip_rect as *const RECT } else { std::ptr::null() };
+            let ptr = if ownership.clip_set {
+                &ownership.clip_rect as *const RECT
+            } else {
+                std::ptr::null()
+            };
             let _ = call_real_clip_cursor(ptr);
         }
         let positions = SUPPRESSED_POS.swap(0, Ordering::Relaxed);
@@ -533,7 +634,10 @@ impl CursorGuard for CursorInterception {
     }
 
     fn summary(&self) -> InterceptionSummary {
-        lock_patcher().as_ref().map(|patcher| patcher.summary).unwrap_or_default()
+        lock_patcher()
+            .as_ref()
+            .map(|patcher| patcher.summary)
+            .unwrap_or_default()
     }
 }
 
@@ -550,16 +654,34 @@ impl Drop for CursorInterception {
         // The C++ keeps its hooks for the process lifetime; restoring them here keeps the Rust
         // adapter honest and makes tests independent.
         let mut guard = lock_patcher();
-        let Some(patcher) = guard.as_mut() else { return };
+        let Some(patcher) = guard.as_mut() else {
+            return;
+        };
         for slot in patcher.patched.drain(..) {
             let mut old = PAGE_READWRITE;
             // SAFETY: the slot was patched by us and still belongs to a mapped image.
-            if unsafe { VirtualProtect(slot.slot.cast(), std::mem::size_of::<usize>(), PAGE_READWRITE, &mut old) }.is_err() {
+            if unsafe {
+                VirtualProtect(
+                    slot.slot.cast(),
+                    std::mem::size_of::<usize>(),
+                    PAGE_READWRITE,
+                    &mut old,
+                )
+            }
+            .is_err()
+            {
                 continue;
             }
             unsafe { std::ptr::write_volatile(slot.slot, slot.original) };
             let mut ignored = PAGE_READWRITE;
-            let _ = unsafe { VirtualProtect(slot.slot.cast(), std::mem::size_of::<usize>(), old, &mut ignored) };
+            let _ = unsafe {
+                VirtualProtect(
+                    slot.slot.cast(),
+                    std::mem::size_of::<usize>(),
+                    old,
+                    &mut ignored,
+                )
+            };
         }
         ACTIVE.store(false, Ordering::Release);
         WINDOW.store(0, Ordering::Release);
@@ -631,13 +753,17 @@ mod tests {
             unsafe {
                 let nt = base.add(0x40).cast::<IMAGE_NT_HEADERS64>();
                 (*nt).Signature = IMAGE_NT_SIGNATURE;
-                (*nt).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize].VirtualAddress = import_rva;
-                (*nt).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT.0 as usize].VirtualAddress = delay_rva;
+                (*nt).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT.0 as usize]
+                    .VirtualAddress = import_rva;
+                (*nt).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT.0 as usize]
+                    .VirtualAddress = delay_rva;
             }
 
             let slot_rva = 0x180_u32;
             unsafe {
-                let desc = base.add(import_rva as usize).cast::<IMAGE_IMPORT_DESCRIPTOR>();
+                let desc = base
+                    .add(import_rva as usize)
+                    .cast::<IMAGE_IMPORT_DESCRIPTOR>();
                 (*desc).Anonymous.OriginalFirstThunk = 0x140;
                 (*desc).FirstThunk = slot_rva;
                 (*desc).Name = 0x3E0;
@@ -656,7 +782,9 @@ mod tests {
 
             let delay_slot_rva = 0x480_u32;
             unsafe {
-                let desc = base.add(delay_rva as usize).cast::<IMAGE_DELAYLOAD_DESCRIPTOR>();
+                let desc = base
+                    .add(delay_rva as usize)
+                    .cast::<IMAGE_DELAYLOAD_DESCRIPTOR>();
                 (*desc).Attributes.AllAttributes = 1; // RvaBased
                 (*desc).DllNameRVA = 0x3C0;
                 (*desc).ImportNameTableRVA = 0x440;
@@ -666,7 +794,9 @@ mod tests {
                 let names = base.add(0x440).cast::<IMAGE_THUNK_DATA64>();
                 (*names).u1.AddressOfData = 0x360;
                 (*names.add(1)).u1.AddressOfData = 0x380;
-                let slots = base.add(delay_slot_rva as usize).cast::<IMAGE_THUNK_DATA64>();
+                let slots = base
+                    .add(delay_slot_rva as usize)
+                    .cast::<IMAGE_THUNK_DATA64>();
                 (*slots).u1.Function = set_pos_value as u64;
                 (*slots.add(1)).u1.Function = clip_value as u64;
             }
@@ -674,17 +804,39 @@ mod tests {
 
             let normal_slots = unsafe {
                 [
-                    std::ptr::addr_of_mut!((*(base.add(slot_rva as usize).cast::<IMAGE_THUNK_DATA64>())).u1).cast::<usize>(),
-                    std::ptr::addr_of_mut!((*(base.add(slot_rva as usize + 8).cast::<IMAGE_THUNK_DATA64>())).u1).cast::<usize>(),
+                    std::ptr::addr_of_mut!(
+                        (*(base.add(slot_rva as usize).cast::<IMAGE_THUNK_DATA64>())).u1
+                    )
+                    .cast::<usize>(),
+                    std::ptr::addr_of_mut!(
+                        (*(base.add(slot_rva as usize + 8).cast::<IMAGE_THUNK_DATA64>())).u1
+                    )
+                    .cast::<usize>(),
                 ]
             };
             let delay_slots = unsafe {
                 [
-                    std::ptr::addr_of_mut!((*(base.add(delay_slot_rva as usize).cast::<IMAGE_THUNK_DATA64>())).u1).cast::<usize>(),
-                    std::ptr::addr_of_mut!((*(base.add(delay_slot_rva as usize + 8).cast::<IMAGE_THUNK_DATA64>())).u1).cast::<usize>(),
+                    std::ptr::addr_of_mut!(
+                        (*(base
+                            .add(delay_slot_rva as usize)
+                            .cast::<IMAGE_THUNK_DATA64>()))
+                        .u1
+                    )
+                    .cast::<usize>(),
+                    std::ptr::addr_of_mut!(
+                        (*(base
+                            .add(delay_slot_rva as usize + 8)
+                            .cast::<IMAGE_THUNK_DATA64>()))
+                        .u1
+                    )
+                    .cast::<usize>(),
                 ]
             };
-            Self { words, normal_slots, delay_slots }
+            Self {
+                words,
+                normal_slots,
+                delay_slots,
+            }
         }
 
         fn base(&self) -> *const u8 {
@@ -720,8 +872,14 @@ mod tests {
         let mut patcher = empty_patcher();
         let (saw_position, saw_clip) = image.scan(&mut patcher);
         assert!(saw_position && saw_clip, "both cursor names were seen");
-        assert_eq!(patcher.summary.set_cursor_pos_slots, 2, "normal and delay SetCursorPos slots patched");
-        assert_eq!(patcher.summary.clip_cursor_slots, 2, "normal and delay ClipCursor slots patched");
+        assert_eq!(
+            patcher.summary.set_cursor_pos_slots, 2,
+            "normal and delay SetCursorPos slots patched"
+        );
+        assert_eq!(
+            patcher.summary.clip_cursor_slots, 2,
+            "normal and delay ClipCursor slots patched"
+        );
         assert_eq!(patcher.summary.skipped_slots, 0);
         assert_eq!(image.normal_value(0), set_pos_hook as *const () as usize);
         assert_eq!(image.normal_value(1), clip_hook as *const () as usize);
@@ -737,8 +895,15 @@ mod tests {
         image.scan(&mut patcher);
         assert_eq!(patcher.summary.set_cursor_pos_slots, 0);
         assert_eq!(patcher.summary.clip_cursor_slots, 2);
-        assert_eq!(patcher.summary.skipped_slots, 2, "both SetCursorPos slots held a foreign value");
-        assert_eq!(image.normal_value(0), foreign, "the foreign slot is left untouched");
+        assert_eq!(
+            patcher.summary.skipped_slots, 2,
+            "both SetCursorPos slots held a foreign value"
+        );
+        assert_eq!(
+            image.normal_value(0),
+            foreign,
+            "the foreign slot is left untouched"
+        );
     }
 
     #[test]
@@ -746,9 +911,18 @@ mod tests {
         let image = FakeImage::new(real_set_cursor_pos(), real_clip_cursor());
         let mut patcher = empty_patcher();
         image.scan(&mut patcher);
-        let counts = (patcher.summary.set_cursor_pos_slots, patcher.summary.clip_cursor_slots);
+        let counts = (
+            patcher.summary.set_cursor_pos_slots,
+            patcher.summary.clip_cursor_slots,
+        );
         image.scan(&mut patcher);
-        assert_eq!((patcher.summary.set_cursor_pos_slots, patcher.summary.clip_cursor_slots), counts);
+        assert_eq!(
+            (
+                patcher.summary.set_cursor_pos_slots,
+                patcher.summary.clip_cursor_slots
+            ),
+            counts
+        );
         assert_eq!(patcher.patched.len(), 4);
     }
 
@@ -759,7 +933,15 @@ mod tests {
         image.scan(&mut patcher);
         for slot in patcher.patched.drain(..) {
             let mut old = PAGE_READWRITE;
-            unsafe { VirtualProtect(slot.slot.cast(), std::mem::size_of::<usize>(), PAGE_READWRITE, &mut old) }.unwrap();
+            unsafe {
+                VirtualProtect(
+                    slot.slot.cast(),
+                    std::mem::size_of::<usize>(),
+                    PAGE_READWRITE,
+                    &mut old,
+                )
+            }
+            .unwrap();
             unsafe { std::ptr::write_volatile(slot.slot, slot.original) };
         }
         assert_eq!(image.normal_value(0), real_set_cursor_pos());
@@ -770,13 +952,24 @@ mod tests {
     fn an_ordinal_entry_is_not_patched() {
         let image = FakeImage::new(real_set_cursor_pos(), real_clip_cursor());
         unsafe {
-            let names = image.base().add(0x140).cast::<IMAGE_THUNK_DATA64>().cast_mut();
+            let names = image
+                .base()
+                .add(0x140)
+                .cast::<IMAGE_THUNK_DATA64>()
+                .cast_mut();
             (*names).u1.Ordinal |= IMAGE_ORDINAL_FLAG64;
         }
         let mut patcher = empty_patcher();
         image.scan(&mut patcher);
-        assert_eq!(patcher.summary.set_cursor_pos_slots, 1, "only the delay slot was patched");
-        assert_eq!(image.normal_value(0), real_set_cursor_pos(), "the ordinal slot is untouched");
+        assert_eq!(
+            patcher.summary.set_cursor_pos_slots, 1,
+            "only the delay slot was patched"
+        );
+        assert_eq!(
+            image.normal_value(0),
+            real_set_cursor_pos(),
+            "the ordinal slot is untouched"
+        );
     }
 
     #[test]
@@ -795,13 +988,18 @@ mod tests {
 
     impl TestWindow {
         fn create() -> Option<Self> {
-            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
             use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
             use windows::Win32::UI::WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, RegisterClassW, CW_USEDEFAULT, WINDOW_EX_STYLE, WNDCLASSW,
-                WS_OVERLAPPEDWINDOW, WINDOW_STYLE,
+                CreateWindowExW, DefWindowProcW, RegisterClassW, CW_USEDEFAULT, WINDOW_EX_STYLE,
+                WINDOW_STYLE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
             };
-            extern "system" fn default_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+            extern "system" fn default_proc(
+                hwnd: HWND,
+                msg: u32,
+                wparam: WPARAM,
+                lparam: LPARAM,
+            ) -> LRESULT {
                 // SAFETY: the standard default window procedure.
                 unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
             }
@@ -850,7 +1048,9 @@ mod tests {
     /// (K137). Returns whether the window is now foreground.
     fn take_foreground(window: &TestWindow) -> bool {
         use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-        use windows::Win32::UI::WindowsAndMessaging::{BringWindowToTop, GetForegroundWindow, SetForegroundWindow};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, SetForegroundWindow,
+        };
         let handle = window.0;
         // SAFETY: comparing and setting the foreground window; a rejected request just fails.
         unsafe {
@@ -858,9 +1058,14 @@ mod tests {
                 return true;
             }
             let current = GetForegroundWindow();
-            let thread = if current.is_invalid() { 0 } else { GetWindowThreadProcessId(current, None) };
+            let thread = if current.is_invalid() {
+                0
+            } else {
+                GetWindowThreadProcessId(current, None)
+            };
             let this = GetCurrentThreadId();
-            let attached = thread != 0 && thread != this && AttachThreadInput(this, thread, true).as_bool();
+            let attached =
+                thread != 0 && thread != this && AttachThreadInput(this, thread, true).as_bool();
             let _ = SetForegroundWindow(handle);
             let _ = BringWindowToTop(handle);
             if attached {
@@ -891,7 +1096,11 @@ mod tests {
         let entered = guard.enter(window.handle());
         // Whether or not interception is available, entering must never panic and must leave the
         // ownership state consistent with `active`.
-        assert_eq!(entered, guard.active(), "active() reflects a successful enter");
+        assert_eq!(
+            entered,
+            guard.active(),
+            "active() reflects a successful enter"
+        );
         if entered {
             guard.leave_window(window.handle(), true);
             assert!(!guard.active(), "leaving releases capture");

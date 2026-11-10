@@ -30,7 +30,9 @@ use amd_fidelityfx_framegeneration_dx12::application::ports::generator::{
 use amd_fidelityfx_framegeneration_dx12::application::ports::gpu::{
     PixelFormat, ResourceState, TextureFlags,
 };
-use amd_fidelityfx_framegeneration_dx12::domain::frame::{ColorFormat, FrameParams, MIDPOINT_ALPHA};
+use amd_fidelityfx_framegeneration_dx12::domain::frame::{
+    ColorFormat, FrameParams, MIDPOINT_ALPHA,
+};
 
 use support::{make_scene, pack_ffx_motion, psnr, quantise, Host, Scene, SCENES};
 
@@ -81,7 +83,11 @@ fn params(ten_bit: bool) -> FrameParams {
         render_height: RENDER_HEIGHT,
         display_width: DISPLAY_WIDTH,
         display_height: DISPLAY_HEIGHT,
-        color_format: if ten_bit { ColorFormat::R10G10B10A2Unorm } else { ColorFormat::R8G8B8A8Unorm },
+        color_format: if ten_bit {
+            ColorFormat::R10G10B10A2Unorm
+        } else {
+            ColorFormat::R8G8B8A8Unorm
+        },
         depth_inverted: true,
         // `Context::prepare` negates the FFX scale before Stage 1 sees it; the sign is load-bearing.
         motion_vector_scale_x: -(RENDER_WIDTH as f32),
@@ -93,16 +99,25 @@ fn params(ten_bit: bool) -> FrameParams {
 /// One scene through one context. Returns the generated midpoint as RGBA8 (a 10-bit result is
 /// reduced), or an error string when a step failed.
 fn run_format(host: &mut Host, scene: &Scene, ten_bit: bool) -> Result<Vec<u8>, String> {
-    let format = if ten_bit { PixelFormat::R10G10B10A2Unorm } else { PixelFormat::R8G8B8A8Unorm };
+    let format = if ten_bit {
+        PixelFormat::R10G10B10A2Unorm
+    } else {
+        PixelFormat::R8G8B8A8Unorm
+    };
     let mut generator = Stage1::create(&host.device).map_err(|error| error.to_string())?;
-    generator.configure(&params(ten_bit)).map_err(|error| error.to_string())?;
+    generator
+        .configure(&params(ten_bit))
+        .map_err(|error| error.to_string())?;
 
     let previous_render = make_scene(scene, 0.0, RENDER_WIDTH, RENDER_HEIGHT);
     let current_render = make_scene(scene, 1.0, RENDER_WIDTH, RENDER_HEIGHT);
     let previous_display = make_scene(scene, 0.0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
     let current_display = make_scene(scene, 1.0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
 
-    let mut colors = [quantise(&previous_display.color), quantise(&current_display.color)];
+    let mut colors = [
+        quantise(&previous_display.color),
+        quantise(&current_display.color),
+    ];
     if ten_bit {
         for color in &mut colors {
             *color = to_ten_bit(color);
@@ -119,15 +134,23 @@ fn run_format(host: &mut Host, scene: &Scene, ten_bit: bool) -> Result<Vec<u8>, 
     let mut motion_textures = Vec::new();
     for index in 0..2 {
         let color = host.texture(format, DISPLAY_WIDTH, DISPLAY_HEIGHT, TextureFlags::NONE)?;
-        let depth =
-            host.texture(PixelFormat::R32Float, RENDER_WIDTH, RENDER_HEIGHT, TextureFlags::NONE)?;
+        let depth = host.texture(
+            PixelFormat::R32Float,
+            RENDER_WIDTH,
+            RENDER_HEIGHT,
+            TextureFlags::NONE,
+        )?;
         let motion = host.texture(
             PixelFormat::R16G16B16A16Float,
             RENDER_WIDTH,
             RENDER_HEIGHT,
             TextureFlags::NONE,
         )?;
-        let depth_bytes: Vec<u8> = renders[index].depth.iter().flat_map(|value| value.to_le_bytes()).collect();
+        let depth_bytes: Vec<u8> = renders[index]
+            .depth
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect();
         host.begin()?;
         host.upload(&color, &colors[index], DISPLAY_WIDTH, DISPLAY_HEIGHT, 4)?;
         host.upload(&depth, &depth_bytes, RENDER_WIDTH, RENDER_HEIGHT, 4)?;
@@ -137,8 +160,12 @@ fn run_format(host: &mut Host, scene: &Scene, ten_bit: bool) -> Result<Vec<u8>, 
         depth_textures.push(depth);
         motion_textures.push(motion);
     }
-    let output =
-        host.texture(format, DISPLAY_WIDTH, DISPLAY_HEIGHT, TextureFlags::ALLOW_UNORDERED_ACCESS)?;
+    let output = host.texture(
+        format,
+        DISPLAY_WIDTH,
+        DISPLAY_HEIGHT,
+        TextureFlags::ALLOW_UNORDERED_ACCESS,
+    )?;
 
     // Four iterations with `source = iteration % 2` and a reset on every even source, as the C++.
     let mut midpoint: Option<Vec<u8>> = None;
@@ -164,7 +191,11 @@ fn run_format(host: &mut Host, scene: &Scene, ten_bit: bool) -> Result<Vec<u8>, 
         }
     }
     let midpoint = midpoint.ok_or("no generated midpoint")?;
-    Ok(if ten_bit { from_ten_bit(&midpoint) } else { midpoint })
+    Ok(if ten_bit {
+        from_ten_bit(&midpoint)
+    } else {
+        midpoint
+    })
 }
 
 /// One scene through both formats. The two results must agree within the storage quantisation and
@@ -174,7 +205,10 @@ fn run_format(host: &mut Host, scene: &Scene, ten_bit: bool) -> Result<Vec<u8>, 
 #[case(&SCENES[2])]
 fn ten_bit_matches_eight_bit_within_the_storage_quantisation(#[case] scene: &Scene) {
     let Some(mut host) = Host::new() else {
-        eprintln!("SKIP 10-bit {}: no D3D12 adapter on this machine", scene.name);
+        eprintln!(
+            "SKIP 10-bit {}: no D3D12 adapter on this machine",
+            scene.name
+        );
         return;
     };
     if let Err(error) = Stage1::create(&host.device) {
@@ -207,11 +241,20 @@ fn ten_bit_matches_eight_bit_within_the_storage_quantisation(#[case] scene: &Sce
     // The C++ thresholds, unchanged: the two results are not identical because the storage rounds
     // differently inside the warp's float filter, so they must agree closely, and the 10-bit one
     // must not score worse.
-    assert!(between > 42.0, "{}: the two formats agree to {between:.2} dB (want > 42.0)", scene.name);
+    assert!(
+        between > 42.0,
+        "{}: the two formats agree to {between:.2} dB (want > 42.0)",
+        scene.name
+    );
     assert!(
         ten_score > eight_score - 0.5,
         "{}: the 10-bit score {ten_score:.2} dB is worse than the 8-bit {eight_score:.2} dB by more than 0.5",
         scene.name
     );
-    assert_eq!(host.removed_reason(), None, "{}: the device stays healthy", scene.name);
+    assert_eq!(
+        host.removed_reason(),
+        None,
+        "{}: the device stays healthy",
+        scene.name
+    );
 }

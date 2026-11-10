@@ -66,13 +66,20 @@ static CALL_STATE: Mutex<CallState> = Mutex::new(CallState::new());
 
 /// Logs one export call under the level/novelty policy, re-reading `desc` only when it will log.
 /// `context` is the handle value the call saw (zero for null).
-pub fn describe_call(kind: ExportKind, desc: *const ffxApiHeader, result: ReturnCode, context: usize) {
+pub fn describe_call(
+    kind: ExportKind,
+    desc: *const ffxApiHeader,
+    result: ReturnCode,
+    context: usize,
+) {
     // The counters advance even when nothing is printed, so `#N` matches the C++ numbering.
     let types = walk_chain(desc, |_| {});
     let (count, novel) = {
         // A poisoned lock only means another thread panicked while counting; the counters are
         // advisory, so recover the map rather than fail a game call.
-        let mut state = CALL_STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = CALL_STATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let index = kind.index();
         state.calls[index] += 1;
         let count = state.calls[index];
@@ -122,7 +129,11 @@ pub fn describe_call(kind: ExportKind, desc: *const ffxApiHeader, result: Return
 }
 
 fn item_header(out: &mut String, item: &ffxApiHeader) {
-    out.push_str(&format!("\n  {} ({})", hx(item.type_), type_name(item.type_)));
+    out.push_str(&format!(
+        "\n  {} ({})",
+        hx(item.type_),
+        type_name(item.type_)
+    ));
 }
 
 fn append_prepare(out: &mut String, d: &model::Prepare, reset: bool) {
@@ -150,7 +161,11 @@ fn append_prepare(out: &mut String, d: &model::Prepare, reset: bool) {
 
 fn resource_model(value: &model::Resource) -> String {
     let d = &value.description;
-    let mut out = format!("res={} format={}", ptr(value.handle), surface_format(d.format.0));
+    let mut out = format!(
+        "res={} format={}",
+        ptr(value.handle),
+        surface_format(d.format.0)
+    );
     if matches!(d.kind, model::ResourceKind::Buffer) {
         out.push_str(&format!(" bytes={} stride={}", d.width, d.height));
     } else {
@@ -159,7 +174,11 @@ fn resource_model(value: &model::Resource) -> String {
             out.push_str(&format!(" depth={}", d.depth));
         }
     }
-    out.push_str(&format!(" state={} usage={}", hx(value.state as u64), hx(d.usage as u64)));
+    out.push_str(&format!(
+        " state={} usage={}",
+        hx(value.state as u64),
+        hx(d.usage as u64)
+    ));
     out
 }
 
@@ -168,7 +187,10 @@ fn resource_model_set(value: &model::Resource) -> String {
 }
 
 fn rect_model_text(value: &model::Rect) -> String {
-    format!("{},{},{}x{}", value.left, value.top, value.width, value.height)
+    format!(
+        "{},{},{}x{}",
+        value.left, value.top, value.width, value.height
+    )
 }
 
 fn append_swapchain_desc(out: &mut String, desc: Option<&model::SwapchainDesc>) {
@@ -457,7 +479,13 @@ fn describe_configure(root: *const ffxApiHeader, out: &mut String) {
 }
 
 fn append_camera(out: &mut String, label: &str, value: &model::Float3) {
-    out.push_str(&format!(" {} =({},{},{})", label, fl(value.x), fl(value.y), fl(value.z)));
+    out.push_str(&format!(
+        " {} =({},{},{})",
+        label,
+        fl(value.x),
+        fl(value.y),
+        fl(value.z)
+    ));
 }
 
 fn describe_dispatch(root: *const ffxApiHeader, out: &mut String) {
@@ -596,7 +624,10 @@ fn describe_query(root: *const ffxApiHeader, out: &mut String, result: ReturnCod
                 if let Some(d) = desc.interpolation_command_list {
                     out.push_str(&format!(" outCommandList={}", ptr(d.output_slot)));
                     if d.output_slot != 0 {
-                        out.push_str(&format!(" commandList={}", ptr(read_pointer(d.output_slot))));
+                        out.push_str(&format!(
+                            " commandList={}",
+                            ptr(read_pointer(d.output_slot))
+                        ));
                     }
                 }
             }
@@ -641,7 +672,9 @@ fn describe_query(root: *const ffxApiHeader, out: &mut String, result: ReturnCod
 }
 
 fn read_usage(slot: usize, result: ReturnCode) -> Option<FfxApiEffectMemoryUsage> {
-    if result != ReturnCode::Ok || !typed_readable(slot, std::mem::size_of::<FfxApiEffectMemoryUsage>()) {
+    if result != ReturnCode::Ok
+        || !typed_readable(slot, std::mem::size_of::<FfxApiEffectMemoryUsage>())
+    {
         return None;
     }
     // SAFETY: the address was just found readable for a whole FfxApiEffectMemoryUsage.
@@ -698,7 +731,11 @@ pub fn readable(ptr: *const u8, len: usize) -> bool {
         // SAFETY: `address` is a live address from the caller and `query` is an owned, correctly
         // sized output buffer; VirtualQuery neither reads nor writes the queried range.
         let written = unsafe {
-            VirtualQuery(Some(address as *const _), &mut query, std::mem::size_of::<MEMORY_BASIC_INFORMATION>())
+            VirtualQuery(
+                Some(address as *const _),
+                &mut query,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
         };
         if written == 0 {
             return false;
@@ -871,7 +908,10 @@ fn decode_dispatch_flags(flags: u32) -> String {
 }
 
 fn decode_ui_flags(flags: u32) -> String {
-    decode_bits(flags, &[(1 << 0, "PremulAlpha"), (1 << 1, "InternalUiDoubleBuffer")])
+    decode_bits(
+        flags,
+        &[(1 << 0, "PremulAlpha"), (1 << 1, "InternalUiDoubleBuffer")],
+    )
 }
 
 fn surface_format_name(format: u32) -> Option<&'static str> {
@@ -960,14 +1000,21 @@ fn resource(value: &FfxApiResource) -> String {
         surface_format(d.format)
     );
     if d.type_ == FFX_API_RESOURCE_TYPE_BUFFER {
-        out.push_str(&format!(" bytes={} stride={}", d.width_or_size, d.height_or_stride));
+        out.push_str(&format!(
+            " bytes={} stride={}",
+            d.width_or_size, d.height_or_stride
+        ));
     } else {
         out.push_str(&format!(" size={}x{}", d.width_or_size, d.height_or_stride));
         if d.depth_or_alignment > 1 {
             out.push_str(&format!(" depth={}", d.depth_or_alignment));
         }
     }
-    out.push_str(&format!(" state={} usage={}", hx(value.state as u64), hx(d.usage as u64)));
+    out.push_str(&format!(
+        " state={} usage={}",
+        hx(value.state as u64),
+        hx(d.usage as u64)
+    ));
     out
 }
 
@@ -980,31 +1027,63 @@ fn type_name(type_: u64) -> &'static str {
         FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION => "FrameGenerationCreate",
         FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS => "FrameGenerationCreateHudless",
         FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION => "FrameGenerationCreateVersion",
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12 => "FrameGenerationSwapChainWrapDX12",
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12 => "FrameGenerationSwapChainNewDX12",
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12 => "FrameGenerationSwapChainForHwndDX12",
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12 => "FrameGenerationSwapChainVersionDX12",
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12 => {
+            "FrameGenerationSwapChainWrapDX12"
+        }
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12 => {
+            "FrameGenerationSwapChainNewDX12"
+        }
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12 => {
+            "FrameGenerationSwapChainForHwndDX12"
+        }
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12 => {
+            "FrameGenerationSwapChainVersionDX12"
+        }
         FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION => "FrameGenerationConfigure",
         FFX_API_FRAME_GENERATION_CONFIG => "FrameGenerationConfig",
         FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE => "FrameGenerationConfigureKeyValue",
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE => "FrameGenerationDistortionResource",
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12 => "SwapChainRegisterUiResourceDX12",
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 => "SwapChainConfigureKeyValueDX12",
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE => {
+            "FrameGenerationDistortionResource"
+        }
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12 => {
+            "SwapChainRegisterUiResourceDX12"
+        }
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 => {
+            "SwapChainConfigureKeyValueDX12"
+        }
         FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE => "FrameGenerationPrepare",
         FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 => "FrameGenerationPrepareV2",
-        FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO => "FrameGenerationPrepareCameraInfo",
+        FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO => {
+            "FrameGenerationPrepareCameraInfo"
+        }
         FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION => "FrameGenerationDispatch",
-        FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12 => "SwapChainWaitForPresentsDX12",
+        FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12 => {
+            "SwapChainWaitForPresentsDX12"
+        }
         FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT => "FrameGenerationPresentCallback",
-        FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA => "FrameGenerationPresentPremulAlpha",
+        FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA => {
+            "FrameGenerationPresentPremulAlpha"
+        }
         FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE => "FrameGenerationGpuMemoryUsage",
-        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2 => "FrameGenerationGpuMemoryUsageV2",
-        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12 => "SwapChainInterpolationCommandListDX12",
-        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12 => "SwapChainInterpolationTextureDX12",
-        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12 => "SwapChainGpuMemoryUsageDX12",
-        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2 => "SwapChainGpuMemoryUsageDX12V2",
+        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2 => {
+            "FrameGenerationGpuMemoryUsageV2"
+        }
+        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12 => {
+            "SwapChainInterpolationCommandListDX12"
+        }
+        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12 => {
+            "SwapChainInterpolationTextureDX12"
+        }
+        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12 => {
+            "SwapChainGpuMemoryUsageDX12"
+        }
+        FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2 => {
+            "SwapChainGpuMemoryUsageDX12V2"
+        }
         FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 => "BackendDX12",
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS => "BackendDX12AllocationCallbacks",
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS => {
+            "BackendDX12AllocationCallbacks"
+        }
         FFX_API_DESC_TYPE_OVERRIDE_VERSION => "OverrideVersion",
         FFX_API_QUERY_DESC_TYPE_GET_VERSIONS => "GetVersions",
         FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION => "GetProviderVersion",
@@ -1045,19 +1124,34 @@ fn convert_resource(value: &FfxApiResource) -> model::Resource {
 }
 
 fn dims(value: &FfxApiDimensions2D) -> model::Dimensions {
-    model::Dimensions { width: value.width, height: value.height }
+    model::Dimensions {
+        width: value.width,
+        height: value.height,
+    }
 }
 
 fn float2(value: &FfxApiFloatCoords2D) -> model::Float2 {
-    model::Float2 { x: value.x, y: value.y }
+    model::Float2 {
+        x: value.x,
+        y: value.y,
+    }
 }
 
 fn float3(value: &[f32; 3]) -> model::Float3 {
-    model::Float3 { x: value[0], y: value[1], z: value[2] }
+    model::Float3 {
+        x: value[0],
+        y: value[1],
+        z: value[2],
+    }
 }
 
 fn rect_model(value: &FfxApiRect2D) -> model::Rect {
-    model::Rect { left: value.left, top: value.top, width: value.width, height: value.height }
+    model::Rect {
+        left: value.left,
+        top: value.top,
+        width: value.width,
+        height: value.height,
+    }
 }
 
 fn callback(value: *mut std::ffi::c_void) -> model::Callback {
@@ -1116,7 +1210,10 @@ fn read_swapchain_desc1(value: *const DXGI_SWAP_CHAIN_DESC1) -> Option<model::Sw
 
 fn read_tuning(value: *const FfxApiSwapchainFramePacingTuning) -> Option<model::FramePacingTuning> {
     let address = value as usize;
-    if !typed_readable(address, std::mem::size_of::<FfxApiSwapchainFramePacingTuning>()) {
+    if !typed_readable(
+        address,
+        std::mem::size_of::<FfxApiSwapchainFramePacingTuning>(),
+    ) {
         return None;
     }
     // SAFETY: the address was just found readable for a whole FfxApiSwapchainFramePacingTuning.
@@ -1143,16 +1240,23 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
                 back_buffer_format: model::SurfaceFormat(d.backBufferFormat),
             });
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS if out.frame_generation_hudless.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS
+            if out.frame_generation_hudless.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationHudless = read_desc(item);
-            out.frame_generation_hudless =
-                Some(model::FrameGenerationHudless { hudless_back_buffer_format: model::SurfaceFormat(d.hudlessBackBufferFormat) });
+            out.frame_generation_hudless = Some(model::FrameGenerationHudless {
+                hudless_back_buffer_format: model::SurfaceFormat(d.hudlessBackBufferFormat),
+            });
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION if out.frame_generation_version.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_VERSION
+            if out.frame_generation_version.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationVersion = read_desc(item);
             out.frame_generation_version = Some(d.version);
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12 if out.swapchain_wrap.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12
+            if out.swapchain_wrap.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationSwapChainWrapDX12 = read_desc(item);
             out.swapchain_wrap = Some(model::SwapchainWrap {
                 swapchain_slot: d.swapchain as usize,
@@ -1163,7 +1267,9 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
                 game_queue: d.gameQueue as usize,
             });
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12 if out.swapchain_new.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12
+            if out.swapchain_new.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationSwapChainNewDX12 = read_desc(item);
             out.swapchain_new = Some(model::SwapchainNew {
                 swapchain_slot: d.swapchain as usize,
@@ -1172,7 +1278,9 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
                 game_queue: d.gameQueue as usize,
             });
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12 if out.swapchain_for_hwnd.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12
+            if out.swapchain_for_hwnd.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 = read_desc(item);
             out.swapchain_for_hwnd = Some(model::SwapchainForHwnd {
                 swapchain_slot: d.swapchain as usize,
@@ -1183,13 +1291,17 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
                 game_queue: d.gameQueue as usize,
             });
         }
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12 if out.swapchain_version.is_none() => {
+        FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_VERSION_DX12
+            if out.swapchain_version.is_none() =>
+        {
             let d: ffxCreateContextDescFrameGenerationSwapChainVersionDX12 = read_desc(item);
             out.swapchain_version = Some(d.version);
         }
         FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 if out.backend_dx12.is_none() => {
             let d: ffxCreateBackendDX12Desc = read_desc(item);
-            out.backend_dx12 = Some(model::BackendDx12 { device: d.device as usize });
+            out.backend_dx12 = Some(model::BackendDx12 {
+                device: d.device as usize,
+            });
         }
         FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12_ALLOCATION_CALLBACKS
             if out.backend_dx12_allocation_callbacks.is_none() =>
@@ -1200,7 +1312,9 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
                 resource_deallocator: d.pfnFfxResourceDeallocator as usize,
                 heap_allocator: d.pfnFfxHeapAllocator as usize,
                 heap_deallocator: d.pfnFfxHeapDeallocator as usize,
-                constant_buffer_allocator: d.pfnFfxConstantBufferAllocator.map_or(0, |f| f as usize),
+                constant_buffer_allocator: d
+                    .pfnFfxConstantBufferAllocator
+                    .map_or(0, |f| f as usize),
             });
         }
         FFX_API_DESC_TYPE_OVERRIDE_VERSION if out.override_version.is_none() => {
@@ -1215,18 +1329,26 @@ pub fn convert_create(root: *const ffxApiHeader) -> model::CreateContextDesc {
 /// Flattens a configure chain. A null root marks `null_descriptor`, because the router answers a
 /// null configure on a Sedici-owned context with `FFX_API_RETURN_ERROR`.
 pub fn convert_configure(root: *const ffxApiHeader) -> model::ConfigureDesc {
-    let mut out = model::ConfigureDesc { null_descriptor: root.is_null(), ..Default::default() };
+    let mut out = model::ConfigureDesc {
+        null_descriptor: root.is_null(),
+        ..Default::default()
+    };
     walk_chain(root, |item| match item.type_ {
         FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION if out.frame_generation.is_none() => {
             let d: ffxConfigureDescFrameGeneration = read_desc(item);
             out.frame_generation = Some(model::FrameGenerationConfigure {
                 swapchain: d.swapChain as usize,
-                present_callback: callback(d.presentCallback.map_or(std::ptr::null_mut(), |f| f as *mut _)),
+                present_callback: callback(
+                    d.presentCallback
+                        .map_or(std::ptr::null_mut(), |f| f as *mut _),
+                ),
                 present_callback_user_context: d.presentCallbackUserContext as usize,
                 frame_generation_callback: callback(
-                    d.frameGenerationCallback.map_or(std::ptr::null_mut(), |f| f as *mut _),
+                    d.frameGenerationCallback
+                        .map_or(std::ptr::null_mut(), |f| f as *mut _),
                 ),
-                frame_generation_callback_user_context: d.frameGenerationCallbackUserContext as usize,
+                frame_generation_callback_user_context: d.frameGenerationCallbackUserContext
+                    as usize,
                 frame_generation_enabled: d.frameGenerationEnabled != 0,
                 allow_async_workloads: d.allowAsyncWorkloads != 0,
                 hud_less_color: convert_resource(&d.HUDLessColor),
@@ -1240,10 +1362,14 @@ pub fn convert_configure(root: *const ffxApiHeader) -> model::ConfigureDesc {
             let d: FfxFrameGenerationConfig = read_desc(item);
             out.legacy_frame_generation = Some(model::FrameGenerationConfigureLegacy {
                 swapchain: d.swapChain as usize,
-                present_callback: callback(d.presentCallback.map_or(std::ptr::null_mut(), |f| f as *mut _)),
+                present_callback: callback(
+                    d.presentCallback
+                        .map_or(std::ptr::null_mut(), |f| f as *mut _),
+                ),
                 present_callback_context: d.presentCallbackContext as usize,
                 frame_generation_callback: callback(
-                    d.frameGenerationCallback.map_or(std::ptr::null_mut(), |f| f as *mut _),
+                    d.frameGenerationCallback
+                        .map_or(std::ptr::null_mut(), |f| f as *mut _),
                 ),
                 frame_generation_callback_context: d.frameGenerationCallbackContext as usize,
                 frame_generation_enabled: d.frameGenerationEnabled != 0,
@@ -1257,7 +1383,9 @@ pub fn convert_configure(root: *const ffxApiHeader) -> model::ConfigureDesc {
                 draw_debug_pacing_lines: d.drawDebugPacingLines != 0,
             });
         }
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE if out.frame_generation_key_value.is_none() => {
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE
+            if out.frame_generation_key_value.is_none() =>
+        {
             let d: ffxConfigureDescFrameGenerationKeyValue = read_desc(item);
             out.frame_generation_key_value = Some(model::KeyValue {
                 key: d.key,
@@ -1266,38 +1394,53 @@ pub fn convert_configure(root: *const ffxApiHeader) -> model::ConfigureDesc {
                 tuning: None,
             });
         }
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE if out.distortion_field.is_none() => {
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE
+            if out.distortion_field.is_none() =>
+        {
             let d: ffxConfigureDescFrameGenerationRegisterDistortionFieldResource = read_desc(item);
             out.distortion_field = Some(convert_resource(&d.distortionField));
         }
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12 if out.ui_resource.is_none() => {
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12
+            if out.ui_resource.is_none() =>
+        {
             let d: ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 = read_desc(item);
             out.ui_resource = Some(model::UiResourceRegister {
                 ui_resource: convert_resource(&d.uiResource),
                 flags: d.flags,
             });
         }
-        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 if out.swapchain_key_value.is_none() => {
+        FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12
+            if out.swapchain_key_value.is_none() =>
+        {
             let d: ffxConfigureDescFrameGenerationSwapChainKeyValueDX12 = read_desc(item);
             let tuning = if d.key == FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING {
                 read_tuning(d.ptr.cast())
             } else {
                 None
             };
-            out.swapchain_key_value = Some(model::KeyValue { key: d.key, u64_value: d.u64_, ptr: d.ptr as usize, tuning });
+            out.swapchain_key_value = Some(model::KeyValue {
+                key: d.key,
+                u64_value: d.u64_,
+                ptr: d.ptr as usize,
+                tuning,
+            });
         }
         FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG if out.global_debug.is_none() => {
             let d: ffxConfigureDescGlobalDebug = read_desc(item);
             out.global_debug = Some(model::GlobalDebug {
                 effect_id: d.effectId,
-                message_callback: callback(d.fpMessage.map_or(std::ptr::null_mut(), |f| f as *mut _)),
+                message_callback: callback(
+                    d.fpMessage.map_or(std::ptr::null_mut(), |f| f as *mut _),
+                ),
                 debug_level: d.debugLevel,
             });
         }
         FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG1 if out.global_debug1.is_none() => {
             let d: ffxConfigureDescGlobalDebug1 = read_desc(item);
             out.global_debug1 = Some(model::GlobalDebug1 {
-                message_callback: callback(d.fpMessage.map_or(std::ptr::null_mut(), |f| f as *mut _)),
+                message_callback: callback(
+                    d.fpMessage.map_or(std::ptr::null_mut(), |f| f as *mut _),
+                ),
                 debug_level: d.debugLevel,
             });
         }
@@ -1347,7 +1490,10 @@ struct PrepareFields {
 
 /// Flattens a dispatch chain.
 pub fn convert_dispatch(root: *const ffxApiHeader) -> model::DispatchDesc {
-    let mut out = model::DispatchDesc { null_descriptor: root.is_null(), ..Default::default() };
+    let mut out = model::DispatchDesc {
+        null_descriptor: root.is_null(),
+        ..Default::default()
+    };
     let mut first = true;
     walk_chain(root, |item| {
         if first {
@@ -1401,7 +1547,9 @@ pub fn convert_dispatch(root: *const ffxApiHeader) -> model::DispatchDesc {
                     camera_forward: float3(&d.cameraForward),
                 });
             }
-            FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO if out.camera_info.is_none() => {
+            FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO
+                if out.camera_info.is_none() =>
+            {
                 let d: ffxDispatchDescFrameGenerationPrepareCameraInfo = read_desc(item);
                 out.camera_info = Some(model::PrepareCameraInfo {
                     camera_position: float3(&d.cameraPosition),
@@ -1428,7 +1576,9 @@ pub fn convert_dispatch(root: *const ffxApiHeader) -> model::DispatchDesc {
                     frame_id: d.frameID,
                 });
             }
-            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT if out.present_callback.is_none() => {
+            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT
+                if out.present_callback.is_none() =>
+            {
                 let d: ffxCallbackDescFrameGenerationPresent = read_desc(item);
                 out.present_callback = Some(model::PresentCallbackDesc {
                     device: d.device as usize,
@@ -1440,7 +1590,9 @@ pub fn convert_dispatch(root: *const ffxApiHeader) -> model::DispatchDesc {
                     frame_id: d.frameID,
                 });
             }
-            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA if out.present_premul_alpha.is_none() => {
+            FFX_API_CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT_PREMUL_ALPHA
+                if out.present_premul_alpha.is_none() =>
+            {
                 let d: ffxCallbackDescFrameGenerationPresentPremulAlpha = read_desc(item);
                 out.present_premul_alpha = Some(d.usePremulAlpha != 0);
             }
@@ -1465,7 +1617,10 @@ pub fn read_output_count(slot: usize) -> Option<u64> {
 
 /// Flattens a query chain. `*outputCount` is read for `GetVersions` before the router sees it.
 pub fn convert_query(root: *const ffxApiHeader) -> model::QueryDesc {
-    let mut out = model::QueryDesc { null_descriptor: root.is_null(), ..Default::default() };
+    let mut out = model::QueryDesc {
+        null_descriptor: root.is_null(),
+        ..Default::default()
+    };
     let mut first = true;
     walk_chain(root, |item| {
         if first {
@@ -1488,12 +1643,17 @@ pub fn convert_query(root: *const ffxApiHeader) -> model::QueryDesc {
                 let _d: ffxQueryGetProviderVersion = read_desc(item);
                 out.get_provider_version = Some(());
             }
-            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE if out.gpu_memory_usage.is_none() => {
+            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE
+                if out.gpu_memory_usage.is_none() =>
+            {
                 let d: ffxQueryDescFrameGenerationGetGPUMemoryUsage = read_desc(item);
-                out.gpu_memory_usage =
-                    Some(model::MemoryUsageQuery { output_slot: d.gpuMemoryUsageFrameGeneration as usize });
+                out.gpu_memory_usage = Some(model::MemoryUsageQuery {
+                    output_slot: d.gpuMemoryUsageFrameGeneration as usize,
+                });
             }
-            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2 if out.gpu_memory_usage_v2.is_none() => {
+            FFX_API_QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2
+                if out.gpu_memory_usage_v2.is_none() =>
+            {
                 let d: ffxQueryDescFrameGenerationGetGPUMemoryUsageV2 = read_desc(item);
                 out.gpu_memory_usage_v2 = Some(model::MemoryUsageQueryV2 {
                     device: d.device as usize,
@@ -1509,21 +1669,28 @@ pub fn convert_query(root: *const ffxApiHeader) -> model::QueryDesc {
             FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12
                 if out.interpolation_command_list.is_none() =>
             {
-                let d: ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 = read_desc(item);
-                out.interpolation_command_list = Some(model::CommandListQuery { output_slot: d.pOutCommandList as usize });
+                let d: ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 =
+                    read_desc(item);
+                out.interpolation_command_list = Some(model::CommandListQuery {
+                    output_slot: d.pOutCommandList as usize,
+                });
             }
             FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12
                 if out.interpolation_texture.is_none() =>
             {
-                let d: ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 = read_desc(item);
-                out.interpolation_texture = Some(model::TextureQuery { output_slot: d.pOutTexture as usize });
+                let d: ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 =
+                    read_desc(item);
+                out.interpolation_texture = Some(model::TextureQuery {
+                    output_slot: d.pOutTexture as usize,
+                });
             }
             FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12
                 if out.swapchain_gpu_memory_usage.is_none() =>
             {
                 let d: ffxQueryFrameGenerationSwapChainGetGPUMemoryUsageDX12 = read_desc(item);
-                out.swapchain_gpu_memory_usage =
-                    Some(model::MemoryUsageQuery { output_slot: d.gpuMemoryUsageFrameGenerationSwapchain as usize });
+                out.swapchain_gpu_memory_usage = Some(model::MemoryUsageQuery {
+                    output_slot: d.gpuMemoryUsageFrameGenerationSwapchain as usize,
+                });
             }
             FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2
                 if out.swapchain_gpu_memory_usage_v2.is_none() =>
@@ -1577,7 +1744,11 @@ pub fn writable(ptr: *mut u8, len: usize) -> bool {
         // SAFETY: `address` is a live address from the caller and `query` is an owned, correctly
         // sized output buffer; VirtualQuery neither reads nor writes the queried range.
         let written = unsafe {
-            VirtualQuery(Some(address as *const _), &mut query, std::mem::size_of::<MEMORY_BASIC_INFORMATION>())
+            VirtualQuery(
+                Some(address as *const _),
+                &mut query,
+                std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+            )
         };
         if written == 0 {
             return false;
@@ -1665,7 +1836,9 @@ pub fn apply_query_reply(root: *mut ffxApiHeader, reply: &model::QueryReply) {
     let desc = convert_query(root);
     match reply {
         model::QueryReply::Versions { count, id, name } => {
-            let Some(query) = desc.get_versions else { return };
+            let Some(query) = desc.get_versions else {
+                return;
+            };
             write_u64(query.output_count_slot, *count);
             if query.output_count >= 1 {
                 if let Some(id) = id {
@@ -1724,7 +1897,10 @@ pub fn apply_query_reply(root: *mut ffxApiHeader, reply: &model::QueryReply) {
                 totalUsageInBytes: usage.total_usage_in_bytes,
                 aliasableUsageInBytes: usage.aliasable_usage_in_bytes,
             };
-            if writable(slot as *mut u8, std::mem::size_of::<FfxApiEffectMemoryUsage>()) {
+            if writable(
+                slot as *mut u8,
+                std::mem::size_of::<FfxApiEffectMemoryUsage>(),
+            ) {
                 // SAFETY: the slot was just found writable for the whole usage struct.
                 unsafe { std::ptr::write_unaligned(slot as *mut FfxApiEffectMemoryUsage, raw) };
             }
@@ -1736,7 +1912,11 @@ pub fn apply_query_reply(root: *mut ffxApiHeader, reply: &model::QueryReply) {
 /// Writes the issued context handle to `*context` and, for a swapchain form, the wrapper chain to
 /// the game's output slot. Returns false when either write could not be made; the caller then
 /// answers with an error rather than handing back a context the game cannot use.
-pub fn apply_created(context: *mut ffxContext, root: *mut ffxApiHeader, created: &model::CreatedContext) -> bool {
+pub fn apply_created(
+    context: *mut ffxContext,
+    root: *mut ffxApiHeader,
+    created: &model::CreatedContext,
+) -> bool {
     let Some(swapchain) = created.swapchain else {
         return write_pointer(context as usize, created.context);
     };
@@ -1758,7 +1938,10 @@ mod tests {
     use super::*;
 
     fn header(type_: u64, p_next: *mut ffxApiHeader) -> ffxApiHeader {
-        ffxApiHeader { type_, pNext: p_next }
+        ffxApiHeader {
+            type_,
+            pNext: p_next,
+        }
     }
 
     #[test]
@@ -1773,13 +1956,19 @@ mod tests {
     #[test]
     #[allow(unused_assignments)] // the cycle is built by patching a node the walk will follow
     fn a_cycle_stops_at_the_first_repeat() {
-        let mut tail = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS, std::ptr::null_mut());
+        let mut tail = header(
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS,
+            std::ptr::null_mut(),
+        );
         let mut head = header(FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, &mut tail);
         tail.pNext = &mut head;
         let types = walk_chain(&head, |_| {});
         assert_eq!(
             types,
-            [FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS]
+            [
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION,
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS
+            ]
         );
     }
 
@@ -1797,14 +1986,32 @@ mod tests {
         let mut fg: ffxCreateContextDescFrameGeneration = unsafe { std::mem::zeroed() };
         fg.header.type_ = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
         fg.flags = 1 << 5;
-        fg.displaySize = FfxApiDimensions2D { width: 1920, height: 1080 };
-        fg.maxRenderSize = FfxApiDimensions2D { width: 1280, height: 720 };
+        fg.displaySize = FfxApiDimensions2D {
+            width: 1920,
+            height: 1080,
+        };
+        fg.maxRenderSize = FfxApiDimensions2D {
+            width: 1280,
+            height: 720,
+        };
         fg.backBufferFormat = 14;
         let desc = convert_create(&fg.header);
         assert!(desc.names_a_sedici_context());
         let fg = desc.frame_generation.expect("frame generation desc");
-        assert_eq!(fg.display_size, model::Dimensions { width: 1920, height: 1080 });
-        assert_eq!(fg.max_render_size, model::Dimensions { width: 1280, height: 720 });
+        assert_eq!(
+            fg.display_size,
+            model::Dimensions {
+                width: 1920,
+                height: 1080
+            }
+        );
+        assert_eq!(
+            fg.max_render_size,
+            model::Dimensions {
+                width: 1280,
+                height: 720
+            }
+        );
         assert_eq!(fg.back_buffer_format, model::SurfaceFormat(14));
     }
 

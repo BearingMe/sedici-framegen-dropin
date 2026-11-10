@@ -94,11 +94,15 @@ mod tests {
 
     impl GpuCommandList<FakeTexture> for Recorder {
         fn transition(&self, texture: &FakeTexture, before: ResourceState, after: ResourceState) {
-            self.0.borrow_mut().push(format!("{}:{:#x}>{:#x}", texture.0, before.0, after.0));
+            self.0
+                .borrow_mut()
+                .push(format!("{}:{:#x}>{:#x}", texture.0, before.0, after.0));
         }
         fn uav_barrier(&self, _texture: &FakeTexture) {}
         fn copy_resource(&self, destination: &FakeTexture, source: &FakeTexture) {
-            self.0.borrow_mut().push(format!("copy {}>{}", source.0, destination.0));
+            self.0
+                .borrow_mut()
+                .push(format!("copy {}>{}", source.0, destination.0));
         }
         fn dispatch(&self, _x: u32, _y: u32, _z: u32) {}
         fn object_identity(&self) -> usize {
@@ -132,7 +136,13 @@ mod tests {
     fn copying_a_resource_onto_itself_records_nothing() {
         let list = Recorder::default();
         let texture = FakeTexture(3);
-        assert!(super::copy_back_buffer(&list, &texture, ResourceState::PRESENT, &texture, ResourceState::PRESENT));
+        assert!(super::copy_back_buffer(
+            &list,
+            &texture,
+            ResourceState::PRESENT,
+            &texture,
+            ResourceState::PRESENT
+        ));
         assert!(list.0.borrow().is_empty());
     }
 

@@ -33,16 +33,24 @@ fn borrowing_a_game_texture_three_times_keeps_it_alive() {
     let handle = Interface::as_raw(owned.raw()) as usize;
     let objects = D3d12FrameObjects;
     for round in 0..3 {
-        let borrowed = objects.texture(handle).unwrap_or_else(|| panic!("round {round}: the adapter resolves the game's texture"));
+        let borrowed = objects
+            .texture(handle)
+            .unwrap_or_else(|| panic!("round {round}: the adapter resolves the game's texture"));
         // SAFETY: a pure query through the borrowed reference.
         let width = unsafe { borrowed.raw().GetDesc() }.Width;
-        assert_eq!(width, 64, "round {round}: the borrowed texture is the game's");
+        assert_eq!(
+            width, 64,
+            "round {round}: the borrowed texture is the game's"
+        );
         drop(borrowed);
     }
     // SAFETY: the game still owns its reference; if the adapter consumed it, this is the fault the
     // test is meant to surface.
     let width = unsafe { owned.raw().GetDesc() }.Width;
-    assert_eq!(width, 64, "the game's texture is still alive after three borrows");
+    assert_eq!(
+        width, 64,
+        "the game's texture is still alive after three borrows"
+    );
 }
 
 #[test]
@@ -51,15 +59,17 @@ fn borrowing_a_game_command_list_three_times_keeps_it_alive() {
         eprintln!("SKIP refcount: no D3D12 adapter on this machine");
         return;
     };
-    let allocator = device.create_command_allocator(QueueKind::Direct).expect("allocator");
+    let allocator = device
+        .create_command_allocator(QueueKind::Direct)
+        .expect("allocator");
     // The game owns this list for the length of a prepare; Sedici is handed its address.
     let owned = device.create_command_list(&allocator).expect("list");
     let handle = Interface::as_raw(owned.raw()) as usize;
     let objects = D3d12FrameObjects;
     for round in 0..3 {
-        let borrowed = objects
-            .list(handle)
-            .unwrap_or_else(|| panic!("round {round}: the adapter resolves the game's command list"));
+        let borrowed = objects.list(handle).unwrap_or_else(|| {
+            panic!("round {round}: the adapter resolves the game's command list")
+        });
         // SAFETY: a pure query through the borrowed reference.
         let mut owner: Option<windows::Win32::Graphics::Direct3D12::ID3D12Device> = None;
         unsafe { borrowed.raw().GetDevice(&mut owner) }
