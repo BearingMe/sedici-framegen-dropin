@@ -19,6 +19,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "registry"] }
 tracing-appender = "0.2"
 toml_edit = "0.22"
+# Config file identity: the file digest is part of the outside-edit check (K43, settings/config_patch).
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
