@@ -11,6 +11,10 @@ build = "build.rs"
 [lib]
 name = "amd_fidelityfx_framegeneration_dx12"
 path = "src/lib.rs"
+# `cargo test` must be able to link the library. With both crate types in one unit Cargo emits only
+# the cdylib for a test binary, so the test link goes through `exports.def` and fails on the five
+# `ffx*` symbols (K141). The rlib is what the tests use; the cdylib is restored with the ffx ABI
+# exports (port order step 4), which are not ported yet and are why the DLL does not link today.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
