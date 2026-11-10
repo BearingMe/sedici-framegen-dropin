@@ -41,3 +41,35 @@ Conventional Commits. A move commit is `refactor(<module>): ...` with a body lis
 
 Every defect found gets a `K` entry in `docs/refactor/known-issues.md` in the same commit or
 before moving on, and the counts in `MILESTONES.md` are updated (see `AGENTS.md`).
+
+## Developer checks
+
+One command, one table of PASS/FAIL rows. Nothing is downloaded; the tools must already be installed
+(Visual Studio 2022 with the C++ workload, LLVM in `C:\Program Files\LLVM`). Vendored code in
+`third_party/` is never formatted, analysed or linted.
+
+```powershell
+.\tools\check.ps1 -Quick       # format, warnings as errors, layering (about 2 minutes, no GPU)
+.\tools\check.ps1 -Full        # adds /analyze, clang-tidy, ASan, UBSan
+.\tools\check.ps1 -Only tidy   # one step
+cmake --build build --target format   # rewrites src/ and tests/ with clang-format
+```
+
+Each step builds in its own `build-check-<step>` folder, so `build/` and the shipped DLL are untouched.
+Logs are in `build-check-logs/`.
+
+| Step | Tool | Answers the question |
+|---|---|---|
+| format | clang-format (`.clang-format`) | does the code match the house style? |
+| warnings | MSVC `/W4 /WX` (`-DSEDICI_WERROR=ON`) | does the compiler have any complaint? |
+| layers | `tools/check_layers.ps1` | does any include point from a low layer up to a higher one? |
+| analyze | MSVC `/analyze` (`-DSEDICI_ANALYZE=ON`) | null use, buffer overruns, uninitialised values, ignored results |
+| tidy | clang-tidy (`.clang-tidy`, `-DSEDICI_TIDY=ON`, Ninja) | bug-prone patterns, data races, wasteful copies |
+| asan | clang-cl AddressSanitizer (`-DSEDICI_SANITIZE=address`) | heap overflow, use after free, double free |
+| ubsan | clang-cl UBSan (`-DSEDICI_SANITIZE=undefined`) | undefined behaviour (overflow, bad casts, misaligned access) |
+| leaks | `tests/common/leak_check.h` (`-DSEDICI_CRTDBG=ON`) | CPU heap blocks and DXGI/D3D12 objects still alive at exit (the K169-style reference leak) |
+
+How to read a failure: open the log named in the table. A `/analyze` or clang-tidy finding is either a real
+defect (fix it and add a `K` entry) or a false positive (suppress that one line with a comment saying why;
+never turn a check off for the whole tree). The sanitizer builds use the dynamic runtime (`/MD`) and cover
+the test hosts only, never the shipped DLL. `leaks` needs a Debug build of the tests for the CPU part.

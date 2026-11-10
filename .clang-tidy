@@ -1,0 +1,54 @@
+# clang-tidy for Sedici's own code (src/ and tests/). Vendored code is skipped by CMake (SKIP_LINTING) and
+# by HeaderFilterRegex below. Start small: every check listed here was triaged once; add more only after
+# the existing ones stay at zero. Run: tools/check.ps1 -Only tidy, or cmake -DSEDICI_TIDY=ON with Ninja.
+#
+# Checks switched off on purpose (negations come last so they win):
+#   bugprone-signed-bitwise               Win32/D3D12 flag math is signed-bitwise everywhere (116 hits, no bug)
+#   performance-enum-size                 a style opinion (109 hits)
+#   bugprone-invalid-enum-default-initialization   `Type x{}` is how Win32 enums are zeroed (17 hits)
+#   bugprone-empty-catch                  the project rule: a failure must never reach the game (AGENTS.md)
+#   clang-analyzer-optin.performance.Padding / EnumCastOutOfRange   struct layout opinion; MSVC STL header noise
+#   misc-misplaced-const                  `const HWND x` on a handle typedef is intended; Win32 idiom
+#   cppcoreguidelines-virtual-class-destructor    fires on forward-declared COM interfaces (ID3D12Device ...)
+#   bugprone-unchecked-string-to-number-conversion, bugprone-suspicious-memory-comparison,
+#   clang-analyzer-deadcode.DeadStores    only test-host argument parsing, byte-equality of a memcpy'd copy and `t +=` idioms
+#   bugprone-exception-escape, performance-inefficient-vector-operation   test-host main() functions, where an escaping
+#                                         exception ends the run as a failure anyway, and a 4-element test loop
+#   bugprone-easily-swappable-parameters, narrowing-conversions, reserved-identifier,
+#   implicit-widening-of-multiplication-result   too noisy for Win32-style code, no bug found
+Checks: >-
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  performance-*,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  misc-definitions-in-headers,
+  misc-redundant-expression,
+  misc-static-assert,
+  misc-unconventional-assign-operator,
+  misc-uniqueptr-reset-release,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-deprecated-headers,
+  -bugprone-signed-bitwise,
+  -bugprone-invalid-enum-default-initialization,
+  -bugprone-empty-catch,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-unchecked-string-to-number-conversion,
+  -bugprone-suspicious-memory-comparison,
+  -clang-analyzer-deadcode.DeadStores,
+  -bugprone-exception-escape,
+  -performance-inefficient-vector-operation,
+  -performance-enum-size,
+  -performance-no-int-to-ptr,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-optin.core.EnumCastOutOfRange
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[/\\](src|tests)[/\\].*'
+FormatStyle: file

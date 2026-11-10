@@ -1,5 +1,6 @@
 // Offline acceptance host for the frame generator (see MILESTONES.md, P1.4). The check
 // groups are in the fgcheck_*.cpp files next to this one.
+#include "common/leak_check.h"
 #include "fgcheck_common.h"
 
 using namespace fgcheck;
@@ -8,6 +9,7 @@ extern "C" const char g_sedici_proxy_marker[] = "SEDICI_PROXY_V1";
 
 int main(int argc, char** argv)
 {
+    sedici_test::LeakGuard leak_guard;
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     bool keepImages = false, present = false, routing = false, deviceLoss = false, signalFault = false;
     bool signalFaultVrr = false, closeFault = false, closeFaultVrr = false;

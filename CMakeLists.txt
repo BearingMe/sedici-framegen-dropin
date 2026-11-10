@@ -4,7 +4,11 @@ project(sedici LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+if(SEDICI_SANITIZE STREQUAL "address")
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL") # the ASan runtime needs the dynamic CRT; the UBSan libraries are static
+else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
 
 set(SEDICI_FFX_HEADERS
     third_party/ffx/api/include/ffx_api.h
@@ -105,6 +109,53 @@ if(MSVC)
 endif()
 
 target_link_libraries(sedici_core PUBLIC dxgi d3d12 d3dcompiler bcrypt)
+
+# ---------------------------------------------------------------------------------------------
+# Developer tooling (docs/dev/workflow.md, tools/check.ps1). Every option is OFF by default, so the
+# default build and the shipped DLL are exactly what they were. Vendored code (third_party/) is
+# never analysed, linted or formatted.
+# ---------------------------------------------------------------------------------------------
+option(SEDICI_WERROR  "Treat compiler warnings as errors (/WX)" OFF)
+option(SEDICI_ANALYZE "Run MSVC static analysis (/analyze) on Sedici's own sources" OFF)
+option(SEDICI_TIDY    "Run clang-tidy on Sedici's own sources (Ninja generator)" OFF)
+option(SEDICI_CRTDBG  "Test hosts report CPU heap leaks at exit through the CRT debug heap" OFF)
+set(SEDICI_SANITIZE "" CACHE STRING "Sanitizer for the test hosts: address, undefined (needs clang-cl)")
+
+set(SEDICI_LLVM_HINTS "$ENV{ProgramFiles}/LLVM/bin" "C:/Program Files/LLVM/bin")
+set(SEDICI_VENDORED_SOURCES ${SEDICI_IMGUI_SOURCES})
+
+if(SEDICI_TIDY)
+    find_program(SEDICI_CLANG_TIDY clang-tidy HINTS ${SEDICI_LLVM_HINTS} REQUIRED)
+    # /EHsc is added to the compiler line by CMake, but clang-tidy parses without it and rejects try/throw.
+    set(CMAKE_CXX_CLANG_TIDY "${SEDICI_CLANG_TIDY};--extra-arg=/EHsc")
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+    set_source_files_properties(${SEDICI_VENDORED_SOURCES} PROPERTIES SKIP_LINTING ON)
+endif()
+
+if(SEDICI_ANALYZE)
+    set_source_files_properties(${SEDICI_VENDORED_SOURCES} PROPERTIES COMPILE_OPTIONS "/analyze-")
+endif()
+
+if(SEDICI_SANITIZE)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR "SEDICI_SANITIZE needs clang-cl (this machine's MSVC ships only an x86 ASan runtime). "
+                            "Use tools/check.ps1, or configure with -DCMAKE_CXX_COMPILER=clang-cl -G Ninja.")
+    endif()
+endif()
+
+# clang-format: format rewrites src/ and tests/, format-check only reports. Nothing else is passed to it.
+find_program(SEDICI_CLANG_FORMAT clang-format HINTS ${SEDICI_LLVM_HINTS})
+if(SEDICI_CLANG_FORMAT)
+    file(GLOB_RECURSE SEDICI_FORMAT_FILES CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/src/*.h
+        ${CMAKE_SOURCE_DIR}/tests/*.cpp ${CMAKE_SOURCE_DIR}/tests/*.h)
+    add_custom_target(format
+        COMMAND ${SEDICI_CLANG_FORMAT} --style=file -i ${SEDICI_FORMAT_FILES}
+        COMMENT "clang-format: rewriting src/ and tests/" VERBATIM)
+    add_custom_target(format-check
+        COMMAND ${SEDICI_CLANG_FORMAT} --style=file --dry-run --Werror ${SEDICI_FORMAT_FILES}
+        COMMENT "clang-format: checking src/ and tests/" VERBATIM)
+endif()
 
 add_library(sedici SHARED src/dllmain.cpp exports.def)
 target_link_libraries(sedici PRIVATE sedici_core)
@@ -252,3 +303,67 @@ if(SEDICI_BUILD_FGCHECK)
             PROPERTIES RUN_SERIAL TRUE TIMEOUT 300 LABELS "fgcheck;gpu")
     endif()
 endif()
+
+# Developer tooling flags, applied to every Sedici target that exists in this configuration.
+# Called last so test targets are covered. Does nothing unless a SEDICI_* tooling option is set.
+set(SEDICI_TEST_HOSTS sedici_regression sedici_abi sedici_fgcheck)
+function(sedici_apply_tooling)
+    foreach(tgt IN ITEMS sedici_core sedici sedici_regression sedici_cursor_probe sedici_settings_worker_stub
+            sedici_settings_worker_host sedici_abi sedici_abi_stub sedici_fgcheck)
+        if(NOT TARGET ${tgt})
+            continue()
+        endif()
+        if(tgt IN_LIST SEDICI_TEST_HOSTS)
+            target_include_directories(${tgt} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+        endif()
+        if(SEDICI_WERROR AND MSVC)
+            target_compile_options(${tgt} PRIVATE /WX)
+        endif()
+        if(SEDICI_ANALYZE AND MSVC AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            # Own sources only: vendored headers are external so /analyze skips them and their warnings.
+            target_compile_options(${tgt} PRIVATE /analyze /analyze:external-
+                /external:W0
+                /external:I${CMAKE_SOURCE_DIR}/third_party/ffx
+                /external:I${CMAKE_SOURCE_DIR}/third_party/tomlplusplus
+                /external:I${CMAKE_SOURCE_DIR}/third_party/imgui)
+        endif()
+        if(SEDICI_CRTDBG)
+            target_compile_definitions(${tgt} PRIVATE SEDICI_CRTDBG=1)
+            if(tgt IN_LIST SEDICI_TEST_HOSTS)
+                target_link_libraries(${tgt} PRIVATE dxguid) # DXGI_DEBUG_ALL for tests/common/leak_check.h
+            endif()
+        endif()
+        if(SEDICI_SANITIZE)
+            target_compile_options(${tgt} PRIVATE -fsanitize=${SEDICI_SANITIZE} -fno-omit-frame-pointer)
+            if(SEDICI_SANITIZE STREQUAL "address")
+                # Global-variable instrumentation reports false positives with merged string literals under
+                # clang-cl (odr-violation "-" vs L"-", an overflow read of a NUL-terminated literal); heap and stack
+                # checks, the point of this run, are unaffected.
+                target_compile_options(${tgt} PRIVATE -mllvm -asan-globals=0)
+            endif()
+            # stl_asan.lib (container annotations) is part of an optional VS component that is not installed here.
+            target_compile_definitions(${tgt} PRIVATE _DISABLE_STRING_ANNOTATION _DISABLE_VECTOR_ANNOTATION)
+            get_target_property(kind ${tgt} TYPE)
+            if(SEDICI_SANITIZE STREQUAL "address")
+                if(kind STREQUAL "EXECUTABLE" OR kind STREQUAL "SHARED_LIBRARY")
+                    target_link_directories(${tgt} PRIVATE "${SEDICI_CLANG_RT_DIR}")
+                    target_link_libraries(${tgt} PRIVATE clang_rt.asan_dynamic-x86_64
+                        clang_rt.asan_dynamic_runtime_thunk-x86_64)
+                    target_link_options(${tgt} PRIVATE /wholearchive:clang_rt.asan_dynamic_runtime_thunk-x86_64.lib)
+                endif()
+            else()
+                if(kind STREQUAL "EXECUTABLE" OR kind STREQUAL "SHARED_LIBRARY")
+                    target_link_directories(${tgt} PRIVATE "${SEDICI_CLANG_RT_DIR}")
+                    target_link_libraries(${tgt} PRIVATE clang_rt.ubsan_standalone-x86_64 clang_rt.ubsan_standalone_cxx-x86_64)
+                endif()
+            endif()
+        endif()
+    endforeach()
+endfunction()
+
+if(SEDICI_SANITIZE)
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} /clang:-print-resource-dir
+        OUTPUT_VARIABLE SEDICI_CLANG_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(SEDICI_CLANG_RT_DIR "${SEDICI_CLANG_RESOURCE_DIR}/lib/windows")
+endif()
+sedici_apply_tooling()
