@@ -106,3 +106,40 @@ the five not-yet-exported symbols (K141). The `cdylib` entry and the `exports.de
 back with the ffx ABI slice (order step 4). `cargo build --release` today produces only an rlib, and
 that is expected until the exports exist.
 
+## Application core and composition root (done)
+
+Landed on `experiment/rust`: `application/{context,session,router}.rs`, `entry.rs`,
+`adapters/driven/{backend,win32/modules}.rs` (the module-load probe), and `tests/routing.rs`. The DLL
+again exports exactly the five `ffx*` entry points (a Rust `cdylib` links the CRT entry, so the port
+has no `DllMain` of its own; K148).
+
+**Context** (`application/context.rs`). The FFX create/configure/prepare/generate state machine over
+`FrameGenerator` and `GpuDevice`, porting `runtime/context.cpp` exactly: the single prepare slot with
+the K139 K98 wait, the HUD-less format check against `m_color_format`, the HDR flag accepted, the
+split-recording ordering rules, `track_submission`, `wait_prepare`, `abandon_generation`, the bounded
+`wait_for_retirement` and `Context::fail` logging one info line. Three pointer-shaped ports stand in
+for the C++ raw pointers: `Retirement` (an `Arc<dyn Retirement>` instead of `ID3D12Fence*`),
+`QueueDependency` (instead of `ID3D12CommandQueue*`), and `DeviceLookup`/`FrameObjects` (instead of
+casting the game's `ID3D12Resource*`). `ContextSink` is the object-safe `ContextHandle` a swapchain
+installs as its generation sink.
+
+**Session** (`application/session.rs`). Binds a context to a wrapper through the `Wrapper` trait:
+`set_generator`, `clear_generator_if_owner`, `close_generator`, `interpolation_list`,
+`interpolation_texture` — the exact operations `presentation/swapchain.h` exposes. The New/ForHwnd
+`WrapOrigin` and rollback live here; `SessionState` is the C++ lifecycle enum.
+
+**Router** (`application/router.rs`). Handle tokens (`domain/token.rs` behind a `TokenSource`, with
+`ProcessTokens` reserving the range through an `AddressReservation` the adapter supplies, and
+`MemoryTokens` for tests), ownership leases (`Arc<Owned>` with a shared-call mutex and `dead` flag),
+create/configure/query/dispatch/destroy against the context and session, the `PROVIDER_VERSIONS`
+table (including the New/HWND ids), and the exact `route.cpp` rejection codes. It implements
+`ffx_model::FfxService`; the parked-owner reaping (K41) and the injected bookkeeping faults (K29,
+K63, K102) are covered by `tests/routing.rs`.
+
+**Expected from the swapchain slice.** The session and router are built against two traits the
+presentation slice supplies. `session::Wrapper` (above) is the generator half; `router::SwapchainFactory`
+is `create_wrapper(&CreateContextDesc, WrapOrigin) -> (OpaqueHandle, Arc<dyn Wrapper>)`, building or
+adopting the chain and returning the game's chain handle. Until they land, `backend.rs` installs
+`UnsupportedSwapchains` (a defined local error, K149) and the split-recording queue wait returns an
+error; a frame generation create, configure, prepare, query and destroy all work end to end.
+

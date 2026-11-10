@@ -10,8 +10,10 @@
 //! 4. maps a [`model::Rejection`] to its FFX return code and logs the call through
 //!    [`super::desc_walk::describe_call`].
 //!
-//! `DllMain` is not reproduced here: the Rust `cdylib` has no loader-lock work to do, and the log
-//! drain that the C++ performed at process detach belongs to the logging adapter (a later slice).
+//! `DllMain` is not reproduced here: a Rust `cdylib` links the CRT's own entry point, so the port
+//! has no `DllMain` (K148); the log writer is stopped by its guard on unload. Each export calls
+//! [`crate::entry::ensure_started`] first, which runs the composition root on the first FFX call
+//! when this code is loaded as a DLL (never in a test binary that links the rlib).
 //!
 //! # Return codes
 //!
@@ -25,6 +27,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::application::ffx_model::{self as model, ReturnCode};
+use crate::entry;
 
 use super::desc_walk;
 use super::types::{ffxApiHeader, ffxAllocationCallbacks, ffxContext, ffxReturnCode_t};
@@ -85,6 +88,7 @@ pub unsafe extern "system" fn ffxCreateContext(
 ) -> ffxReturnCode_t {
     let _ = callbacks; // Sedici never allocates through the game's callbacks, as the C++ did not.
     guarded(|| {
+        entry::ensure_started();
         let context_value = context_value(context as *const ffxContext);
         let desc = desc as *const ffxApiHeader;
         let flattened = desc_walk::convert_create(desc);
@@ -138,6 +142,7 @@ pub unsafe extern "system" fn ffxDestroyContext(
 ) -> ffxReturnCode_t {
     let _ = callbacks;
     guarded(|| {
+        entry::ensure_started();
         let handle = context_value(context as *const ffxContext);
         let result = match handle {
             None => FOREIGN_HANDLE,
@@ -168,6 +173,7 @@ pub unsafe extern "system" fn ffxConfigure(
     desc: *const ffxApiHeader,
 ) -> ffxReturnCode_t {
     guarded(|| {
+        entry::ensure_started();
         let handle = context_value(context as *const ffxContext);
         let flattened = desc_walk::convert_configure(desc);
         let result = match handle {
@@ -200,6 +206,7 @@ pub unsafe extern "system" fn ffxConfigure(
 #[no_mangle]
 pub unsafe extern "system" fn ffxQuery(context: *mut ffxContext, desc: *mut ffxApiHeader) -> ffxReturnCode_t {
     guarded(|| {
+        entry::ensure_started();
         let handle = context_value(context as *const ffxContext);
         let flattened = desc_walk::convert_query(desc);
         let root = desc as *const ffxApiHeader;
@@ -255,6 +262,7 @@ pub unsafe extern "system" fn ffxDispatch(
     desc: *const ffxApiHeader,
 ) -> ffxReturnCode_t {
     guarded(|| {
+        entry::ensure_started();
         let handle = context_value(context as *const ffxContext);
         let flattened = desc_walk::convert_dispatch(desc);
         let result = match handle {

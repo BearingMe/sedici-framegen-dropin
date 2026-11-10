@@ -64,6 +64,53 @@ pub fn executable() -> Option<Module> {
     executable_module()
 }
 
+/// True when this code is running from a DLL loaded into some other process image, rather than
+/// from a test binary that linked the library statically.
+///
+/// The composition root runs only in the first case: a test binary that calls the five exports
+/// directly must keep seeing the scaffold error answers (the same behaviour as before the router
+/// existed), and its own entry point is not the DLL.
+#[cfg(windows)]
+pub fn running_as_dll() -> bool {
+    // The main executable module (the game, or a test binary).
+    // SAFETY: a null module name asks for the process's main executable module; the result is a
+    // borrowed handle that must not be released.
+    let Some(main) = (unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }).ok() else {
+        return false;
+    };
+    // The module that contains this function: the DLL when loaded as one, the test executable when
+    // statically linked. Comparing the two handles is exact: a DLL's own module is never the
+    // process's main module.
+    let Some(own) = own_module() else { return false };
+    own != main
+}
+
+/// The module this code was loaded from, or `None` if the loader cannot say.
+#[cfg(windows)]
+fn own_module() -> Option<HMODULE> {
+    use windows::Win32::System::LibraryLoader::{
+        GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    };
+    let mut module = HMODULE::default();
+    // SAFETY: the address is a function in this module, so the UNCHANGED_REFCOUNT query only reads
+    // the loader's module table and never owns a reference we would have to release.
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            windows::core::PCWSTR(own_module as *const u16),
+            &mut module,
+        )
+    }
+    .ok()?;
+    Some(module)
+}
+
+#[cfg(not(windows))]
+pub fn running_as_dll() -> bool {
+    false
+}
+
 /// True when `module` lives under the Windows or System directory. An unknown path counts as
 /// system: the scan leaves it alone rather than risk patching a protected module.
 pub fn is_system_module(module: Module) -> bool {

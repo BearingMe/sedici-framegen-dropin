@@ -1040,7 +1040,7 @@ pub fn config_path_in(module_dir: Option<&Path>) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn module_directory() -> Option<PathBuf> {
+pub fn module_directory() -> Option<PathBuf> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::{
@@ -1078,7 +1078,7 @@ fn module_directory() -> Option<PathBuf> {
 }
 
 #[cfg(not(windows))]
-fn module_directory() -> Option<PathBuf> {
+pub fn module_directory() -> Option<PathBuf> {
     None
 }
 

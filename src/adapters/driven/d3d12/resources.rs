@@ -49,6 +49,19 @@ impl D3d12Texture {
         self.state.get()
     }
 
+    /// Borrows a game-owned resource as a texture, taking a COM reference so the value can be
+    /// held beyond the call. `tracked_state` starts at `state`, which the FFX desc reported.
+    ///
+    /// The resource is not created by Sedici: Stage 1 transitions it to its own states and back to
+    /// `state` before returning (the same contract the C++ used for the game's depth and motion).
+    pub fn borrow(resource: &ID3D12Resource, state: ResourceState) -> Self {
+        Self {
+            info: texture_info(resource),
+            resource: resource.clone(),
+            state: Cell::new(state),
+        }
+    }
+
     pub(crate) fn set_state(&self, state: ResourceState) {
         self.state.set(state);
     }
@@ -168,6 +181,12 @@ impl std::fmt::Debug for D3d12CommandList {
 impl D3d12CommandList {
     pub fn raw(&self) -> &ID3D12GraphicsCommandList {
         &self.list
+    }
+
+    /// Borrows a game-owned command list as a value, taking a COM reference so it can be held
+    /// beyond the call. The caller owns the recording; Sedici only appends to it.
+    pub fn borrow(list: &ID3D12GraphicsCommandList) -> Self {
+        Self { list: list.clone() }
     }
 
     /// Resets the list onto `allocator` for a fresh recording.

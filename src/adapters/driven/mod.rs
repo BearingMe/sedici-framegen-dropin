@@ -1,4 +1,5 @@
 //! Driven adapters: things we call.
+pub mod backend;
 pub mod config_toml;
 pub mod d3d12;
 pub mod dxgi_native;
