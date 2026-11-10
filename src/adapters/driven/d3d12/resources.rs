@@ -67,6 +67,17 @@ impl D3d12Texture {
     }
 }
 
+impl Clone for D3d12Texture {
+    fn clone(&self) -> Self {
+        Self { resource: self.resource.clone(), info: self.info, state: Cell::new(self.state.get()) }
+    }
+}
+
+// SAFETY: the tracked state is a plain cell read and written only while the list that transitions
+// the texture holds it; the wrapper's textures are reached from one Present path at a time, and a
+// shared reference here only reads `info`/`identity`. The COM resource itself is free-threaded.
+unsafe impl Sync for D3d12Texture {}
+
 impl GpuTexture for D3d12Texture {
     fn info(&self) -> TextureInfo {
         self.info
@@ -175,6 +186,18 @@ pub struct D3d12CommandList {
 impl std::fmt::Debug for D3d12CommandList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("D3d12CommandList")
+    }
+}
+
+impl Clone for D3d12CommandList {
+    fn clone(&self) -> Self {
+        Self { list: self.list.clone() }
+    }
+}
+
+impl crate::application::ports::gpu::CommandListHandle for D3d12CommandList {
+    fn object_handle(&self) -> usize {
+        windows::core::Interface::as_raw(&self.list) as usize
     }
 }
 
@@ -378,3 +401,15 @@ impl GpuCommandList<D3d12Texture> for D3d12CommandList {
         unsafe { self.list.Dispatch(groups_x, groups_y, groups_z) };
     }
 }
+
+// SAFETY: an allocator is reset only after every list recorded from it has retired, a discipline
+// the wrapper enforces by serialising admission; the COM object itself is free-threaded.
+unsafe impl Send for D3d12CommandAllocator {}
+// SAFETY: as above. Sharing the handle is legal; the reset rule is the caller's.
+unsafe impl Sync for D3d12CommandAllocator {}
+
+// SAFETY: a command list is recorded from one Present path at a time and the COM interface is
+// free-threaded; the wrapper never resets or closes the same list from two threads.
+unsafe impl Send for D3d12CommandList {}
+// SAFETY: as above.
+unsafe impl Sync for D3d12CommandList {}

@@ -317,3 +317,14 @@ pub trait GpuDevice {
     /// `Some(reason)` when the device has been removed, as `GetDeviceRemovedReason` reports it.
     fn removed_reason(&self) -> Option<u32>;
 }
+
+/// A command list that can name its underlying object, so a list held by reference can be handed
+/// to the FFX-facing seam as a handle the adapter resolves back.
+///
+/// The wrapper records generation into its own list; a session-driven context resolves every list
+/// through [`crate::application::context::FrameObjects`], which speaks in handles. The value is the
+/// object's address: it is only ever compared and passed back to the adapter that produced it,
+/// never dereferenced by the application.
+pub trait CommandListHandle {
+    fn object_handle(&self) -> usize;
+}

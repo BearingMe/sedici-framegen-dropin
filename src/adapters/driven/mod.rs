@@ -9,3 +9,4 @@ pub mod overlay_ui;
 pub mod settings_worker;
 pub mod stage1;
 pub mod win32;
+pub mod wrapper_handle;

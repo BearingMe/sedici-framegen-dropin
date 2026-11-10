@@ -93,6 +93,36 @@ pub fn wrap(native: &IDXGISwapChain4, backend: Arc<dyn PresentBackend>) -> IDXGI
     DxgiWrapper { native: native.clone(), backend }.into()
 }
 
+impl DxgiWrapper {
+    /// The COM object over a wrapped chain. The object holds its own reference to the native chain
+    /// and forwards everything the application does not intercept to it.
+    pub fn new(native: &IDXGISwapChain4, backend: Arc<dyn PresentBackend>) -> DxgiWrapper {
+        DxgiWrapper { native: native.clone(), backend }
+    }
+
+    /// The COM object over the production wrapper: the chain it presents through, and the
+    /// application logic it forwards to. The returned interface is the game-facing object; the
+    /// caller writes it through the create desc's output slot.
+    pub fn com_swapchain(
+        swapchain: Arc<
+            crate::application::presentation::swapchain::Swapchain<
+                crate::adapters::driven::d3d12::device::D3d12Device,
+                crate::adapters::driven::dxgi_native::DxgiNative,
+                crate::adapters::driven::wrapper_handle::SessionDriven<
+                    crate::adapters::driven::d3d12::device::D3d12Device,
+                >,
+                crate::adapters::driven::overlay_ui::Overlay,
+            >,
+        >,
+    ) -> IDXGISwapChain4 {
+        let wrapper = DxgiWrapper {
+            native: swapchain.native().chain().clone(),
+            backend: swapchain as Arc<dyn PresentBackend>,
+        };
+        wrapper.into()
+    }
+}
+
 fn hresult(error: SwapchainError) -> HRESULT {
     HRESULT(error.code() as i32)
 }
@@ -458,4 +488,79 @@ pub fn interpolation_objects(
     backend: &dyn PresentBackend,
 ) -> (Option<ID3D12GraphicsCommandList>, Option<ID3D12Resource>) {
     (backend.interpolation_list(), backend.interpolation_texture())
+}
+
+// ---------------------------------------------------------------------------------------------
+// The production backend
+// ---------------------------------------------------------------------------------------------
+
+/// The application wrapper as the COM surface sees it.
+///
+/// Written for the concrete D3D12 pair: `GetBuffer` and the two interpolation queries must hand
+/// the game the real COM objects, and only the D3D12 adapter can name them.
+impl PresentBackend
+    for crate::application::presentation::swapchain::Swapchain<
+        crate::adapters::driven::d3d12::device::D3d12Device,
+        crate::adapters::driven::dxgi_native::DxgiNative,
+        crate::adapters::driven::wrapper_handle::SessionDriven<
+            crate::adapters::driven::d3d12::device::D3d12Device,
+        >,
+        crate::adapters::driven::overlay_ui::Overlay,
+    >
+{
+    fn present(
+        &self,
+        sync: u32,
+        flags: PresentFlags,
+        params: Option<PresentParams>,
+    ) -> Result<(), SwapchainError> {
+        self.present_chain(sync, flags, params.as_ref())
+    }
+
+    fn resize(
+        &self,
+        count: u32,
+        width: u32,
+        height: u32,
+        format: Option<PixelFormat>,
+        flags: u32,
+    ) -> Result<(), SwapchainError> {
+        self.resize_chain(count, width, height, format, flags)
+    }
+
+    fn resize_buffers1(
+        &self,
+        count: u32,
+        width: u32,
+        height: u32,
+        format: Option<PixelFormat>,
+        flags: u32,
+        node_masks: &[u32],
+    ) -> Result<(), SwapchainError> {
+        self.resize_chain1(count, width, height, format, flags, node_masks)
+    }
+
+    fn current_back_buffer_index(&self) -> u32 {
+        self.game_buffer_index()
+    }
+
+    fn back_buffer(&self, index: u32) -> Option<ID3D12Resource> {
+        let texture = self.private_back_buffer(index)?;
+        Some(texture.raw().clone())
+    }
+
+    fn interpolation_list(&self) -> Option<ID3D12GraphicsCommandList> {
+        let list = crate::application::presentation::swapchain::Swapchain::interpolation_list(self).ok()?;
+        Some(list.raw().clone())
+    }
+
+    fn interpolation_texture(&self) -> Option<ID3D12Resource> {
+        let texture = crate::application::presentation::swapchain::Swapchain::interpolation_texture(self).ok()?;
+        Some(texture.raw().clone())
+    }
+
+    fn before_fullscreen_change(&self) {
+        // A mode change must not race a flip issued from the presenter thread.
+        let _ = self.drain_chain();
+    }
 }

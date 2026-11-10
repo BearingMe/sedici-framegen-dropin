@@ -200,11 +200,15 @@ impl TokenSource for MemoryTokens {
 /// wrapper and hand it back as the game's chain handle.
 pub trait SwapchainFactory: Send + Sync {
     /// Wraps the chain the game handed over or builds one from the game's factory and desc.
-    /// Returns the game-facing chain handle and the wrapper the session binds to.
+    ///
+    /// `owner` is the create token the router issued; it is unique for the process lifetime, so the
+    /// wrapper can tell one session's generator sink from another's. Returns the game-facing chain
+    /// handle and the wrapper the session binds to.
     fn create_wrapper(
         &self,
         desc: &CreateContextDesc,
         origin: crate::application::session::WrapOrigin,
+        owner: OpaqueHandle,
     ) -> Result<(OpaqueHandle, Arc<dyn Wrapper>), Rejection>;
 }
 
@@ -535,7 +539,7 @@ impl<D: GpuDevice + Send, G: FrameGenerator<D> + Send> Router<D, G> {
             self.rollback(token);
             return Err(self.failure("swapchain wrap backend allocation failed", ReturnCode::Error));
         }
-        let (swapchain, wrapper) = match self.swapchains.create_wrapper(desc, origin) {
+        let (swapchain, wrapper) = match self.swapchains.create_wrapper(desc, origin, token) {
             Ok(created) => created,
             Err(rejection) => {
                 self.rollback(token);

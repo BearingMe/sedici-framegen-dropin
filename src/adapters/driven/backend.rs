@@ -2,7 +2,7 @@
 //!
 //! The application router speaks only in port types. This module builds the one production router
 //! the DLL installs, wiring the D3D12 adapter into [`FrameObjects`], [`DeviceResolver`],
-//! [`SwapchainFactory`] and the two submission seams the context needs.
+//! [`SwapchainFactory`] and the submission seams the context needs.
 //!
 //! # Backend device
 //!
@@ -10,29 +10,57 @@
 //! backing pointer, so a process with several frame generation contexts shares one device wrapper
 //! rather than re-wrapping (and AddRef'ing) it per create. The device wrapper holds a COM reference
 //! for the process lifetime; the game's device outlives every FFX context by the FFX contract.
+//!
+//! # The swapchain factory
+//!
+//! A swapchain create either adopts the chain the game handed over or builds one on the game's
+//! factory and queue (the New and HWND forms). Both paths converge on [`DxgiNative`] and
+//! [`Swapchain::wrap`], whose generation source is a [`SessionDriven`] over the session's context.
+//! The COM object the game receives is [`crate::adapters::driving::dxgi_wrapper::DxgiWrapper`],
+//! whose present backend is the same wrapper.
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use windows::core::Interface;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct3D12::{
     ID3D12CommandList, ID3D12CommandQueue, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList,
     ID3D12Resource,
 };
-use windows::Win32::Graphics::Dxgi::IDXGISwapChain4;
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_ALPHA_MODE, DXGI_FORMAT, DXGI_MODE_DESC, DXGI_MODE_SCALING, DXGI_MODE_SCANLINE_ORDER,
+    DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+};
+use windows::Win32::Graphics::Dxgi::{
+    IDXGIFactory, IDXGIFactory2, IDXGIOutput, IDXGISwapChain, IDXGISwapChain4, DXGI_SCALING,
+    DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT,
+    DXGI_USAGE,
+};
 
-use crate::application::context::{DeviceBinding, FrameObjects, QueueDependency, Retirement};
+use crate::adapters::driving::dxgi_wrapper::DxgiWrapper;
+use crate::application::context::{
+    DeviceBinding, FrameObjects, QueueDependency, Retirement,
+};
+use crate::application::faults::Faults;
 use crate::application::ffx_model;
+use crate::application::ports::clock::Clock;
 use crate::application::ports::gpu::{GpuError, ResourceState};
+use crate::application::presentation::swapchain::{
+    PresentChoice, SharedPresentQueues, Swapchain, WrapEnvironment, WrapReport,
+};
 use crate::application::router::{
     AddressReservation, DeviceResolver, Router, SwapchainFactory, TokenSource,
 };
-use crate::application::session::Wrapper;
+use crate::application::session::{Wrapper, WrapOrigin};
 use crate::domain::gpu_policy::removed_device_error;
-use crate::application::faults::Faults;
 
 use super::d3d12::device::D3d12Device;
+use super::d3d12::queue::D3d12Queue;
 use super::d3d12::resources::{D3d12CommandList, D3d12Texture};
+use super::dxgi_native::DxgiNative;
+use super::overlay_ui::Overlay;
 use super::stage1::Stage1;
+use super::wrapper_handle::{SessionDriven, WrapperHandle};
 
 /// The generator the production router drives.
 pub type ProductionGenerator = Stage1;
@@ -42,14 +70,10 @@ pub type ProductionDevice = D3d12Device;
 /// Builds the production router, or `None` when no D3D12 backend is linked (the offline host
 /// installs its own).
 #[cfg(windows)]
-pub fn build_service(
-    faults: Arc<Faults>,
-) -> Option<impl ffx_model::FfxService + 'static> {
+pub fn build_service(faults: Arc<Faults>) -> Option<impl ffx_model::FfxService + 'static> {
     let objects = Arc::new(D3d12FrameObjects);
     let devices: Arc<dyn DeviceResolver<ProductionDevice>> = Arc::new(D3d12Devices::default());
-    // The swapchain factory and the address reserver belong to the presentation slice; until it
-    // lands they answer with defined errors, which keeps every other path exercised.
-    let swapchains: Arc<dyn SwapchainFactory> = Arc::new(UnsupportedSwapchains);
+    let swapchains: Arc<dyn SwapchainFactory> = Arc::new(Dx12Swapchains::new());
     let tokens: Arc<dyn TokenSource> = Arc::new(crate::application::router::ProcessTokens::new(
         Arc::clone(&faults),
         Arc::new(VirtualAllocReservation),
@@ -115,6 +139,258 @@ impl FrameObjects<D3d12Device, D3d12CommandList> for D3d12FrameObjects {
         Some(D3d12CommandList::borrow(&list))
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The swapchain factory
+// ---------------------------------------------------------------------------------------------
+
+/// Builds or adopts the native chain and returns the wrapper the game sees.
+pub struct Dx12Swapchains {
+    /// One present queue per device for the process (K140).
+    queues: Arc<SharedPresentQueues<D3d12Device>>,
+    clock: Arc<dyn Clock>,
+}
+
+impl Dx12Swapchains {
+    pub fn new() -> Self {
+        Self {
+            // K13/K140: a Present-hooking overlay (RTSS) reuses a destroyed queue across
+            // swapchains, so the queue is kept for the process while it is loaded.
+            queues: Arc::new(SharedPresentQueues::new(super::win32::modules::rtss_loaded())),
+            clock: Arc::new(super::win32::timer::Win32Clock::new()),
+        }
+    }
+
+    /// The chain, queue and window a create names. The New and HWND forms build on the game's
+    /// factory; the wrap form adopts the reference the game handed over (K12).
+    fn native_chain(
+        &self,
+        desc: &ffx_model::CreateContextDesc,
+        origin: WrapOrigin,
+    ) -> Result<(IDXGISwapChain4, ID3D12CommandQueue, HWND), String> {
+        if origin == WrapOrigin::Wrapped {
+            let wrap = desc.swapchain_wrap.ok_or_else(|| "swapchain wrap without a chain".to_owned())?;
+            if wrap.swapchain == 0 {
+                return Err("swapchain wrap without a chain".to_owned());
+            }
+            // SAFETY: the FFX wrap desc hands over exactly one reference to the chain; this adopts
+            // it (`Attach` in the C++), so the game never sees that reference again.
+            let chain = unsafe { IDXGISwapChain4::from_raw(wrap.swapchain as *mut _) };
+            let queue = adopt_queue(wrap.game_queue)?;
+            let window = super::win32::identity::chain_window(&chain).unwrap_or_default();
+            return Ok((chain, queue, window));
+        }
+        if let Some(created) = desc.swapchain_new {
+            let factory = adopt_factory(created.dxgi_factory)?;
+            let request = legacy_desc(created.desc)?;
+            let queue = adopt_queue(created.game_queue)?;
+            let mut out: Option<IDXGISwapChain> = None;
+            // SAFETY: the request is a fully initialised local and the queue is the game's live
+            // one; the factory keeps every reference it needs.
+            let hr = unsafe { factory.CreateSwapChain(&queue, &request, &mut out) };
+            if hr.is_err() {
+                return Err(format!("swapchain new: CreateSwapChain failed ({:#010x})", hr.0));
+            }
+            let chain = out.ok_or_else(|| "swapchain new: CreateSwapChain returned no chain".to_owned())?;
+            let chain: IDXGISwapChain4 = chain.cast().map_err(|error| {
+                format!("swapchain new: the chain is not IDXGISwapChain4 ({:#010x})", error.code().0)
+            })?;
+            let window = HWND(created.desc.map_or(std::ptr::null_mut(), |d| d.output_window as *mut _));
+            return Ok((chain, queue, window));
+        }
+        let form = desc.swapchain_for_hwnd.ok_or_else(|| "swapchain create names no form".to_owned())?;
+        let factory: IDXGIFactory2 = adopt_factory(form.dxgi_factory)?
+            .cast()
+            .map_err(|error| format!("swapchain create: the factory is not IDXGIFactory2 ({:#010x})", error.code().0))?;
+        let request = modern_desc(form.desc)?;
+        if form.fullscreen_desc != 0 {
+            // The ABI edge keeps only the pointer, not the fields, so a non-null fullscreen desc
+            // cannot be reconstructed safely. Refuse rather than guess (K160).
+            return Err("swapchain for hwnd: fullscreenDesc is not modelled by the ABI edge".to_owned());
+        }
+        let queue = adopt_queue(form.game_queue)?;
+        // SAFETY: the request is a local that outlives the call and the queue is the game's live
+        // one; no restrict-to-output is wanted.
+        let chain = unsafe {
+            factory.CreateSwapChainForHwnd(
+                &queue,
+                HWND(form.hwnd as *mut _),
+                &request,
+                None,
+                None::<&IDXGIOutput>,
+            )
+        }
+        .map_err(|error| format!("swapchain new: CreateSwapChainForHwnd failed ({:#010x})", error.code().0))?;
+        let chain = chain.cast().map_err(|error| {
+            format!("swapchain create: the chain is not IDXGISwapChain4 ({:#010x})", error.code().0)
+        })?;
+        Ok((chain, queue, HWND(form.hwnd as *mut _)))
+    }
+
+    /// The presentation choice from the loaded configuration, with the shipped defaults.
+    fn choice(&self) -> PresentChoice {
+        let Some(loaded) = crate::entry::settings() else { return PresentChoice::default() };
+        let fg = &loaded.settings.fg;
+        PresentChoice {
+            present: fg.present,
+            guard: fg.tear_guard,
+            multiplier: fg.multiplier,
+            target_fps: fg.target_fps,
+        }
+    }
+
+    /// The environment knobs the application layer may not read itself.
+    fn environment(&self) -> WrapEnvironment {
+        WrapEnvironment {
+            scanline: None,
+            rtss_loaded: super::win32::modules::rtss_loaded(),
+            lead_seconds: crate::application::presentation::swapchain::scanline_lead_us()
+                .map_or(0.00025, |us| us / 1_000_000.0),
+            force_sync_override: std::env::var("SEDICI_FG_SYNC").ok().map(|t| t.starts_with('1')),
+            align_vblank: std::env::var("SEDICI_FG_ALIGN").ok().is_some_and(|t| t.starts_with('1')),
+        }
+    }
+}
+
+impl Default for Dx12Swapchains {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SwapchainFactory for Dx12Swapchains {
+    fn create_wrapper(
+        &self,
+        desc: &ffx_model::CreateContextDesc,
+        origin: WrapOrigin,
+        owner: ffx_model::OpaqueHandle,
+    ) -> Result<(ffx_model::OpaqueHandle, Arc<dyn Wrapper>), ffx_model::Rejection> {
+        let _ = owner; // The session supplies its own owner key when it installs its sink.
+        let (chain, queue, window) = self.native_chain(desc, origin).map_err(ffx_model::Rejection::error)?;
+        // The overlay's hotkey and cursor handling need the game's window (K141).
+        if !window.0.is_null() {
+            crate::adapters::driving::window_input::capture_window_global(window);
+        }
+        let native = DxgiNative::attach(&chain, &queue).map_err(|error| {
+            ffx_model::Rejection::error(format!("swapchain wrap failed ({:#010x})", error.code()))
+        })?;
+        let handle = native.chain_handle();
+        let device: Arc<D3d12Device> = Arc::new(D3d12Device::from_raw(native.device()));
+        let queue = Arc::new(D3d12Queue::from_adopted(&queue));
+
+        let mut report = WrapReport::default();
+        let wrapper = Swapchain::<D3d12Device, DxgiNative, SessionDriven<D3d12Device>, Overlay>::wrap(
+            Arc::new(native),
+            device,
+            queue,
+            Arc::clone(&self.clock),
+            self.choice(),
+            Arc::clone(&self.queues),
+            Arc::new(Overlay::default()),
+            self.environment(),
+            // Exactly one reference reaches the wrapper in both forms: the wrap desc's handed-over
+            // reference, or the creation reference of a chain Sedici built (`WrapHandle::create(native,
+            // queue, 1)` in the C++). Passing 0 for a created chain would leak that reference and make
+            // "vrr" refuse to recreate the chain.
+            1,
+            &mut report,
+        )
+        .map_err(|error| {
+            ffx_model::Rejection::error(format!("swapchain wrap failed ({:#010x})", error.code()))
+        })?;
+        if let Some(reason) = report.fallback_reason {
+            tracing::info!("fg: \"vrr\" present unavailable ({reason}); falling back to \"vsync\"");
+        }
+        let wrapper = Arc::new(wrapper);
+        // The session context registers submissions against the wrapper's own fence timeline.
+        wrapper.install_retirement(|fence| D3d12Retirement::new(fence.raw()).ok().map(|probe| Arc::new(probe) as Arc<dyn Retirement>));
+        // The game receives the COM wrapper, never the native chain's identity.
+        let com = DxgiWrapper::com_swapchain(Arc::clone(&wrapper));
+        // One reference for the game's output slot; the COM object owns its own above.
+        let game_handle = Interface::into_raw(com) as usize;
+        let handle = WrapperHandle::<D3d12Device, DxgiNative>::new(wrapper, handle);
+        Ok((game_handle, Arc::new(handle)))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Descriptor and handle conversion
+// ---------------------------------------------------------------------------------------------
+
+fn adopt_factory(handle: ffx_model::OpaqueHandle) -> Result<IDXGIFactory, String> {
+    if handle == 0 {
+        return Err("swapchain create without a DXGI factory".to_owned());
+    }
+    let raw = handle as *mut std::ffi::c_void;
+    // SAFETY: the FFX desc's factory is owned by the game and stays alive for the call; a borrowed
+    // reference cloned here takes a legitimate AddRef, so this value cannot outlive it. Cloning
+    // before `raw` goes out of scope keeps the owned value independent of the borrow.
+    match unsafe { IDXGIFactory::from_raw_borrowed(&raw) } {
+        Some(borrowed) => Ok(borrowed.clone()),
+        None => Err("swapchain create without a DXGI factory".to_owned()),
+    }
+}
+
+fn adopt_queue(handle: ffx_model::OpaqueHandle) -> Result<ID3D12CommandQueue, String> {
+    if handle == 0 {
+        return Err("swapchain create without a queue".to_owned());
+    }
+    let raw = handle as *mut std::ffi::c_void;
+    // SAFETY: the FFX contract keeps the game's queue alive for the context's lifetime; cloning the
+    // borrowed reference is a legitimate AddRef, never a release of the game's own.
+    match unsafe { ID3D12CommandQueue::from_raw_borrowed(&raw) } {
+        Some(borrowed) => Ok(borrowed.clone()),
+        None => Err("swapchain create without a queue".to_owned()),
+    }
+}
+
+
+/// Builds the legacy `DXGI_SWAP_CHAIN_DESC` the New form carries from the safe model.
+fn legacy_desc(desc: Option<ffx_model::SwapchainDesc>) -> Result<DXGI_SWAP_CHAIN_DESC, String> {
+    let desc = desc.ok_or_else(|| "swapchain new without a description".to_owned())?;
+    Ok(DXGI_SWAP_CHAIN_DESC {
+        BufferDesc: DXGI_MODE_DESC {
+            Width: desc.width,
+            Height: desc.height,
+            RefreshRate: DXGI_RATIONAL {
+                Numerator: desc.refresh_numerator,
+                Denominator: desc.refresh_denominator,
+            },
+            Format: DXGI_FORMAT(desc.format as i32),
+            ScanlineOrdering: DXGI_MODE_SCANLINE_ORDER(0),
+            Scaling: DXGI_MODE_SCALING(0),
+        },
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        BufferUsage: DXGI_USAGE(desc.usage),
+        BufferCount: desc.buffer_count,
+        OutputWindow: HWND(desc.output_window as *mut _),
+        Windowed: windows::core::BOOL(i32::from(desc.windowed)),
+        SwapEffect: DXGI_SWAP_EFFECT(desc.swap_effect as i32),
+        Flags: desc.flags,
+    })
+}
+
+/// Builds the modern `DXGI_SWAP_CHAIN_DESC1` the HWND form carries from the safe model.
+fn modern_desc(desc: Option<ffx_model::SwapchainDesc1>) -> Result<DXGI_SWAP_CHAIN_DESC1, String> {
+    let desc = desc.ok_or_else(|| "swapchain for hwnd without a description".to_owned())?;
+    Ok(DXGI_SWAP_CHAIN_DESC1 {
+        Width: desc.width,
+        Height: desc.height,
+        Format: DXGI_FORMAT(desc.format as i32),
+        Stereo: windows::core::BOOL(i32::from(desc.stereo)),
+        SampleDesc: DXGI_SAMPLE_DESC { Count: desc.sample_count, Quality: desc.sample_quality },
+        BufferUsage: DXGI_USAGE(desc.usage),
+        BufferCount: desc.buffer_count,
+        Scaling: DXGI_SCALING(desc.scaling as i32),
+        SwapEffect: DXGI_SWAP_EFFECT(desc.swap_effect as i32),
+        AlphaMode: DXGI_ALPHA_MODE(desc.alpha_mode as i32),
+        Flags: desc.flags,
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
+// Retirement, queue dependency, token namespace
+// ---------------------------------------------------------------------------------------------
 
 /// A shared retirement probe over the game's or swapchain's fence. It owns a COM reference so a
 /// late registration after the game released its own cannot dangle.
@@ -239,29 +515,13 @@ impl QueueDependency for D3d12QueueDependency {
     }
 
     fn wait(&self, retirement: &dyn Retirement, value: u64) -> Result<(), GpuError> {
-        // The context checks the fence's device before calling this; the queue-side wait itself is
-        // the raw `ID3D12CommandQueue::Wait`, which needs the fence interface rather than the port
-        // trait. The production sink path uses `note_ordered_submission` instead because the game
-        // records generation on the same queue it presented on, so this wait is only for a split
-        // queue the game never uses today. Returning an error keeps a caller from silently skipping
-        // the dependency until the swapchain slice supplies the fence.
+        // The context checks the fence's device before calling this. The production path records
+        // generation on the game's own queue, where the prepare already holds by ordering, so this
+        // side is not reached today; it reports the dependency unavailable instead of guessing at a
+        // fence it cannot name.
         let _ = (retirement, value);
         let _ = &self.queue;
         Err(GpuError::failed("queue wait", crate::domain::gpu_policy::E_FAIL))
-    }
-}
-
-/// The swapchain factory arrives with the presentation slice. Until then a swapchain create is a
-/// defined `ERROR` and never a half-built chain.
-pub struct UnsupportedSwapchains;
-
-impl SwapchainFactory for UnsupportedSwapchains {
-    fn create_wrapper(
-        &self,
-        _desc: &ffx_model::CreateContextDesc,
-        _origin: crate::application::session::WrapOrigin,
-    ) -> Result<(usize, Arc<dyn Wrapper>), ffx_model::Rejection> {
-        Err(ffx_model::Rejection::error("swapchain wrap backend allocation failed"))
     }
 }
 
@@ -287,6 +547,6 @@ const _: () = {
     let _ = check;
 };
 
-// Silence unused imports that the conditional compilation above can leave behind.
 #[allow(dead_code)]
-fn _unused(_: Option<&ID3D12CommandList>, _: Option<&IDXGISwapChain4>) {}
+fn _unused(_: Option<&ID3D12CommandList>, _: Option<&DxgiWrapper>) {}
+

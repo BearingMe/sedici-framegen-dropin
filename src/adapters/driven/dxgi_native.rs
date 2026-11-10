@@ -88,6 +88,39 @@ impl DxgiNative {
         &self.chain
     }
 
+    /// Wraps a chain and its queue, applying the same-adapter rule (K130) first.
+    ///
+    /// Alan Wake 2 reports a different `ID3D12Device` object for the chain than for its queue; the
+    /// same adapter is enough because every resource is created on, and every list submitted
+    /// through, the queue's device. A different adapter is refused.
+    pub fn attach(chain: &IDXGISwapChain4, queue: &ID3D12CommandQueue) -> Result<Self, GpuError> {
+        let chain_luid = crate::adapters::driven::win32::identity::adapter_luid_chain(chain);
+        let queue_luid = crate::adapters::driven::win32::identity::adapter_luid_queue(queue);
+        if !crate::adapters::driven::win32::identity::same_adapter(chain_luid, queue_luid) {
+            tracing::error!("fg: swapchain wrap: chain and queue are on different adapters, refused");
+            return Err(GpuError::failed(
+                "swapchain wrap: different adapters",
+                crate::domain::gpu_policy::E_INVALIDARG,
+            ));
+        }
+        Self::new(chain, queue)
+    }
+
+    /// The raw `IDXGISwapChain4*` the game receives through the wrapper's output slot.
+    pub fn chain_handle(&self) -> usize {
+        windows::core::Interface::as_raw(&self.chain) as usize
+    }
+
+    /// A native chain over an existing device and queue, for the offline GPU smoke test.
+    pub fn for_test(chain: &IDXGISwapChain4, queue: &ID3D12CommandQueue, device: &ID3D12Device) -> Self {
+        Self {
+            chain: chain.clone(),
+            queue: queue.clone(),
+            fence: std::sync::OnceLock::new(),
+            device: device.clone(),
+        }
+    }
+
     pub fn queue(&self) -> &ID3D12CommandQueue {
         &self.queue
     }

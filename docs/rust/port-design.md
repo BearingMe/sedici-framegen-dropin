@@ -182,9 +182,9 @@ K63, K102) are covered by `tests/routing.rs`.
 
 **Expected from the swapchain slice.** The session and router are built against two traits the
 presentation slice supplies. `session::Wrapper` (above) is the generator half; `router::SwapchainFactory`
-is `create_wrapper(&CreateContextDesc, WrapOrigin) -> (OpaqueHandle, Arc<dyn Wrapper>)`, building or
-adopting the chain and returning the game's chain handle. Until they land, `backend.rs` installs
-`UnsupportedSwapchains` (a defined local error, K149) and the split-recording queue wait returns an
+is `create_wrapper(&CreateContextDesc, WrapOrigin, owner) -> (OpaqueHandle, Arc<dyn Wrapper>)`,
+building or adopting the chain and returning the game's chain handle. Until they land, `backend.rs`
+installs `UnsupportedSwapchains` (a defined local error, K149) and the split-recording queue wait returns an
 error; a frame generation create, configure, prepare, query and destroy all work end to end.
 ## Overlay and menu slice (done)
 
@@ -232,4 +232,31 @@ triangles without any D3D12 (it guards K152).
 **In-flight assumption.** The C++ ImGui DX12 backend rotated four vertex/index buffers with no
 fence of its own, safe only because draws never overlap; this renderer keeps that assumption and
 states it (`device::INFLIGHT_NOTE`). A change that lets two draws overlap must add a fence first.
+
+**Resolved by the swapchain reconciliation slice.** `backend.rs::Dx12Swapchains` implements the real
+factory: a Wrap origin adopts the reference the FFX wrap desc hands over, a New origin calls
+`CreateSwapChain` on the game's factory and queue, and an HWND origin calls
+`CreateSwapChainForHwnd` (a non-null `fullscreenDesc` is refused, K155). Both build `DxgiNative`,
+`Swapchain::wrap`, the `DxgiWrapper` COM object, and return the COM handle the game receives. The
+same-adapter rule (K130) runs in `DxgiNative::attach`; the window for the overlay is resolved from
+`OutputWindow`/`hwnd`/`GetHwnd` (K141) and handed to `window_input::capture_window_global`. The
+split-recording queue dependency stays a defined local error (`D3d12QueueDependency`), because the
+production path records on the game's own queue.
+
+**The reconciliation adapter.** `adapters/driven/wrapper_handle.rs` is the one place that knows
+both seams: `WrapperHandle` implements `session::Wrapper` (installing the session's `ContextHandle`
+as the wrapper's generation sink, and answering the two interpolation queries), and
+`SessionDriven<D>` implements `PresentedContext` over that handle. The wrapper is instantiated as
+`Swapchain<D3d12Device, DxgiNative, SessionDriven<D3d12Device>, Overlay>`. Retirement is the
+wrapper's own queue fence, wrapped in a `context::Retirement` probe by
+`Swapchain::install_retirement`; without it, admission stays closed (K37). The wrapper texture and
+list handles the adapter passes through are K154.
+
+**GPU smoke test.** `tests/swapchain_smoke.rs` creates a hidden 64x64 window, a D3D12 device, a
+direct queue and a DXGI factory, then drives the production router's `create` with a
+swapchain-NEW desc, queries the interpolation list and texture, presents three times through the
+COM `IDXGISwapChain4`, and destroys. It skips cleanly when there is no D3D12 adapter or the factory
+refuses a hidden-window chain (K157 records that this session's `D3D12CreateDevice` returns a
+device that does not QI to `IDXGIDevice`, so the test builds the factory with `CreateDXGIFactory1`
+instead of from the device's parent).
 

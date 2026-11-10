@@ -70,9 +70,10 @@ impl SessionState {
 
 /// The wrapper operations a session needs (ports `Swapchain`'s generator half).
 pub trait Wrapper: Send + Sync {
-    /// Installs a generation sink. False once `close_generator` has run; a destroyed wrapper
-    /// context may not be reattached, even if the game still holds a COM reference.
-    fn set_generator(&self, sink: Arc<dyn ContextHandle>) -> bool;
+    /// Installs a generation sink under the session's owner key. False once `close_generator` has
+    /// run; a destroyed wrapper context may not be reattached, even if the game still holds a COM
+    /// reference.
+    fn set_generator(&self, owner: usize, sink: Arc<dyn ContextHandle>) -> bool;
 
     /// Clears only the sink `owner` installed; a stale session must not detach a newer session's
     /// sink.
@@ -118,6 +119,11 @@ impl SessionError {
     pub fn device_removed() -> Self {
         Self::new("D3D12 device removed")
     }
+
+    /// The wrapper's generator gate refused the sink (a destroyed wrapper).
+    pub fn wrap_failed() -> Self {
+        Self::new("swapchain wrap failed")
+    }
 }
 
 /// One frame generation context plus, once configured, the swapchain it presents through.
@@ -160,6 +166,11 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Sessi
     /// A sink bound to this session's context.
     pub fn sink(&self) -> Arc<dyn ContextHandle> {
         Arc::new(ContextSink::new(self.shared_context()))
+    }
+
+    /// The key this session uses to clear only the sink it installed.
+    pub fn owner(&self) -> usize {
+        self.owner
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Context<D, G>> {
@@ -268,7 +279,7 @@ impl<D: GpuDevice + Send + 'static, G: FrameGenerator<D> + Send + 'static> Sessi
         let enabled = self.lock().enabled();
         if let Some(wrapper) = self.swapchain.clone() {
             if enabled {
-                if !wrapper.set_generator(sink) {
+                if !wrapper.set_generator(self.owner, sink) {
                     // Destruction may have closed this wrapper after lookup.
                     self.swapchain = None;
                 }
