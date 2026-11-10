@@ -203,6 +203,13 @@ dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll
 There must be exactly five exports. Do not add helper exports, including the
 proxy marker.
 
+Developer checks (format, warnings as errors, module layering; `-Full` adds MSVC `/analyze`,
+clang-tidy, ASan and UBSan). Details in `docs/dev/workflow.md`:
+
+```powershell
+.\tools\check.ps1 -Quick
+```
+
 ## Deploy safety
 
 `tools/deploy.ps1` and `tools/restore.ps1` must:

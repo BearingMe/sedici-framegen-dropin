@@ -537,12 +537,12 @@ void queue_policy_checks()
 {
     sedici::fg::FixedQueue<int, 3> queue;
     int a = 1, b = 2, c = 3, d = 4;
-    check(queue.empty() && queue.push_back(std::move(a)) && queue.push_back(std::move(b)) &&
-              queue.push_back(std::move(c)) && queue.size() == 3 && !queue.push_back(std::move(d)),
+    check(queue.empty() && queue.push_back(int{a}) && queue.push_back(int{b}) &&
+              queue.push_back(int{c}) && queue.size() == 3 && !queue.push_back(int{d}),
           "present queue: bounded ring accepts capacity and refuses overflow");
     check(queue.front() == 1, "present queue: first item retains FIFO order");
     queue.pop_front();
-    check(queue.push_back(std::move(d)) && queue.front() == 2,
+    check(queue.push_back(int{d}) && queue.front() == 2,
           "present queue: released slot can be reused without allocation");
     queue.pop_front();
     const bool third = queue.front() == 3;
@@ -1421,8 +1421,11 @@ void target_rate_checks()
           "ui: scale values from older files snap to 0.8, 0.9 or 1.0 (FR-04)");
 }
 
+#include "common/leak_check.h"
+
 int main(int argc, char** argv)
 {
+    sedici_test::LeakGuard leak_guard;
     const auto config = dll_directory() / L"sedici.toml";
     const auto fixture = dll_directory() / L"patch-fixture.toml";
     if (std::filesystem::exists(config) || std::filesystem::exists(fixture)) {
@@ -1437,15 +1440,8 @@ int main(int argc, char** argv)
             SetEnvironmentVariableW(L"SEDICI_LIMIT_FPS", L"45");
             SetEnvironmentVariableW(L"MFSRFG_LOG", L"2");
         }
-        if (mode == "settings-sedici") {
-            write(config, R"toml([log]
-level = 0
-[limiter]
-fps = 0
-)toml");
-        } else {
+        // Both modes use the same file (the two branches were identical, clang-tidy bugprone-branch-clone).
         write(config, "[log]\nlevel = 0\n[limiter]\nfps = 0\n");
-        }
         (void)sedici::settings();
         if (mode == "settings-sedici" || mode == "settings-env") {
             settings_capability_checks(mode == "settings-sedici", mode == "settings-env");

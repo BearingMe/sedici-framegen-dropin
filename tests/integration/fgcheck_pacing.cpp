@@ -77,7 +77,7 @@ bool check_pacing()
         const auto next = pacing.plan(entry, enabled);
         // CPU recording, native Present and copy work vary independently. They
         // consume the entry-based budget instead of extending its deadline.
-        const double work = cycle % 2 ? 0.002 : 0.004;
+        const double work = (cycle % 2) ? 0.002 : 0.004;
         const double real = std::max(entry + work, next.realDeadline);
         const double followingEntry = std::max(entry + period, real + 0.004);
         bounded &= next.firstWait == 0.0 && next.realDeadline <= entry + pacing.interval * 0.5 + 1e-8;
@@ -116,7 +116,7 @@ bool check_pacing()
         double lastShown = 0.0;
         for (size_t i = 0; i < std::size(content); ++i) {
             const bool hasLater = i + 1 < std::size(content);
-            const double nextContent = hasLater ? content[i + 1] : 0.0;
+            const double nextContent = i + 1 < std::size(content) ? content[i + 1] : 0.0;
             if (sedici::fg::later_output_is_due(hasLater, nextContent, 0.0, now)) {
                 ++dropped;
             } else {

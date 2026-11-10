@@ -1235,7 +1235,8 @@ int run_overlay_hotkey(Harness& h)
     const auto alt_f10 = [&](HWND window) {
         BYTE state[256]{};
         std::puts("INFO hotkey: get keyboard state");
-        GetKeyboardState(state);
+        // K142: the result was ignored; a failure would leave an all-zero key state without any trace.
+        if (!GetKeyboardState(state)) std::puts("WARN hotkey: GetKeyboardState failed; keys assumed up");
         state[VK_MENU] = 0x80;
         std::puts("INFO hotkey: set Alt down");
         SetKeyboardState(state);
@@ -1341,7 +1342,7 @@ int run_integrated(Harness& h)
     GetClipCursor(&clipBefore);
     const auto alt_f10 = [&](HWND window) {
         BYTE state[256]{};
-        GetKeyboardState(state);
+        if (!GetKeyboardState(state)) std::puts("WARN hotkey: GetKeyboardState failed; keys assumed up");
         state[VK_MENU] = 0x80;
         SetKeyboardState(state);
         SendMessageW(window, WM_SYSKEYDOWN, VK_F10, 0);
@@ -1437,8 +1438,11 @@ int run_integrated(Harness& h)
 
 } // namespace
 
+#include "common/leak_check.h"
+
 int main(int argc, char** argv)
 {
+    sedici_test::LeakGuard leak_guard;
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc < 4) {
         std::fprintf(stderr, "usage: sedici_abi <scenario> <sedici.dll> <stub.dll>\n");
@@ -1455,7 +1459,7 @@ int main(int argc, char** argv)
         return g_failures ? 1 : 0;
     }
 
-    struct Scenario {
+    struct Scenario { // NOLINT(cppcoreguidelines-pro-type-member-init): aggregate table, always brace-initialised
         const char* name;
         const char* toml;
         bool withStub;

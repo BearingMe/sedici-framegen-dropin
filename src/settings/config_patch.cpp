@@ -214,6 +214,8 @@ std::string quoted(std::string_view value)
 
 } // namespace
 
+// The 16 KB read buffer is deliberate: this runs on the settings worker thread, never on a game thread.
+#pragma warning(suppress : 6262)
 ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
 {
     ConfigFileStamp stamp;
