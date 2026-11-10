@@ -101,6 +101,9 @@ mod tests {
             self.0.borrow_mut().push(format!("copy {}>{}", source.0, destination.0));
         }
         fn dispatch(&self, _x: u32, _y: u32, _z: u32) {}
+        fn object_identity(&self) -> usize {
+            0
+        }
     }
 
     #[test]

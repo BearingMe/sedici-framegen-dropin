@@ -150,7 +150,7 @@ where
     N: NativeSwapchain<Buffer = D::Texture> + Send + Sync + 'static,
 {
     swapchain: Arc<
-        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::Overlay>,
+        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>,
     >,
 }
 
@@ -172,7 +172,7 @@ where
 {
     pub fn new(
         swapchain: Arc<
-            Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::Overlay>,
+            Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>,
         >,
         chain_handle: usize,
     ) -> Self {
@@ -181,7 +181,7 @@ where
     }
 
     pub fn inner(&self) -> &Arc<
-        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::Overlay>,
+        Swapchain<D, N, SessionDriven<D>, crate::adapters::driven::overlay_ui::OverlayHost>,
     > {
         &self.swapchain
     }

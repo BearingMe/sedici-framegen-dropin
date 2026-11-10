@@ -400,6 +400,10 @@ impl GpuCommandList<D3d12Texture> for D3d12CommandList {
         // SAFETY: a pipeline state, root signature and descriptor heaps were bound by the caller.
         unsafe { self.list.Dispatch(groups_x, groups_y, groups_z) };
     }
+
+    fn object_identity(&self) -> usize {
+        windows::core::Interface::as_raw(&self.list) as usize
+    }
 }
 
 // SAFETY: an allocator is reset only after every list recorded from it has retired, a discipline

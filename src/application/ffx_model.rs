@@ -666,6 +666,12 @@ pub trait FfxService: Send + Sync {
     fn configure(&self, context: ContextToken, desc: &ConfigureDesc) -> Result<(), Rejection>;
     fn query(&self, context: Option<ContextToken>, desc: &QueryDesc) -> Result<QueryReply, Rejection>;
     fn dispatch(&self, context: ContextToken, desc: &DispatchDesc) -> Result<DispatchReply, Rejection>;
+
+    /// `route_any_generation_enabled()`: whether a live session was last configured with frame
+    /// generation on, for the menu's first line. A service that keeps no sessions says no.
+    fn any_generation_enabled(&self) -> bool {
+        false
+    }
 }
 
 /// Returned by [`install`] when a service is already installed. Installing is a one-shot load

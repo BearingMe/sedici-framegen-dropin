@@ -252,6 +252,32 @@ wrapper's own queue fence, wrapped in a `context::Retirement` probe by
 `Swapchain::install_retirement`; without it, admission stays closed (K37). The wrapper texture and
 list handles the adapter passes through are K154.
 
+**Overlay wiring (done).** `adapters/driven/overlay_ui/host.rs` replaces the interim counting hook:
+`OverlayHost` is the production `OverlayHook<D3d12Texture>` the swapchain factory installs. `draw`
+runs the `OverlayState::frame` pass (I/O completions, mode transition, begin-edit request, the
+Mini/Full view), lazily initializes the egui/D3D12 objects on the game's device and back-buffer
+format, records the view on the frame's own list, applies the returned `OverlayAction`s through
+`OverlayState::act` (settings transaction, `SettingsIo` save job) and mirrors the renderer's draw
+counters. `presented` feeds the real/output timing rings and the `overlay present` cadence, exactly
+once per output including after a disable, and prints the one-off `overlay present callback active`
+line. Failures disable the overlay with the one line pair `tools/analyze_log.ps1` counts; nothing
+ever fails the Present. `OverlayServices` (one per process) owns the `Live` values, the `SettingsTx`,
+the `SettingsIo` worker, the `Stats` and the `OverlayTiming`, and the factory also installs its
+`on_real_present` as the wrapper's per-application-Present hook.
+
+`adapters/driving/window_input.rs::capture_window_global` now installs a real subclass
+(`production_proc`) once per process and chains every captured window; the host receives the hotkey
+cycle, the queued Full-menu input, `WM_SETFOCUS` and the `kHotkeyMessage` capture decision
+(`OverlayInputHost`). Full capture enters through the real `CursorGuard`
+(`win32/iat.rs` `CursorInterception`) on the window thread and falls back to Mini when interception is
+unavailable (K132); a render-path retry is rate limited to half a second. `tests/overlay_host.rs`
+drives a hidden window, an offscreen back buffer and the production host: Mini and Full outputs draw,
+the counters and the cadence line prove it, the hotkey cycles, and a disabled host draws nothing.
+K163-K165 record the remaining gaps (a non-D3D12 adapter, 10-bit formats, the null-procedure
+ambiguity). The `Stats` prepare/stall window is no longer fed: the C++ fed it from `ffxDispatch` and
+the overlay's own present hook; `Stats::on_dispatch` has no production caller until the dispatch path
+carries `PrepareInfo` (K166).
+
 **GPU smoke test.** `tests/swapchain_smoke.rs` creates a hidden 64x64 window, a D3D12 device, a
 direct queue and a DXGI factory, then drives the production router's `create` with a
 swapchain-NEW desc, queries the interpolation list and texture, presents three times through the

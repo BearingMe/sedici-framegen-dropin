@@ -249,6 +249,14 @@ pub trait GpuCommandList<T: GpuTexture> {
     fn copy_resource(&self, destination: &T, source: &T);
 
     fn dispatch(&self, groups_x: u32, groups_y: u32, groups_z: u32);
+
+    /// The list's underlying object address, for a driven port that needs to name the list it was
+    /// handed (the overlay renderer's [`crate::application::ports::ui_renderer::RenderTarget`]).
+    ///
+    /// The value is opaque: it is only ever passed back to the adapter that produced it, never
+    /// dereferenced by the application. `0` means the adapter cannot name one, and a caller that
+    /// needs it treats that as "no list".
+    fn object_identity(&self) -> usize;
 }
 
 pub trait GpuCommandAllocator {

@@ -965,6 +965,10 @@ where
     ) -> Result<DispatchReply, Rejection> {
         Router::dispatch(self, context, desc)
     }
+
+    fn any_generation_enabled(&self) -> bool {
+        Router::any_generation_enabled(self)
+    }
 }
 
 #[cfg(test)]

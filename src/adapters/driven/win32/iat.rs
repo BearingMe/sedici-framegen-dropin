@@ -575,6 +575,33 @@ pub fn shared() -> &'static CursorInterception {
     guard.get_or_insert_with(|| Box::leak(Box::new(CursorInterception::new())))
 }
 
+// A shared reference to the process-wide interception is a `CursorGuard` too, so a host can hold the
+// same hooks in an `Arc<dyn CursorGuard>` without taking a second `CursorInterception` whose `Drop`
+// would restore the patches out from under it.
+impl CursorGuard for &'static CursorInterception {
+    fn enter(&self, window: WindowHandle) -> bool {
+        (*self).enter(window)
+    }
+    fn leave(&self, restore_clip: bool) {
+        (*self).leave(restore_clip)
+    }
+    fn leave_window(&self, window: WindowHandle, restore_clip: bool) {
+        (*self).leave_window(window, restore_clip)
+    }
+    fn disable(&self) {
+        (*self).disable()
+    }
+    fn active(&self) -> bool {
+        (*self).active()
+    }
+    fn available(&self) -> bool {
+        (*self).available()
+    }
+    fn summary(&self) -> InterceptionSummary {
+        (*self).summary()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

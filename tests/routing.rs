@@ -69,6 +69,9 @@ impl GpuCommandList<FakeTexture> for FakeList {
     fn uav_barrier(&self, _: &FakeTexture) {}
     fn copy_resource(&self, _: &FakeTexture, _: &FakeTexture) {}
     fn dispatch(&self, _: u32, _: u32, _: u32) {}
+    fn object_identity(&self) -> usize {
+        0
+    }
 }
 
 /// A fence whose completed value the test can raise; `u64::MAX` is a removed device.

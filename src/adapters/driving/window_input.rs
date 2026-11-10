@@ -7,7 +7,7 @@
 //! through the [`CursorGuard`] port. All `unsafe` Win32 interaction lives here.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tracing::info;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -27,7 +27,7 @@ use crate::domain::ui_logic::ui_passes_to_game;
 
 /// `WM_APP + 1`: the overlay's own "re-evaluate capture" message.
 pub const HOTKEY_MESSAGE: u32 = 0x8000 + 1;
-const MAX_QUEUED_MESSAGES: usize = 512;
+pub const MAX_QUEUED_MESSAGES: usize = 512;
 
 /// A message the overlay consumed while the menu was open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +37,15 @@ pub struct InputMessage {
     pub lparam: isize,
 }
 
-/// The application side the window procedure calls. Kept narrow so the adapter stays testable.
+/// What the production overlay host offers the window procedure: the capture decision itself plus
+/// the host's mode, so the subclass can leave capture on any other mode without knowing the menu.
+pub trait OverlayInputHost: WindowInputHost {
+    /// The `kHotkeyMessage` decision: enter Full capture when Full is active and the window is
+    /// foreground, leave it otherwise (K132: a Full menu without interception falls back to Mini).
+    fn on_capture_message(&self, window: WindowHandle);
+}
+
+/// The window procedure's application side. Kept narrow so the adapter stays testable.
 pub trait WindowInputHost: Send + Sync {
     /// Full menu is open and has captured the cursor.
     fn cursor_active(&self) -> bool;
@@ -102,6 +110,9 @@ pub struct WindowInput<H: WindowInputHost, G: CursorGuard> {
     host: H,
     guard: G,
     hotkey: Hotkey,
+    /// The production capture decision, when the host is the real overlay. A test host leaves it
+    /// unset and the subclass only leaves capture the way the C++ did on a non-Full mode.
+    capture_host: Option<std::sync::Arc<dyn OverlayInputHost>>,
     /// The window that currently owns the overlay's input.
     current: AtomicIsize,
     disabled: AtomicBool,
@@ -119,6 +130,7 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             host,
             guard,
             hotkey,
+            capture_host: None,
             current: AtomicIsize::new(0),
             disabled: AtomicBool::new(false),
             hotkey_down_window: AtomicIsize::new(0),
@@ -126,6 +138,13 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             queued: Mutex::new(Vec::new()),
             _render: std::marker::PhantomData,
         }
+    }
+
+    /// Installs the production host's capture decision. The host receives every `kHotkeyMessage`
+    /// after the subclass's own window and disabled checks, and owns the cursor guard.
+    pub fn with_capture_host(mut self, host: std::sync::Arc<dyn OverlayInputHost>) -> Self {
+        self.capture_host = Some(host);
+        self
     }
 
     /// Installs the subclass on `window` and makes it the input target. Another window already
@@ -152,11 +171,12 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         true
     }
 
-    /// Drives the Full menu's capture for the current window when the hotkey message arrives.
+    /// Asks the window thread to re-evaluate Full capture. A [`WindowInput`] with a capture host
+    /// forwards the decision to it (the production host implements [`OverlayInputHost`]); a bare
+    /// one over a test host leaves capture whenever the host does not report it active.
     pub fn on_hotkey_message(&self, window: WindowHandle) {
         let Some(current) = self.current_window() else { return };
         if current != window {
-            // A stale window's posted message: make sure it is not still capturing.
             self.guard.leave_window(window, true);
             return;
         }
@@ -164,9 +184,10 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
             self.guard.leave(true);
             return;
         }
-        if !self.host.cursor_active() && !self.guard.enter(window) {
-            // No capture possible: the renderer falls back to the Mini menu.
-            self.host.on_input(InputMessage { msg: HOTKEY_MESSAGE, wparam: 0, lparam: 0 });
+        match self.capture_host.as_ref() {
+            Some(host) => host.on_capture_message(window),
+            None if !self.host.cursor_active() => self.guard.leave(true),
+            None => {}
         }
     }
 
@@ -175,8 +196,20 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         (!handle.eq(&0)).then_some(WindowHandle(handle))
     }
 
+    /// The application side: the production overlay when one is installed, else the test host.
+    #[allow(dead_code)]
+    fn app(&self) -> &dyn WindowInputHost {
+        match self.capture_host.as_ref() {
+            Some(host) => host.as_ref(),
+            None => &self.host,
+        }
+    }
+
     /// The core per-message decision, free of Win32 so tests can drive it.
     pub fn dispatch(&self, window: WindowHandle, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Dispatch {
+        if let Some(host) = self.capture_host.clone() {
+            return self.dispatch_production(host.as_ref(), window, msg, wparam, lparam);
+        }
         // Posted hotkey message: enter or leave Full capture.
         if msg == HOTKEY_MESSAGE {
             self.on_hotkey_message(window);
@@ -242,6 +275,76 @@ impl<H: WindowInputHost, G: CursorGuard> WindowInput<H, G> {
         }
 
         // Not ours: forward to the original procedure.
+        Dispatch::Forward
+    }
+
+    /// The production decision, porting `ui_wndproc` + `ui_window_message`: the hotkey cycle, the
+    /// capture message, the Full menu's input ownership and Alt+F4 pass-through (K126).
+    fn dispatch_production(
+        &self,
+        host: &dyn OverlayInputHost,
+        window: WindowHandle,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> Dispatch {
+        if msg == HOTKEY_MESSAGE {
+            // A posted capture message for a window that is no longer the target leaves capture.
+            if self.disabled.load(Ordering::Acquire)
+                || self.current_window().map(|current| current.0) != Some(window.0)
+            {
+                self.guard.leave_window(window, true);
+                return Dispatch::Consumed(LRESULT(0));
+            }
+            host.on_capture_message(window);
+            return Dispatch::Consumed(LRESULT(0));
+        }
+        // A consumed hotkey key-down also consumes its matching key-up, even if modifiers or the
+        // mode changed between the two. Never consume an unrelated key-up.
+        if (msg == WM_KEYUP || msg == WM_SYSKEYUP) && wparam.0 as u32 == self.hotkey.vk {
+            if self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                return Dispatch::Consumed(LRESULT(0));
+            }
+        }
+        if msg == WM_KILLFOCUS || msg == WM_NCDESTROY {
+            let _ = self.hotkey_down_window.compare_exchange(window.0, 0, Ordering::AcqRel, Ordering::Acquire);
+        }
+        if msg == WM_DESTROY || msg == WM_NCDESTROY {
+            self.guard.leave_window(window, false);
+        }
+        if msg == WM_SETFOCUS && !self.disabled.load(Ordering::Acquire) {
+            host.on_input(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+            // Full capture retries after the window regains focus (the C++ posted kHotkeyMessage).
+            post_capture_message(window);
+        }
+        if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
+            if wparam.0 as u32 == self.hotkey.vk && self.hotkey.matches(current_modifiers()) {
+                // Bit 30 of lparam is the previous key state; ignore auto-repeat.
+                if (lparam.0 as u64 >> 30) & 1 == 0 {
+                    self.hotkey_down_window.store(window.0, Ordering::Release);
+                    host.on_hotkey(HotkeyEvent { action: KeyAction::Pressed, window });
+                }
+                return Dispatch::Consumed(LRESULT(0));
+            }
+        }
+        // The Full menu owns the cursor: consume the game's input, except Alt+F4 (K126).
+        if !self.disabled.load(Ordering::Acquire) && host.cursor_active() {
+            if msg == WM_SETCURSOR {
+                set_arrow();
+                return Dispatch::Consumed(LRESULT(1));
+            }
+            if msg == WM_INPUT {
+                // SAFETY: no arguments beyond the window; `DefWindowProcW` is the documented default.
+                return Dispatch::Consumed(unsafe { DefWindowProcW(hwnd_of(window), msg, wparam, lparam) });
+            }
+            if !ui_passes_to_game(msg, wparam.0 as u64, lparam.0 as i64) && is_consumed_input(msg) {
+                host.on_input(InputMessage { msg, wparam: wparam.0, lparam: lparam.0 });
+                if msg == WM_MOUSEMOVE {
+                    set_arrow();
+                }
+                return Dispatch::Consumed(LRESULT(0));
+            }
+        }
         Dispatch::Forward
     }
 
@@ -343,29 +446,160 @@ pub fn window_procedure(window: WindowHandle) -> isize {
     unsafe { GetWindowLongPtrW(hwnd_of(window), GWLP_WNDPROC) }
 }
 
-/// Subclasses `window` for the overlay's hotkey and cursor handling (ports `ui_capture_window`).
-///
-/// The C++ installed the subclass from `ffxCreateContext` once a swapchain create succeeded, so the
-/// overlay was bound to the game's window without the game cooperating. The Rust composition root
-/// calls this from its swapchain factory (K141). The overlay's window procedure is the last slice;
-/// until it lands the window is recorded here and nothing is consumed, so the game keeps its own
-/// procedure (K161).
-pub fn capture_window_global(window: HWND) {
-    if window.0.is_null() {
+/// Posts the overlay's `kHotkeyMessage` to `window`, the way the C++ asked the window thread to
+/// re-evaluate Full capture (from a mode change, a hotkey, or `ui_disable`).
+pub fn post_capture_message(window: WindowHandle) {
+    if window.is_none() {
         return;
     }
-    let handle = WindowHandle(window.0 as isize);
-    if CAPTURED_WINDOW.swap(handle.0, std::sync::atomic::Ordering::AcqRel) != handle.0 {
-        tracing::info!("sedici: overlay window captured");
+    // SAFETY: posting to a live window; a destroyed window fails harmlessly.
+    let _ = unsafe { PostMessageW(Some(hwnd_of(window)), HOTKEY_MESSAGE, WPARAM(0), LPARAM(0)) };
+}
+
+/// The client area's size in pixels, `(0, 0)` when the window is gone or has no client area.
+pub fn client_size(window: WindowHandle) -> (i32, i32) {
+    if window.is_none() {
+        return (0, 0);
     }
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+    let mut rect = RECT::default();
+    // SAFETY: `rect` is a local out-parameter and the handle is the caller's live window.
+    if unsafe { GetClientRect(hwnd_of(window), &mut rect) }.is_err() {
+        return (0, 0);
+    }
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width > 0 && height > 0 {
+        (width, height)
+    } else {
+        (0, 0)
+    }
+}
+
+static CAPTURED_WINDOW: AtomicIsize = AtomicIsize::new(0);
+static INSTALLED_HANDLER: std::sync::Once = std::sync::Once::new();
+
+/// The host the global subclass routes its capture decision to.
+static GLOBAL_HOST: Mutex<Option<Arc<dyn OverlayInputHost>>> = Mutex::new(None);
+
+fn global_host() -> Option<Arc<dyn OverlayInputHost>> {
+    GLOBAL_HOST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+}
+
+/// Subclasses `window` for the overlay's hotkey, input and cursor handling (ports
+/// `ui_capture_window`).
+///
+/// The C++ installed the subclass from `ffxCreateContext` once a swapchain create succeeded, so the
+/// overlay was bound to the game's window without the game cooperating; this is that call. The
+/// window procedure is installed once per process and reused for every later window (another
+/// overlay may sit above us, so a second subclass would push our chain further from the game's
+/// procedure). Every captured window is chained; the newest one is the input target.
+///
+/// A failed installation is logged and otherwise non-fatal: the game keeps its own procedure and the
+/// overlay stays unavailable for the session.
+pub fn capture_window_global(hotkey: Hotkey, window: WindowHandle, host: Arc<dyn OverlayInputHost>) {
+    if window.is_none() {
+        return;
+    }
+    *GLOBAL_HOST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(host);
+    // Leaked for the process lifetime, like the C++ statics it replaces: the window procedure holds
+    // no reference and the subclass lives as long as any window does.
+    static INPUT: std::sync::OnceLock<&'static WindowInput<ForwardHost, RealCursorGuard>> =
+        std::sync::OnceLock::new();
+    let input = *INPUT.get_or_init(|| {
+        // The forwarder reads the current host on every message, so a later swapchain's host takes
+        // over without reinstalling the subclass.
+        let forward: Arc<dyn OverlayInputHost> = Arc::new(ForwardHost);
+        Box::leak(Box::new(
+            WindowInput::new(ForwardHost, RealCursorGuard, hotkey).with_capture_host(forward),
+        ))
+    });
+    // The newest capture wins the input target; older windows keep their chain.
+    input.capture_window(window);
+    INSTALLED_HANDLER.call_once(|| install_trampoline(input));
+    CAPTURED_WINDOW.store(window.0, Ordering::Release);
 }
 
 /// The window the overlay is bound to, if a swapchain create named one.
 pub fn captured_window() -> WindowHandle {
-    WindowHandle(CAPTURED_WINDOW.load(std::sync::atomic::Ordering::Acquire))
+    WindowHandle(CAPTURED_WINDOW.load(Ordering::Acquire))
 }
 
-static CAPTURED_WINDOW: AtomicIsize = AtomicIsize::new(0);
+/// The global subclass's application side: every message is forwarded to the current production
+/// host, so a later swapchain's host takes over without reinstalling the window procedure.
+struct ForwardHost;
+
+impl WindowInputHost for ForwardHost {
+    fn cursor_active(&self) -> bool {
+        global_host().is_some_and(|host| host.cursor_active())
+    }
+    fn disabled(&self) -> bool {
+        GLOBAL_DISABLED.load(Ordering::Acquire)
+            || global_host().is_some_and(|host| host.disabled())
+    }
+    fn on_hotkey(&self, event: HotkeyEvent) {
+        if let Some(host) = global_host() {
+            host.on_hotkey(event);
+        }
+    }
+    fn on_input(&self, message: InputMessage) {
+        if let Some(host) = global_host() {
+            host.on_input(message);
+        }
+    }
+    fn on_destroyed(&self, window: WindowHandle) {
+        if let Some(host) = global_host() {
+            host.on_destroyed(window);
+        }
+    }
+}
+
+impl OverlayInputHost for ForwardHost {
+    fn on_capture_message(&self, window: WindowHandle) {
+        if let Some(host) = global_host() {
+            host.on_capture_message(window);
+        }
+    }
+}
+
+/// The latch is informational only: a disabled host reports itself through the forwarder, so the
+/// process-wide flag exists for a status query and to keep the message path from consuming input
+/// before any host is installed.
+static GLOBAL_DISABLED: AtomicBool = AtomicBool::new(false);
+
+/// Stops the global input: no further message is consumed or forwarded (ports the `g_disabled` half
+/// of `ui_disable`). Called by the production host when it disables itself.
+pub fn disable_global() {
+    GLOBAL_DISABLED.store(true, Ordering::Release);
+}
+
+/// The real process-wide cursor ownership.
+struct RealCursorGuard;
+
+impl CursorGuard for RealCursorGuard {
+    fn enter(&self, window: WindowHandle) -> bool {
+        crate::adapters::driven::win32::iat::shared().enter(window)
+    }
+    fn leave(&self, restore_clip: bool) {
+        crate::adapters::driven::win32::iat::shared().leave(restore_clip)
+    }
+    fn leave_window(&self, window: WindowHandle, restore_clip: bool) {
+        crate::adapters::driven::win32::iat::shared().leave_window(window, restore_clip)
+    }
+    fn disable(&self) {
+        crate::adapters::driven::win32::iat::shared().disable()
+    }
+    fn active(&self) -> bool {
+        crate::adapters::driven::win32::iat::shared().active()
+    }
+    fn available(&self) -> bool {
+        crate::adapters::driven::win32::iat::shared().available()
+    }
+    fn summary(&self) -> crate::application::ports::input::InterceptionSummary {
+        crate::adapters::driven::win32::iat::shared().summary()
+    }
+}
 
 #[cfg(test)]
 mod tests {

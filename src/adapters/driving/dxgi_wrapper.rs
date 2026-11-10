@@ -111,7 +111,7 @@ impl DxgiWrapper {
                 crate::adapters::driven::wrapper_handle::SessionDriven<
                     crate::adapters::driven::d3d12::device::D3d12Device,
                 >,
-                crate::adapters::driven::overlay_ui::Overlay,
+                crate::adapters::driven::overlay_ui::OverlayHost,
             >,
         >,
     ) -> IDXGISwapChain4 {
@@ -505,7 +505,7 @@ impl PresentBackend
         crate::adapters::driven::wrapper_handle::SessionDriven<
             crate::adapters::driven::d3d12::device::D3d12Device,
         >,
-        crate::adapters::driven::overlay_ui::Overlay,
+        crate::adapters::driven::overlay_ui::OverlayHost,
     >
 {
     fn present(

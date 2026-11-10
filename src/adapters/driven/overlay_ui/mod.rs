@@ -45,12 +45,12 @@ use crate::application::ports::ui_renderer::{
 };
 
 pub mod device;
+pub mod host;
 pub mod input;
 pub mod menu;
-pub mod hook;
 
 pub use device::EguiD3d12Renderer;
-pub use hook::Overlay;
+pub use host::{OverlayHost, OverlayServices, OverlayStatus};
 
 /// The waiting bound for one atlas upload.
 const ATLAS_UPLOAD_WAIT: Duration = Duration::from_secs(5);

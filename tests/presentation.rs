@@ -175,6 +175,9 @@ impl GpuCommandList<FakeTexture> for FakeList {
         destination.copies.fetch_add(1, Ordering::Relaxed);
     }
     fn dispatch(&self, _x: u32, _y: u32, _z: u32) {}
+    fn object_identity(&self) -> usize {
+        0
+    }
 }
 
 impl ListLifecycle for FakeList {

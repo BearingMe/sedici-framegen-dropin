@@ -58,7 +58,7 @@ use super::d3d12::device::D3d12Device;
 use super::d3d12::queue::D3d12Queue;
 use super::d3d12::resources::{D3d12CommandList, D3d12Texture};
 use super::dxgi_native::DxgiNative;
-use super::overlay_ui::Overlay;
+use super::overlay_ui::{OverlayHost, OverlayServices};
 use super::stage1::Stage1;
 use super::wrapper_handle::{SessionDriven, WrapperHandle};
 
@@ -149,15 +149,23 @@ pub struct Dx12Swapchains {
     /// One present queue per device for the process (K140).
     queues: Arc<SharedPresentQueues<D3d12Device>>,
     clock: Arc<dyn Clock>,
+    /// The overlay's settings, timing and stats. Built from the loaded configuration; one per
+    /// process, shared by every host and the present hook.
+    overlay: Arc<OverlayServices>,
 }
 
 impl Dx12Swapchains {
     pub fn new() -> Self {
+        let clock: Arc<dyn Clock> = Arc::new(super::win32::timer::Win32Clock::new());
+        let config = crate::entry::settings()
+            .map(|loaded| loaded.settings.clone())
+            .unwrap_or_default();
         Self {
             // K13/K140: a Present-hooking overlay (RTSS) reuses a destroyed queue across
             // swapchains, so the queue is kept for the process while it is loaded.
             queues: Arc::new(SharedPresentQueues::new(super::win32::modules::rtss_loaded())),
-            clock: Arc::new(super::win32::timer::Win32Clock::new()),
+            overlay: OverlayServices::new(config, Arc::clone(&clock)),
+            clock,
         }
     }
 
@@ -267,10 +275,6 @@ impl SwapchainFactory for Dx12Swapchains {
     ) -> Result<(ffx_model::OpaqueHandle, Arc<dyn Wrapper>), ffx_model::Rejection> {
         let _ = owner; // The session supplies its own owner key when it installs its sink.
         let (chain, queue, window) = self.native_chain(desc, origin).map_err(ffx_model::Rejection::error)?;
-        // The overlay's hotkey and cursor handling need the game's window (K141).
-        if !window.0.is_null() {
-            crate::adapters::driving::window_input::capture_window_global(window);
-        }
         let native = DxgiNative::attach(&chain, &queue).map_err(|error| {
             ffx_model::Rejection::error(format!("swapchain wrap failed ({:#010x})", error.code()))
         })?;
@@ -278,15 +282,31 @@ impl SwapchainFactory for Dx12Swapchains {
         let device: Arc<D3d12Device> = Arc::new(D3d12Device::from_raw(native.device()));
         let queue = Arc::new(D3d12Queue::from_adopted(&queue));
 
+        // The overlay host owns the game's device and window: the first draw creates the egui/D3D12
+        // objects on this device and format, and the window procedure routes its hotkey and input.
+        // It is installed over the game's window before the wrapper gives it to the game, so the
+        // hotkey and cursor path work from the first Present (K161 resolved), and it disables itself
+        // with one log line on any failure (it never fails a game call).
+        let window_handle = crate::application::ports::input::WindowHandle(window.0 as isize);
+        let overlay: Arc<OverlayHost> = OverlayHost::production(
+            Arc::clone(&self.overlay),
+            (*device).clone(),
+            window_handle,
+        );
+        self.overlay.on_swapchain_event("create");
+        if !window.0.is_null() {
+            overlay.install_input();
+        }
+
         let mut report = WrapReport::default();
-        let wrapper = Swapchain::<D3d12Device, DxgiNative, SessionDriven<D3d12Device>, Overlay>::wrap(
+        let wrapper = Swapchain::<D3d12Device, DxgiNative, SessionDriven<D3d12Device>, OverlayHost>::wrap(
             Arc::new(native),
             device,
             queue,
             Arc::clone(&self.clock),
             self.choice(),
             Arc::clone(&self.queues),
-            Arc::new(Overlay::default()),
+            Arc::clone(&overlay),
             self.environment(),
             // Exactly one reference reaches the wrapper in both forms: the wrap desc's handed-over
             // reference, or the creation reference of a chain Sedici built (`WrapHandle::create(native,
@@ -301,6 +321,11 @@ impl SwapchainFactory for Dx12Swapchains {
         if let Some(reason) = report.fallback_reason {
             tracing::info!("fg: \"vrr\" present unavailable ({reason}); falling back to \"vsync\"");
         }
+        // The overlay's "vrr" presenter draws and presents on its own thread, with the same host.
+        wrapper.set_output_hooks(Arc::clone(&overlay));
+        // The real-frame timing and limiter hook the wrapper calls once per application Present.
+        let services = Arc::clone(&self.overlay);
+        wrapper.set_present_hook(Some(Arc::new(move |qpc: u64| services.on_real_present(qpc))));
         let wrapper = Arc::new(wrapper);
         // The session context registers submissions against the wrapper's own fence timeline.
         wrapper.install_retirement(|fence| D3d12Retirement::new(fence.raw()).ok().map(|probe| Arc::new(probe) as Arc<dyn Retirement>));

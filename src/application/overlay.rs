@@ -109,12 +109,17 @@ pub struct OutputCadence {
     last: u64,
     seen_events: u64,
     early_reports: u32,
+    /// The C++ `logged_active`: the link line is printed once, on the first output of the session.
+    logged_active: bool,
 }
 
 /// The line one present produced, if any; the caller emits it at level 1.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CadenceOutput {
     pub report: Option<String>,
+    /// The first output of the session: the caller also emits the one-off
+    /// [`active_line`] link report (the C++ `logged_active`).
+    pub first_output: bool,
 }
 
 impl OutputCadence {
@@ -133,6 +138,10 @@ impl OutputCadence {
         frequency: u64,
     ) -> CadenceOutput {
         let mut out = CadenceOutput::default();
+        if !self.logged_active {
+            self.logged_active = true;
+            out.first_output = true;
+        }
         if !self.have_first {
             self.have_first = true;
             self.first = now;
@@ -338,12 +347,20 @@ pub struct ActionOutcome {
 /// A complete view of the menu for one frame plus the state an action may change.
 ///
 /// `FullView` is much larger than `MiniView`; the enum is built once per output on the present
-/// thread, so boxing it would cost an allocation per frame for no benefit.
+/// thread, so boxing it would cost an allocation per frame for no benefit. `Clone`/`Debug` exist
+/// for the frame output a test inspects, not for the per-frame path.
+#[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum OverlayView {
     Off,
     Mini(MiniView),
     Full(FullView),
+}
+
+impl Default for OverlayView {
+    fn default() -> Self {
+        Self::Off
+    }
 }
 
 /// The menu's own state. One instance per DLL, behind the render lock.
@@ -386,6 +403,20 @@ impl OverlayState {
 
     pub fn snapshot_valid(&self) -> bool {
         self.snapshot_valid
+    }
+
+    /// The edit epoch an asynchronous completion must carry to be accepted.
+    pub fn edit_epoch(&self) -> u64 {
+        self.edit_epoch
+    }
+
+    /// A Save could not be started: the menu says so (the C++ `Cannot start settings save`).
+    pub fn note_save_started(&mut self, started: bool) {
+        self.save_status = if started {
+            "Saving...".to_owned()
+        } else {
+            "Cannot start settings save".to_owned()
+        };
     }
 
     /// The scale the menu was last drawn at, so the menu can show `Effective %.2fx`.
@@ -653,6 +684,11 @@ impl OverlayState {
         outcome
     }
 
+    /// Whether a baseline job is waiting to start (the menu shows "Loading settings...").
+    pub fn begin_requested(&self) -> bool {
+        self.begin_requested
+    }
+
     /// The ticket a Save action needs. Valid only immediately after [`apply`](Self::apply) ran
     /// `Save` on a transaction whose baseline is current.
     pub fn save_ticket(tx: &SettingsTx) -> SaveTicket {
@@ -710,6 +746,157 @@ impl OverlayTiming {
 
     pub fn output_samples(&self) -> Vec<f32> {
         self.output.chronological()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-output menu pass (ports `ui_on_present`)
+// ---------------------------------------------------------------------------
+
+/// What one overlay frame needs from the swapchain wrapper and the settings side. Plain values and
+/// references only; the adapter owns the D3D12 objects and the window.
+pub struct OverlayFrame<'a> {
+    /// The menu mode the live settings hold, before any transition this frame performs.
+    pub mode: UiMode,
+    /// The game window the overlay input is bound to, or `None` when no window was captured.
+    pub window: crate::application::ports::input::WindowHandle,
+    /// The output's size in pixels, as the frame being drawn at.
+    pub output_size: (u32, u32),
+    /// The window's client size in pixels; `(0, 0)` when unknown.
+    pub client_size: (i32, i32),
+    /// Seconds since the previous overlay frame, already clamped to 1..=100 ms by the clock owner.
+    pub delta_seconds: Option<f32>,
+    /// `route_any_generation_enabled()`: what the Full menu's first line reports.
+    pub frame_generation_on: bool,
+    pub live: &'a Live,
+    pub tx: &'a SettingsTx,
+    pub stats: &'a Stats,
+    pub timing: &'a OverlayTiming,
+    /// The settings I/O scheduler, for the begin-edit request and the completions it reported.
+    pub io: &'a crate::application::settings::io::SettingsIo,
+}
+
+/// What one overlay frame decided. The hook applies the mode change and starts any settings job.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OverlayFrameOutput {
+    /// The mode to publish after this frame (`apply_mode_transition`/`live_set_ui_mode`), when it
+    /// differs from the mode the frame was given.
+    pub mode: Option<UiMode>,
+    /// A settings baseline job the caller must start with `SettingsIo::start_begin`.
+    pub begin: Option<(u64, u64)>,
+    /// A Save was requested with a ticket the caller must start with `SettingsIo::start_save`.
+    pub save: Option<SaveTicket>,
+    /// The view to draw; `OverlayView::Off` means the overlay records nothing this output.
+    pub view: OverlayView,
+    /// The GUP/one-line status the caller may log (the `save_status` text when it changed).
+    pub status: Option<String>,
+}
+
+impl OverlayState {
+    /// Runs one overlay frame: the C++ `ui_on_present`, split so every decision is a value.
+    ///
+    /// It processes the settings I/O completions first, applies the mode transition, starts a
+    /// pending begin-edit when the scheduler is idle, and builds the view for the mode. The caller
+    /// draws the view and then applies the returned mode change and starts the returned jobs; all
+    /// of that is non-fatal to the game and none of it touches the GPU.
+    pub fn frame(&mut self, frame: OverlayFrame<'_>) -> OverlayFrameOutput {
+        let mut out = OverlayFrameOutput::default();
+        // Results from an earlier Full-menu instance are discarded; a stalled job says so once.
+        while let Some(completion) = frame.io.poll() {
+            let before = self.save_status.clone();
+            self.on_io_completion(frame.mode, &completion);
+            if self.save_status != before {
+                out.status = Some(self.save_status.clone());
+            }
+        }
+        let mode = frame.mode;
+        if self.apply_mode_transition(mode, frame.tx) {
+            out.mode = Some(mode);
+        }
+        if mode == UiMode::Full && !frame.io.busy() {
+            if let Some(request) = self.take_begin_request() {
+                out.begin = Some(request);
+            }
+        }
+        // Full with a busy scheduler keeps the request pending: it starts on the first quiet frame.
+        // A stalled worker is reported by the scheduler itself (K83), so this is not an error.
+        let io_busy = frame.io.busy();
+        match mode {
+            UiMode::Off => {
+                out.view = OverlayView::Off;
+            }
+            UiMode::Mini => {
+                out.view = OverlayView::Mini(Self::mini_view(
+                    frame.timing.real_stats(),
+                    frame.timing.output_stats(),
+                ));
+            }
+            UiMode::Full => {
+                self.set_applied_scale(self.effective_scale(frame.output_size.1, frame.live));
+                let view = self.full_view(
+                    frame.live,
+                    frame.tx.config(),
+                    frame.timing.real_stats(),
+                    frame.timing.output_stats(),
+                    frame.timing.output_samples(),
+                    frame.timing.real_samples(),
+                    frame.stats,
+                    frame.frame_generation_on,
+                    frame.output_size,
+                    io_busy,
+                );
+                self.set_applied_scale(view.scale);
+                out.view = OverlayView::Full(view);
+            }
+        }
+        out
+    }
+
+    /// Performs one action the menu produced, then hands the caller the jobs to start. `mode` is the
+    /// mode the frame was drawn in; Cancel and Close change it through the returned value.
+    pub fn act(&mut self, action: OverlayAction, mode: UiMode, tx: &SettingsTx) -> ActionPlan {
+        let outcome = self.apply(action, tx);
+        // A Cancel or Close must make the same mode transition the frame loop makes, so leaving
+        // Full invalidates the outstanding edit before the caller publishes the mode.
+        if let Some(mode) = outcome.mode {
+            self.apply_mode_transition(mode, tx);
+        }
+        let mut plan = ActionPlan {
+            status: outcome.status.clone(),
+            mode: outcome.mode,
+            ..ActionPlan::default()
+        };
+        if action == OverlayAction::Save && !outcome.rejected {
+            plan.save = Some(Self::save_ticket(tx));
+        }
+        if outcome.mode.is_some() {
+            plan.transition_from = Some(mode);
+        }
+        plan
+    }
+}
+
+/// What [`OverlayState::act`] asks the caller to do after an action.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ActionPlan {
+    /// The text to log/show, already the menu's own status.
+    pub status: Option<String>,
+    /// The mode the action changes to (Cancel remembers the mode Full was opened from).
+    pub mode: Option<UiMode>,
+    /// The mode the action was performed in, so the caller can run the same transition the frame
+    /// would have made next time (leaving Full invalidates the outstanding I/O).
+    pub transition_from: Option<UiMode>,
+    /// A Save to start on the settings worker.
+    pub save: Option<SaveTicket>,
+}
+
+/// The hotkey cycle: Off -> Mini -> Full -> Off (the C++ `cycle_mode`). A disabled overlay never
+/// cycles.
+pub fn cycle_mode(mode: UiMode) -> UiMode {
+    match mode {
+        UiMode::Off => UiMode::Mini,
+        UiMode::Mini => UiMode::Full,
+        UiMode::Full => UiMode::Off,
     }
 }
 
@@ -1050,5 +1237,160 @@ mod tests {
         assert_eq!(samples.len(), 2);
         assert!((timing.output_stats().fps - 125.0).abs() < 1e-3);
         assert!(timing.real_samples().is_empty());
+    }
+
+    /// One frame's inputs over the test transaction, live values, stats and an idle I/O scheduler.
+    fn frame_inputs<'a>(
+        mode: UiMode,
+        live: &'a Arc<Live>,
+        tx: &'a Arc<SettingsTx>,
+        stats: &'a Stats,
+        timing: &'a OverlayTiming,
+        io: &'a crate::application::settings::io::SettingsIo,
+    ) -> OverlayFrame<'a> {
+        OverlayFrame {
+            mode,
+            window: crate::application::ports::input::WindowHandle::NONE,
+            output_size: (1920, 1080),
+            client_size: (1920, 1080),
+            delta_seconds: Some(0.016),
+            frame_generation_on: true,
+            live,
+            tx,
+            stats,
+            timing,
+            io,
+        }
+    }
+
+    /// An I/O scheduler over the test transaction whose jobs never start (a refused spawn), so the
+    /// frame machine sees an idle scheduler with no completion.
+    fn test_io(tx: &Arc<SettingsTx>, store: &Arc<MemoryStore>) -> crate::application::settings::io::SettingsIo {
+        let _ = store;
+        struct NoWorker;
+        impl crate::application::settings::io::WorkerHost for NoWorker {
+            fn spawn(&self, _job: Box<dyn FnOnce() + Send>) -> bool {
+                false
+            }
+            fn thread_id(&self) -> u32 {
+                0
+            }
+            fn cancel(&self) {}
+        }
+        let port: Arc<dyn crate::application::settings::io::SettingsIoPort> =
+            Arc::clone(tx) as Arc<dyn crate::application::settings::io::SettingsIoPort>;
+        crate::application::settings::io::SettingsIo::new(port, Arc::new(NoWorker))
+    }
+
+    #[rstest]
+    #[case(UiMode::Off)]
+    #[case(UiMode::Mini)]
+    #[case(UiMode::Full)]
+    fn a_frame_builds_the_view_for_its_mode(#[case] mode: UiMode) {
+        let (tx, store, live) = tx("");
+        live.set_ui_mode(mode);
+        let io = test_io(&tx, &store);
+        let stats = Stats::new(1_000_000);
+        let timing = OverlayTiming::new();
+        let mut state = OverlayState::new();
+        let out = state.frame(frame_inputs(mode, &live, &tx, &stats, &timing, &io));
+        match mode {
+            UiMode::Off => assert!(matches!(out.view, OverlayView::Off)),
+            UiMode::Mini => assert!(matches!(out.view, OverlayView::Mini(_))),
+            UiMode::Full => {
+                assert!(matches!(out.view, OverlayView::Full(_)));
+                // Entering Full starts an edit and asks the caller for the baseline job.
+                let request = out.begin.expect("a begin-edit request");
+                assert!(request.0 != 0 && request.1 != 0);
+                assert_eq!(state.save_status(), "Loading settings...");
+            }
+        }
+    }
+
+    #[test]
+    fn leaving_full_invalidates_the_edit_through_the_frame() {
+        let (tx, store, live) = tx("");
+        live.set_ui_mode(UiMode::Full);
+        let io = test_io(&tx, &store);
+        let stats = Stats::new(1_000_000);
+        let timing = OverlayTiming::new();
+        let mut state = OverlayState::new();
+        let out = state.frame(frame_inputs(UiMode::Full, &live, &tx, &stats, &timing, &io));
+        let (generation, _) = out.begin.expect("begin request");
+        live.set_ui_mode(UiMode::Mini);
+        state.frame(frame_inputs(UiMode::Mini, &live, &tx, &stats, &timing, &io));
+        assert!(!tx.begin_edit_for(generation), "the outstanding edit is stale");
+    }
+
+    #[test]
+    fn the_hotkey_cycles_off_mini_full_off() {
+        let mut mode = UiMode::Off;
+        mode = cycle_mode(mode);
+        assert_eq!(mode, UiMode::Mini);
+        mode = cycle_mode(mode);
+        assert_eq!(mode, UiMode::Full);
+        mode = cycle_mode(mode);
+        assert_eq!(mode, UiMode::Off);
+    }
+
+    #[test]
+    fn a_cancel_action_returns_to_the_mode_full_was_opened_from() {
+        let (tx, store, live) = tx("");
+        live.set_ui_mode(UiMode::Mini);
+        let io = test_io(&tx, &store);
+        let stats = Stats::new(1_000_000);
+        let timing = OverlayTiming::new();
+        let mut state = OverlayState::new();
+        state.frame(frame_inputs(UiMode::Mini, &live, &tx, &stats, &timing, &io));
+        live.set_ui_mode(UiMode::Full);
+        let out = state.frame(frame_inputs(UiMode::Full, &live, &tx, &stats, &timing, &io));
+        assert!(out.begin.is_some());
+        // The worker captures the baseline; the completion then marks the snapshot valid.
+        assert!(tx.begin_edit());
+        state.snapshot_valid = true;
+        let plan = state.act(OverlayAction::Cancel, UiMode::Full, &tx);
+        assert_eq!(plan.mode, Some(UiMode::Mini));
+        assert_eq!(plan.transition_from, Some(UiMode::Full));
+    }
+
+    #[test]
+    fn a_save_action_hands_out_a_ticket_only_with_a_baseline() {
+        let (tx, store, live) = tx("");
+        live.set_ui_mode(UiMode::Full);
+        let io = test_io(&tx, &store);
+        let stats = Stats::new(1_000_000);
+        let timing = OverlayTiming::new();
+        let mut state = OverlayState::new();
+        state.frame(frame_inputs(UiMode::Full, &live, &tx, &stats, &timing, &io));
+        // No baseline captured yet: the menu asks for a reopen, and no job starts.
+        let plan = state.act(OverlayAction::Save, UiMode::Full, &tx);
+        assert!(plan.save.is_none());
+        assert!(state.save_status().contains("reopen"));
+    }
+
+    #[test]
+    fn a_drawn_action_changes_the_live_value() {
+        let (tx, _, live) = tx("");
+        assert!(tx.begin_edit());
+        let mut state = OverlayState::new();
+        state.snapshot_valid = true;
+        let units = crate::domain::ui_logic::target_units_from_fps(70.0);
+        state.act(OverlayAction::SetTargetMode(2), UiMode::Full, &tx);
+        state.act(OverlayAction::SlideTarget(units), UiMode::Full, &tx);
+        let plan = state.act(OverlayAction::ApplyTarget, UiMode::Full, &tx);
+        assert!(plan.status.is_none(), "an applied change reports nothing");
+        assert_eq!(live.snapshot().target_fps, 70.0);
+    }
+
+    #[test]
+    fn the_cadence_line_arrives_once_and_the_active_line_on_the_first_output() {
+        let mut cadence = OutputCadence::new();
+        let mut firsts = 0;
+        for i in 0..=60 {
+            if cadence.record(i * 1000, false, 0, 1_000_000).first_output {
+                firsts += 1;
+            }
+        }
+        assert_eq!(firsts, 1, "the link line is reported exactly once");
     }
 }
