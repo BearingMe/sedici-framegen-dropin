@@ -66,6 +66,12 @@ features = [
 [dev-dependencies]
 rstest = "0.26"
 
+# `#[implement]` (the swapchain wrapper's COM surface) expands to `::windows_core::…` paths, so the
+# crate must be a direct dependency, not only a transitive one of `windows`.
+[target.'cfg(windows)'.dependencies.windows-core]
+version = "0.61"
+features = ["std"]
+
 [lints.rust]
 unsafe_code = "deny"
 
