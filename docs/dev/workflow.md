@@ -72,4 +72,4 @@ Logs are in `build-check-logs/`.
 How to read a failure: open the log named in the table. A `/analyze` or clang-tidy finding is either a real
 defect (fix it and add a `K` entry) or a false positive (suppress that one line with a comment saying why;
 never turn a check off for the whole tree). The sanitizer builds use the dynamic runtime (`/MD`) and cover
-the test hosts only, never the shipped DLL. `leaks` needs a Debug build of the tests for the CPU part.
+the test hosts only, never the shipped DLL. `leaks` builds the tests in Debug itself, which the CPU heap part needs.

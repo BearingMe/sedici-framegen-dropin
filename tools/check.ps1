@@ -137,21 +137,22 @@ foreach ($step in $steps) {
                 if ($rt) { Copy-Item $rt.FullName (Join-Path $b.Dir 'tests') -Force }
                 $ctestLog = Join-Path $LogDir "$step.ctest.log"
                 # Tests without the gpu label only: they need no adapter, so the run is deterministic and the GPU stays free.
-                $code = Run 'ctest' @('--test-dir', $b.Dir, '-C', 'Release', '-j4', '--output-on-failure', '-LE', 'gpu') $ctestLog
+                # sedici_abi_exports is left out: the sanitizer runtime exports its own symbols from the sanitized DLL
+                # (113 instead of 5), and the shipped DLL is never built with a sanitizer. The default build covers it.
+                $code = Run 'ctest' @('--test-dir', $b.Dir, '-C', 'Release', '-j4', '--output-on-failure', '-LE', 'gpu', '-E', 'sedici_abi_exports') $ctestLog
                 $n = Count-Matches $ctestLog 'ERROR: AddressSanitizer|runtime error:'
                 Add-Result $step (($code -eq 0) -and ($n -eq 0)) "$n sanitizer reports" $ctestLog
             }
             'leaks' {
                 # DXGI live-object report (GPU/COM objects still alive when a test host's main() returns), via
-                # tests/common/leak_check.h. Exit code 4 = objects left. Release build: the Debug build of the DLL
-                # crashes on a malformed config (K143), which blocks the CRT-heap half (-DSEDICI_CRTDBG needs _DEBUG).
-                # Runs the GPU tests, so keep the GPU idle.
-                $b = Build-Config 'leaks' @('-A', 'x64', '-DSEDICI_CRTDBG=ON')
+                # tests/common/leak_check.h. Exit code 4 = objects left. Debug build, so the CRT debug heap also lists
+                # CPU blocks still allocated at exit (exit code 3). Runs the GPU tests, so keep the GPU idle.
+                $b = Build-Config 'leaks' @('-A', 'x64', '-DSEDICI_CRTDBG=ON') 'Debug'
                 if ($b.Code -ne 0) { Add-Result $step $false 'build failed' $b.Log; break }
                 $ctestLog = Join-Path $LogDir 'leaks.ctest.log'
-                $code = Run 'ctest' @('--test-dir', $b.Dir, '-C', 'Release', '--output-on-failure', '-L', 'abi|fgcheck|gpu') $ctestLog
-                $n = Count-Matches $ctestLog '^LEAK: Live'
-                Add-Result $step (($code -eq 0) -and ($n -eq 0)) "$n DXGI objects still alive at exit" $ctestLog
+                $code = Run 'ctest' @('--test-dir', $b.Dir, '-C', 'Debug', '--output-on-failure', '-L', 'abi|fgcheck|gpu') $ctestLog
+                $n = Count-Matches $ctestLog '^LEAK: (Live|the CRT)'
+                Add-Result $step (($code -eq 0) -and ($n -eq 0)) "$n leaked DXGI objects or heap reports at exit" $ctestLog
             }
             default { Add-Result $step $false 'unknown step' '' }
         }
