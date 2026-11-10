@@ -2,12 +2,12 @@
 
 ## Project
 
-Sedici is a Windows x64 C++20 DLL named
-`amd_fidelityfx_framegeneration_dx12.dll`. It is a drop-in replacement for AMD's
-FSR 3.1 frame generation: the game loads it instead of AMD's DLL and Sedici's own
-frame generation answers every call. There is no AMD backend and the original DLL
-is never loaded. Behaviour is driven by `sedici.toml` beside the DLL, with
-environment overrides. The real-frame limiter is optional.
+Sedici is a Windows x64 Rust `cdylib` named
+`amd_fidelityfx_framegeneration_dx12.dll`, built with `cargo build --release`. It is a
+drop-in replacement for AMD's FSR 3.1 frame generation: the game loads it instead of
+AMD's DLL and Sedici's own frame generation answers every call. There is no AMD backend
+and the original DLL is never loaded. Behaviour is driven by `sedici.toml` beside the
+DLL, with environment overrides. The real-frame limiter is optional.
 
 ## Hard rules
 
@@ -39,9 +39,12 @@ environment overrides. The real-frame limiter is optional.
   retry. This exception does not authorize other presentation bookkeeping errors.
 - Do not touch `amd_fidelityfx_loader_dx12.dll` or
   `amd_fidelityfx_upscaler_dx12.dll`; the upscaler is owned by m-fsr.
-- Keep `third_party/ffx/`, `third_party/tomlplusplus/` and
-  `third_party/imgui/` unmodified. Do not move individual headers without
-  fixing their relative includes, and do not invent provenance.
+- Keep `third_party/ffx/` unmodified. It is the reference declaration of AMD's API, not
+  a build input: nothing compiles from it, and the Rust types were derived from it. Do
+  not move individual headers without fixing their relative includes, and do not
+  invent provenance. (The C++ build's vendored `third_party/imgui/` and
+  `third_party/tomlplusplus/` were removed with it: `egui` and `toml_edit` replace them,
+  pinned in `Cargo.lock`.)
 - Never download SDKs or runtime DLLs as part of a build or test.
 - Do not launch the game. Deployment is not launch authorization.
 - **Document every bug you find. Always.** A bug that is only fixed, only mentioned in
@@ -61,6 +64,17 @@ environment overrides. The real-frame limiter is optional.
   open items, or to a `known-issues.md` entry, and refresh the "Last updated" date.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
+
+### History: the C++ build was retired
+
+The DLL was a C++20 build (CMake) until every source and offline test had a Rust equivalent
+(`docs/rust/port-design.md`). On branch `experiment/rust` (never merged to `main`) the C++
+sources, tests and `CMakeLists.txt` were deleted, `third_party/imgui/` and
+`third_party/tomlplusplus/` were replaced by the `egui` and `toml_edit` crates, and
+`tools/deploy.ps1` now reads `target\release\amd_fidelityfx_framegeneration_dx12.dll`.
+`third_party/ffx/` stays. The C++ build is still the history behind every finding, the QA
+record and the `pre-amd-removal` tag, and `docs/dev/moves.md` maps its files; do not treat a
+mention of it in those documents as a live instruction.
 
 ### History: the AMD backend was removed
 
@@ -143,50 +157,52 @@ alone.
 ## Layout
 
 - `MILESTONES.md` — experiment phases, acceptance gates and implementation references.
-- `src/dllmain.cpp` — the five exports; each call is answered by the router.
-- `src/abi/route.*`, `src/runtime/integration.*`, `src/runtime/context.*` — handle tokens and
-  ownership, the session that binds a context to a wrapped swapchain, and the
-  frame generation context.
-- `src/settings/config.*` — `sedici.toml` parsing (toml++), defaults, env overrides,
-  provenance, once-at-load reporting.
-- `src/abi/describe.*` — desc-chain walking and per-type logging.
-- `src/ui/overlay.*` — output cadence recording and the overlay draw hooks the
-  swapchain wrapper calls for each presented frame.
-- `src/presentation/overlay_compose.*` — the DX12 copy and resource-state restoration used by
-  that callback.
-- `src/ui/ui.*` — Dear ImGui DX12 overlay: input hook, Mini/Full menu, live
-  controls, snapshot/cancel.
-- `src/ui/ui_input.*` — Full-menu cursor ownership: executable import interception
-  for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
-- `src/settings/live.*` — mutable live values shared by the overlay, limiter, pacing,
-  async and logging.
-- `src/diagnostics/timing.*` — 360-sample real/output interval rings and percentiles.
-- `src/settings/config_patch.*` — comment-preserving `sedici.toml` value patcher.
-- `src/presentation/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
-  plus QPC spin, scheduling, and per-300-frame accuracy stats.
-- `src/presentation/limiter_schedule.h` — the pure deadline/deadline-reset decision, kept
-  separate so it can be tested without a clock.
-- `src/diagnostics/stats.*` — rolling prepare/present stats every 300 prepares, plus the
+- `src/entry.rs` — the composition root the five exports start from; each call is answered by
+  the router.
+- `src/adapters/driving/ffx_abi/` — the five exports, the `pNext` chain walker and the
+  descriptor model.
+- `src/application/{router,session,context}.rs` — handle tokens and ownership, the session
+  that binds a context to a wrapped swapchain, and the frame generation context.
+- `src/domain/config.rs`, `src/adapters/driven/config_toml.rs` — `sedici.toml` parsing
+  (`toml_edit`), defaults, env overrides, provenance, once-at-load reporting.
+- `src/application/overlay.rs`, `src/adapters/driven/overlay_ui/` — output cadence recording,
+  the overlay draw hooks the swapchain wrapper calls, and the egui Mini/Full menu with its
+  hand-written D3D12 renderer.
+- `src/adapters/driven/overlay_compose.rs` — the DX12 copy and resource-state restoration used
+  by that callback.
+- `src/adapters/driving/window_input.rs`, `src/adapters/driven/win32/iat.rs` — Full-menu cursor
+  ownership: the window subclass, executable import interception for `SetCursorPos`/`ClipCursor`,
+  clip save/restore, client-to-output mapping.
+- `src/application/settings/{live,tx,io}.rs` — mutable live values shared by the overlay,
+  limiter, pacing and logging, the settings transaction, and the save worker.
+- `src/domain/timing.rs` — 360-sample real/output interval rings and percentiles.
+- `src/adapters/driven/config_toml.rs` — also the comment-preserving `sedici.toml` value patcher.
+- `src/application/presentation/limiter.rs`, `src/domain/schedule.rs` — opt-in real-frame
+  limiter: high-resolution waitable timer plus QPC spin, scheduling, and per-300-frame accuracy
+  stats; the pure deadline decision is separate so it can be tested without a clock.
+- `src/application/stats.rs` — rolling prepare/present stats every 300 prepares, plus the
   prepare stall detector.
-- `src/diagnostics/log.*` — `sedici.log` beside the DLL, written by a background thread from a
-  bounded queue with per-message rate limiting and drop/loss counters,
-  `MFSRFG_LOG=0/1/2`.
-- `src/status/diag.*` — read-only snapshot of the log counters and parked objects, and the
-  "diag:" line reported with the periodic stats.
+- `src/adapters/driven/logging.rs` — `sedici.log` beside the DLL, written by a background thread
+  from a bounded queue with per-message rate limiting and drop/loss counters, `MFSRFG_LOG=0/1/2`.
+- `src/adapters/driven/stage1/` — Stage 1 (Mob-FGSR analytical pass): `mod.rs`, `pipelines.rs`,
+  `shaders/*.hlsl` and `lut.bin`.
+- `src/adapters/driven/d3d12/`, `dxgi_native.rs`, `win32/` — the GPU, DXGI and Win32 adapters.
+- `exports.def` — the single list of the five exports; `build.rs` passes it as `/DEF:` on MSVC.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
-- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, the Phase 3 checks
-  `baseline.ps1` and `check_moves.ps1`, `check_layers.ps1` (module layering, CTest `sedici_layers`), and the QA
-  analyzers `analyze_log.ps1` and `analyze_presents.ps1` (CTest `sedici_analyzers`).
-- `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools` — the
-  offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`, the settings worker
-  host, `deploy_check.ps1`).
-- `docs/dev/` — agent and contributor guide: layout and include edges, workflow, baseline,
-  and the old-to-new path ledger. Start at `docs/dev/README.md`.
-- `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-16): a table of tests
+- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, `baseline.ps1` (the
+  `cargo test` behaviour record), and the QA analyzers `analyze_log.ps1` and
+  `analyze_presents.ps1`.
+- `tests/*.rs` — the offline suite (`abi`, `architecture`, `lifecycle`, `overlay_*`,
+  `presentation`, `refcount`, `routing`, `stage1`, `swapchain_smoke`, `tenbit`) with fakes in
+  `tests/support/`; `tests/architecture.rs` enforces the layers.
+- `tests/tools/` — the PowerShell check scripts `deploy_check.ps1` and `analyze_check.ps1`, run
+  directly (they need `powershell.exe`).
+- `docs/dev/` — agent and contributor guide: layout, workflow, baseline, and the Phase 3 move
+  ledger (history). Start at `docs/dev/README.md`.
+- `docs/rust/` — the port's design, conventions and the C++-to-Rust test-parity audit.
+- `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-20): a table of tests
   and one folder per test with notes, screenshots and log excerpts.
-- `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.
-- `third_party/tomlplusplus/` — unmodified toml++ v3.4.0 single header.
-- `third_party/imgui/` — unmodified Dear ImGui v1.93.0 plus DX12/Win32 backends.
+- `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers (reference only).
 - `references/papers/` — Mob-FGSR and GFFE transcriptions plus
   `realtime-fg.md`, the architecture note this experiment implements.
 - `references/sources/` — sparse submodules of the upstream reference code
@@ -195,23 +211,31 @@ alone.
 ## Build and verify
 
 ```powershell
-cmake -B build -A x64
-cmake --build build --config Release
-dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll
+cargo build --release
+dumpbin /exports target\release\amd_fidelityfx_framegeneration_dx12.dll
+cargo test -- --test-threads=1
+cargo clippy --all-targets
 ```
 
-There must be exactly five exports. Do not add helper exports, including the
-proxy marker.
+There must be exactly five exports. Do not add helper exports. `tests/abi.rs` reads the PE
+export table (and the `SEDICI_PROXY_V1` marker the deploy tools need), so `cargo test` checks the
+image too; `cargo build` first keeps that rebuild out of the test run.
 
 ## Deploy safety
 
+`tools/deploy.ps1` takes the DLL from
+`target\release\amd_fidelityfx_framegeneration_dx12.dll` (`cargo build --release`).
 `tools/deploy.ps1` and `tools/restore.ps1` must:
 
 - refuse to run while the game is running;
 - never overwrite an existing `.orig`;
-- refuse to overwrite or remove a DLL that is not Sedici's;
+- refuse to overwrite or remove a DLL that is not Sedici's (recognised by the
+  `SEDICI_PROXY_V1` marker the build carries);
 - never overwrite an existing `sedici.toml` on deploy;
 - only touch the target DLL, its `.orig`, `sedici.toml` and `sedici.log`.
+
+`tests/tools/deploy_check.ps1` checks every rule against a throwaway fake repository and game
+folder; run it after any change to either tool.
 
 Never commit logs, build output, or paths containing a username. Owner-approved
 exception (2026-11-08): `tests/qa/` holds the in-game QA evidence (folder READMEs,

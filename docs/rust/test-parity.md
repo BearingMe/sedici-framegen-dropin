@@ -1,7 +1,12 @@
 # Rust test parity: the C++ offline suite against the Rust suite
 
+> **Status (2026-11-10): complete; the C++ tree is retired.** Every row below is either mapped to
+> a Rust test or recorded as a `GAP`/`N/A` with its reason. The C++ sources and CTest targets named
+> here were deleted from `experiment/rust`; the names are kept so the audit still reads, and a
+> reader cannot run them any more. The deliberate gaps that remain are listed at the end.
+
 This table maps every scenario group of the C++ offline tests to the Rust test that covers it, or
-says `GAP` where no Rust test covers it yet. It is an audit, not a promise that every line moved:
+says `GAP` where no Rust test covers it. It is an audit, not a promise that every line moved:
 the port's rule (`docs/rust/port-design.md`) is to port scenarios, not lines, so a Rust `rstest` with
 one case per C++ check group is the intended shape.
 
@@ -11,8 +16,8 @@ it needs a D3D12 adapter and none exists.
 
 ## How to read a row
 
-- **C++ scenario** — the file and the function or named check the C++ ran. A CTest name in
-  `CMakeLists.txt` (`sedici_abi_*`, `sedici_fgcheck_*`, `sedici_regression`, `sedici_gpu_*`,
+- **C++ scenario** — the file and the function or named check the C++ ran. A CTest name in the
+  deleted `CMakeLists.txt` (`sedici_abi_*`, `sedici_fgcheck_*`, `sedici_regression`, `sedici_gpu_*`,
   `sedici_settings_*`) is the unit the C++ recorded.
 - **Rust test** — the `tests/*.rs` file, the test function, and (for a parameterised test) the
   cases. An inline `#[cfg(test)]` test is written `src/path.rs::name`.
@@ -108,13 +113,14 @@ it needs a D3D12 adapter and none exists.
 
 | C++ scenario | Rust test |
 |---|---|
-| `tools/deploy_check.ps1`, `tools/analyze_check.ps1` (CTest `sedici_deploy_tools`, `sedici_analyzers`) | N/A: these check the PowerShell tools, which are unchanged by the port. The Rust suite does not run PowerShell; the port has no deploy or analyzer tool of its own yet. Listing them here keeps the audit complete. |
-| `tools/check_layers.ps1` (CTest `sedici_layers`) | `tests/architecture.rs::layer_imports` (domain and application cases), `no_unsafe_outside_adapters` (domain and application), `crate_root_denies_unsafe` |
+| `tools/deploy_check.ps1`, `tools/analyze_check.ps1` (CTest `sedici_deploy_tools`, `sedici_analyzers`) | N/A: these check the PowerShell tools, which the port keeps. The scripts run directly (`tests/tools/deploy_check.ps1 -Dll target\release\amd_fidelityfx_framegeneration_dx12.dll -Repo .` and `tests/tools/analyze_check.ps1 -Repo .`); the Rust suite does not run PowerShell, so they are not Cargo integration tests. `docs/dev/workflow.md` lists the commands. |
+| `tools/check_layers.ps1` (CTest `sedici_layers`) | `tests/architecture.rs::layer_imports` (domain and application cases), `no_unsafe_outside_adapters` (domain and application), `crate_root_denies_unsafe`. The script was deleted with the C++ build (K176). |
 
 ## Gaps that are mechanisms, not scenarios
 
 These are not missing tests; they are places where the Rust production path does not yet do what the
 C++ did, so the C++ scenario cannot be reproduced. Each is a recorded `K` entry or slice boundary.
+`docs/rust/port-design.md` collects the same list as the port's remaining deliberate gaps.
 
 - **The real-frame limiter is not wired.** `application/presentation/limiter.rs` exists and its
   decisions and live reseed are tested, but nothing installs it on the wrapper's present hook or
@@ -140,11 +146,11 @@ C++ did, so the C++ scenario cannot be reproduced. Each is a recorded `K` entry 
   guard turns into a game-visible error. The C++ scenario's retry semantics are the same, but the
   fault cannot be forced, so it is `GAP`.
 
-## The baseline procedure: what `cargo test` records instead of `tools/baseline.ps1`
+## The baseline procedure: what `tools/baseline.ps1` records
 
-`tools/baseline.ps1` runs the C++ CTest suite and diffs its PASS/FAIL, PSNR/SSIM and per-test
-verdict lines against `docs/dev/baseline.txt`, dropping timings. There is no Rust equivalent tool and
-this slice does not add one; the procedure a future comparison should follow is:
+`tools/baseline.ps1` used to run the C++ CTest suite and diff its PASS/FAIL, PSNR/SSIM and
+per-test verdict lines against `docs/dev/baseline.txt`. The C++ build retired, so the script now
+records the Rust suite in the same shape, following this procedure (K175):
 
 1. Run `cargo test -- --test-threads=1` from a clean `target/` (some GPU tests share one adapter and
    present to it, so serialise them). Capture stderr: the GPU tests report their figures there.
@@ -162,6 +168,6 @@ this slice does not add one; the procedure a future comparison should follow is:
 5. Treat a change from `SKIP` to a verdict (or the reverse) as a difference worth explaining: it
    usually means a GPU or adapter appeared/disappeared on the machine, not a behaviour change.
 
-A future `tools/baseline.rs` (or a `cargo test -- --format json` wrapper) should produce a file with
-that shape and this section should be replaced by it; for now the record is the commands above and
-their output.
+A future `tools/baseline.rs` (or a `cargo test -- --format json` wrapper) would produce the file
+directly; `tools/baseline.ps1` implements these rules today and `docs/dev/baseline.md` explains when
+to re-record.

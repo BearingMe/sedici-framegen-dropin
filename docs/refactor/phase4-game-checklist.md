@@ -164,7 +164,7 @@ own generation, or calls something not yet seen), the log lists every call: keep
 
 
 
-All QA entries with a Result, `tools/baseline.ps1 -Against docs/dev/baseline.txt` identical on the
+All QA entries with a Result, `pwsh tools/baseline.ps1 -Against docs/dev/baseline.txt` identical on the
 
 final build, counts and tables current, owner sign-off recorded in `MILESTONES.md`.
 

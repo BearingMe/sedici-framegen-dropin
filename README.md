@@ -82,7 +82,7 @@ measurements.
 
 Status: **experimental.** The offline suite is accepted (P2.1 to P2.10; 37 CTest entries,
 2026-11-09) and the owner has run an in-game acceptance checklist on the current build
-(QA-01 to QA-16, [results](tests/qa/README.md)), with findings recorded as open issues. P2.11
+(QA-01 to QA-20, [results](tests/qa/README.md)), with findings recorded as open issues. P2.11
 is not closed. A recognized create that Sedici cannot satisfy returns an error to the game;
 there is no fallback. See the [known issues](docs/refactor/known-issues.md), the
 [feature requests](docs/refactor/feature-requests.md), the
@@ -90,6 +90,12 @@ there is no fallback. See the [known issues](docs/refactor/known-issues.md), the
 [historical checkpoint](docs/findings/007-fg-baseline.md) and the
 [Mob-FGSR attribution](docs/mobfgsr-attribution.md). Constraints are in
 [`AGENTS.md`](AGENTS.md); the delivery plan is in [`MILESTONES.md`](MILESTONES.md).
+
+> **Implementation (2026-11-10).** On branch `experiment/rust` (never merged to `main`) the
+> implementation is Rust: the C++ build, its tests and `third_party/imgui`/`third_party/tomlplusplus`
+> were retired, `cargo build --release` produces the DLL, and the `CTest` counts above describe the
+> C++ history the port reproduces. [`docs/rust/port-design.md`](docs/rust/port-design.md) and
+> [`docs/rust/test-parity.md`](docs/rust/test-parity.md) record the port and its remaining gaps.
 
 **Phase 1 shipped the first layer:** Mob-FGSR at 1080p, 2× interpolation and
 Sedici-owned presentation scheduling, running in Cyberpunk. GFFE (stage 2) is postponed.
@@ -327,7 +333,9 @@ A DLL that was loaded but never used unloads normally. Once a game has created a
 context the DLL pins itself in memory for the rest of the process: its handle namespace,
 any swapchain still waiting for the GPU, and its worker threads all live in the module, so
 `FreeLibrary` becomes a no-op and a reload returns the same module. The log says
-`module pinned in memory` when this happens.
+`module pinned in memory` when this happens. The Rust build has no `DllMain` of its own (a
+`cdylib` links the CRT's entry): it reserves the namespace and logs the same line on the
+first create, and K148 records the lifetime difference.
 
 ## Logging
 
@@ -448,100 +456,80 @@ coincided with a swapchain rebuild cannot be told from this line yet.
 
 ## Requirements
 
-- Windows x64, Visual Studio 2022 C++ tools, CMake 3.21+, Windows SDK.
-- Static CRT, C++20.
-- The FidelityFX/FSR headers in `third_party/ffx/` are unmodified SDK v2.4.0
-  headers. See `third_party/ffx/README.md` for upstream paths and blob IDs.
-- toml++ v3.4.0, single-header flavour, unmodified, in
-  `third_party/tomlplusplus/toml.hpp`. MIT.
-- Dear ImGui v1.93.0, unmodified, in `third_party/imgui/` with the DX12 and
-  Win32 backends. MIT. See `third_party/imgui/README.md`.
+- Windows x64 and a stable Rust toolchain with the MSVC target (`rustup default stable-x86_64-pc-windows-msvc`).
+  The toolchain used and verified is Rust 1.98.1; the manifest's `rust-version` and the locked
+  `egui` are not yet aligned (K173).
+- The Windows SDK and the MSVC C++ tools, for the `windows` crate's link step and the runtime
+  `D3DCompile` call that compiles the embedded HLSL.
+- Cargo crates only, pinned in `Cargo.lock`: `windows` 0.61 (raw Win32/D3D12/DXGI bindings),
+  `egui` 0.33 with its hand-written D3D12 renderer, `toml_edit`, `tracing` and its appender,
+  `thiserror`, `sha2`; `rstest` for the tests.
+- The FidelityFX/FSR headers in `third_party/ffx/` are unmodified SDK v2.4.0 headers, kept as the
+  reference the Rust types were derived from. Nothing compiles from them. See
+  `third_party/ffx/README.md` for upstream paths and blob IDs.
+- The `egui` font atlas comes from `egui`'s `default_fonts` feature; there is no
+  vendored UI library.
 
-No other dependencies.
+No other dependencies and no downloaded SDKs.
 
-### Dear ImGui provenance
+### What replaced the C++ dependencies
 
-| | |
+The C++ build vendored two libraries. Both were removed with it:
+
+| C++ dependency | Rust replacement |
 |---|---|
-| Project | [ocornut/imgui](https://github.com/ocornut/imgui) |
-| Version | **v1.93.0** (released 2026-10-14) |
-| Tag commit | `c1aaac65e896a45f81f47a4d68f9959e0f86c859` |
-| Sources | core `imgui*.cpp/.h`, `imconfig.h`, `imstb_*.h`; `backends/imgui_impl_dx12.*`, `backends/imgui_impl_win32.*` |
-| Licence | MIT (`third_party/imgui/LICENSE.txt`) |
+| toml++ v3.4.0 (single header) | the `toml_edit` crate (`Cargo.toml`, `Cargo.lock`) |
+| Dear ImGui v1.93.0 plus DX12/Win32 backends | the `egui` crate with a hand-written D3D12 renderer in `src/adapters/driven/overlay_ui/` |
 
-The files are copied byte-for-byte from the release archive. `imgui_demo.cpp`
-is vendored for completeness and is not compiled.
-
-### toml++ provenance
-
-| | |
-|---|---|
-| Project | [marzer/tomlplusplus](https://github.com/marzer/tomlplusplus) |
-| Version | **v3.4.0** (tag `v3.4.0`, released 2023-10-13) |
-| File | single-header `toml.hpp`, 485,931 bytes |
-| SHA-256 | `6B5172AD4DD6519AEC67B919181FA7A38A2234131E5B2AFA232DFE444819783E` |
-| Licence | MIT (`SPDX-License-Identifier: MIT` in the header preamble) |
-| Source | `https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp` |
-
-The file is vendored byte-for-byte; nothing in it is edited. Two documented
-compile-time switches are set in `src/settings/config.cpp` before the include, not in the
-header:
-
-- `TOML_EXCEPTIONS=0` so `toml::parse` returns a `parse_result` instead of
-  throwing. Nothing about configuration parsing may throw across an `ffx*`
-  export boundary.
-- `TOML_ENABLE_FORMATTERS=0` because Sedici only parses; this drops the
-  serialisers.
-
-`CMakeLists.txt` fails the configure step with an explanatory message if the
-header is missing.
+`NOTICE.md` records the change and the remaining third-party code.
 
 ## Build
 
 ```powershell
-cmake -B build -A x64
-cmake --build build --config Release
+cargo build --release
 ```
 
-Output: `build/Release/amd_fidelityfx_framegeneration_dx12.dll`.
+Output: `target\release\amd_fidelityfx_framegeneration_dx12.dll` (the crate's `[lib] name`, with
+`crate-type = ["cdylib", "rlib"]`; `build.rs` passes `exports.def` as `/DEF:`).
 
 Verify the export table from a Visual Studio developer shell:
 
 ```powershell
-dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll
+dumpbin /exports target\release\amd_fidelityfx_framegeneration_dx12.dll
 ```
 
 There must be exactly five exports: `ffxCreateContext`, `ffxDestroyContext`,
 `ffxConfigure`, `ffxQuery`, `ffxDispatch`. No helper exports. The DLL carries a
 non-exported `SEDICI_PROXY_V1` marker that `deploy.ps1` uses to recognise it.
+`tests/abi.rs` reads the same PE export table and asserts both, so `cargo test` checks the image.
 
-Optional offline regression checks (do not launch the game):
+Offline checks (do not launch the game):
 
 ```powershell
-cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
+cargo test -- --test-threads=1        # the GPU tests share one adapter; keep them serial
+cargo clippy --all-targets            # no errors
+pwsh tools\baseline.ps1 -Against docs\dev\baseline.txt
+pwsh tests\tools\deploy_check.ps1 -Dll target\release\amd_fidelityfx_framegeneration_dx12.dll -Repo .
+pwsh tests\tools\analyze_check.ps1 -Repo .
 ```
 
-These cover config-save safety, settings transactions, token and retirement
-policies, window and input handling, the live limiter, failure handling, and
-Mini/Full DX12 rendering with window replacement. GPU tests use the installed debug layer when available; they never
-download one. Their explicit GPU waits do not prove FFX's in-game queue bounds.
+These cover the FFX ABI and `pNext` walker, config-save safety, settings transactions, token and
+retirement policies, window and input handling, the live limiter, failure handling, Mini/Full
+DX12 rendering with window replacement, and Stage 1 quality, 10-bit equivalence and the real
+swapchain path. GPU tests use the installed debug layer when available; they never download one,
+and they skip with a `SKIP …` line when no D3D12 adapter is present. Their explicit GPU waits do
+not prove FFX's in-game queue bounds.
 
-`sedici_abi_*` load the built DLL through its five exports. A stub beside it,
-named like the original DLL, is a tripwire: Sedici must never load it, and
-`sedici_abi_contract` checks that every call, including version queries and the
-error codes for foreign, null and unknown inputs, is answered locally. Other
-scenarios cover a malformed config, handle rejection, and a combined session with
-the Mini overlay and limiter (`sedici_abi_session`). Each run writes a new
-`build/tests/<config>/abi/<scenario>-<time>-<pid>` directory and never deletes
-anything. `sedici_fgcheck*` need `SEDICI_BUILD_FGCHECK`; known failures print
-`XFAIL` and are listed in `docs/refactor/reliability.md`. Close RTSS first:
-its overlay is injected into test windows (vrr checks are then skipped).
+`tests/lifecycle.rs` and `tests/swapchain_smoke.rs` drive the production router, factory, wrapper
+and COM `IDXGISwapChain4` over a hidden window, so every call, including version queries and the
+error codes for foreign, null and unknown inputs, is answered locally; `tests/abi.rs` does the
+same at the export level. Close RTSS first: its overlay is injected into test windows and skips
+the vrr checks. `docs/dev/baseline.md` explains the behaviour record and when to re-record it.
 
 ## Deploy and restore
 
 ```powershell
+cargo build --release
 .\tools\deploy.ps1 -Game cp2077
 .\tools\restore.ps1 -Game cp2077
 ```
@@ -553,11 +541,13 @@ Epic launcher, no `bin\x64` subdirectory).
 
 - resolves the game from `tools/games.json` or an explicit `-GamePath`;
 - refuses to run while the game's executable is running;
+- takes the DLL from `target\release\amd_fidelityfx_framegeneration_dx12.dll` (build with
+  `cargo build --release` first);
 - resolves Steam library folders automatically; installs outside Steam (for
   example Epic) come from `installDirHints` or `-GamePath`;
 - never overwrites an existing `.orig` backup (AMD's original DLL, kept only so
   `restore.ps1` can put it back; Sedici itself never loads it);
-- refuses to overwrite a DLL that is not Sedici's;
+- refuses to overwrite a DLL that is not Sedici's (recognised by the `SEDICI_PROXY_V1` marker);
 - copies `sedici.toml` only if one is not already there, so a tuned file is kept.
 
 `restore.ps1` puts the original DLL back and removes `sedici.log` and
@@ -602,6 +592,16 @@ two-stage frame generation as a drop-in replacement. The plan and the current st
 P2.1-P2.10 accepted, P2.11 open), Phase 3 (proposed: organise the code without changing
 behaviour) and Phase 4 (placeholder: the open issues and improvements).
 
+## Rust port
+
+Branch `experiment/rust` is a throwaway port of the whole C++ implementation to Rust; it is
+never merged to `main`. Every source and offline test has a Rust equivalent, the C++ build is
+retired (2026-11-10), and the five exports, descriptor types and swapchain behaviour are
+unchanged. The design and slice-by-slice record are in
+[`docs/rust/port-design.md`](docs/rust/port-design.md); the C++-to-Rust test audit, including the
+deliberate gaps, is in [`docs/rust/test-parity.md`](docs/rust/test-parity.md); the offline suite
+is recorded in [`docs/dev/baseline.md`](docs/dev/baseline.md).
+
 ## Present timing
 
 The wrapper presents on its own thread and queue in `vrr` mode and runs the real
@@ -610,7 +610,9 @@ calls never reach the limiter. If the limiter's high-resolution timer cannot be
 created it falls back to a standard waitable timer, and if no timer can be created the
 limiter disables itself and the game runs uncapped; the error is logged and nothing fails
 the game's call. The timer is created lazily on the first capped present, never in
-`DllMain`, and is not closed at process exit.
+`DllMain`, and is not closed at process exit. (The Rust build has no `DllMain`: it loads
+the configuration and the log on the first `ffx*` call, and K148 records the lifetime
+difference.)
 
 ## Known limits
 
@@ -637,5 +639,5 @@ the game's call. The timer is created lazily on the first capped present, never 
 
 [`AGENTS.md`](AGENTS.md) owns the rules. In short: stay a drop-in replacement (exactly five
 exports, defined FFX error codes, no crash), never fail a game call because of Sedici's own
-bookkeeping, never modify the loader or the upscaler DLL, keep `third_party/` unmodified, and
-never download SDKs or launch the game as part of a build.
+bookkeeping, never modify the loader or the upscaler DLL, keep `third_party/ffx/` unmodified,
+and never download SDKs or launch the game as part of a build.

@@ -274,9 +274,18 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-10, branch `phase-4` / `experiment/rust` (the overlay wiring replaced the interim counting hook: the real `OverlayHost` draws per output, the window subclass and cursor capture are installed, and settings I/O reaches the menu; K159-K166 recorded on `experiment/rust`);
-everything below is committed. Latest full CTest run: 37 of 37 passed on an idle GPU (with the owner's Pathtracer using the GPU at about 90%, sedici_fgcheck_present failed, K112) (offline GPU
-suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
+status, evidence or open items. Last updated: 2026-11-10, branch `phase-4` / `experiment/rust` (the C++ build was retired: the port is complete, `cargo build --release` + `cargo test -- --test-threads=1` are the build and suite, and K170-K177 record what retirement exposed);
+everything below is committed. Latest full CTest run (the retired C++ suite): 37 of 37 passed on an idle GPU (with the owner's Pathtracer using the GPU at about 90%, sedici_fgcheck_present failed, K112) (offline GPU
+suites, ABI scenarios on the real DLL with a tripwire stub "original", regression). On
+`experiment/rust` the equivalent is the Rust suite: 523 tests across 13 test binaries plus the
+doc-test target, all passing, recorded in `docs/dev/baseline.txt` (the `cargo test` baseline).
+
+> **The Rust port replaced the C++ build on `experiment/rust` (never merged to `main`).** All of
+> `src/` and `tests/` is Rust, `CMakeLists.txt`, the C++ sources and tests, `third_party/imgui/`
+> and `third_party/tomlplusplus/` are deleted, `tools/deploy.ps1` reads `target\release`, and
+> `tools/baseline.ps1` records the Rust suite. Every CTest count and C++ path below is history.
+> `docs/rust/port-design.md` and `docs/rust/test-parity.md` hold the port record; K170-K177 were
+> found retiring the build and K1-K169 stand.
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
 evidence only. Every check that needs the game running, a display, or an external
@@ -302,7 +311,7 @@ has run in the game since the AMD backend was removed.
 | P2.11 Integrated acceptance and Stage 2 handoff | Complete (owner closed 2026-11-09), with accepted gaps: offline part done (2026-11-08); in-game checklist QA-01 to QA-16 run by the owner (QA-03 fails on K100; QA-04 and QA-05 partial; QA-12 closed offline; QA-14 skipped) | `sedici_abi_integrated` (35 checks), `sedici_regression observer` (overlay and log cost per frame, QA-12), the in-game QA record in [tests/qa](tests/qa/README.md), `sedici_fgcheck --resolution` quality and timing, [Stage 2 contract](docs/refactor/stage2-contract.md), K117, K118-K128 (QA findings), K129-K132 (Alan Wake 2, finding 015), [feature requests](docs/refactor/feature-requests.md) | Accepted gaps, carried to Phase 4: QA-03 (Alan Wake 2, K100, K129-K132), the QA-04 and QA-05 present-interval captures, QA-14, and Stage 1 at 0.64-0.69 ms against the 0.15-0.30 ms estimate (K117). The in-game defects K118-K128 are open. The owner considers the behaviours proven, which is the baseline for Phase 3 |
 
 **Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 176 entries): 49 open
-(K142 is Rust-port-only, `experiment/rust`, never merged; K154-K157 are Rust-port-only and recorded by the swapchain-factory slice, K159-K166 by the swapchain-factory and overlay-wiring slices; K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137, K139; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 103 fixed or resolved (K161 in the overlay-wiring slice, K141 and K149 in the swapchain-factory slice, K148 in 300a624, K140, K138, K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136, K145-K147; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K163-K166 are open or hazards recorded by the overlay-wiring slice (K161 was closed by it). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
+(K142 is Rust-port-only, `experiment/rust`, never merged; K154-K157 are Rust-port-only and recorded by the swapchain-factory slice, K159-K166 by the swapchain-factory and overlay-wiring slices, K170-K177 by the C++-retirement slice; K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137, K139, K173; K16, K23, K24, K36, K54, K101, K112 and K173 are accepted gaps or not product defects, see the file header), 108 fixed or resolved (K170-K177 in the C++-retirement slice, K161 in the overlay-wiring slice, K141 and K149 in the swapchain-factory slice, K148 in 300a624, K140, K138, K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136, K145-K147; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94), 8 hazards and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K163-K166 are open or hazards recorded by the overlay-wiring slice (K161 was closed by it). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
 | --- | --- | --- |
@@ -632,6 +641,13 @@ successful deployment alone does not complete Phase 2.
 
 ## Phase 3 — Organise the code and prove nothing changed
 
+> **History note (2026-11-10):** the C++ tree this phase organised was retired on
+> `experiment/rust` (see the note under the Phase 2 progress table). `ctest`, `CMakeLists.txt`,
+> `tools/check_moves.ps1` and `tools/check_layers.ps1` named below no longer exist; the Rust
+> equivalent of the layer check is `tests/architecture.rs` and the baseline is
+> `tools/baseline.ps1` (see `docs/dev/baseline.md`). The Phase 3 outcome stands for the C++
+> history it records.
+
 **Goal:** put the code where the ownership rules say it belongs, prove against the Phase 2
 baseline that nothing changed, and document the result twice: in the commits, for whoever
 reads the history, and in `docs/dev/`, for agents and contributors who work in the tree.
@@ -835,7 +851,7 @@ QA-10), judged with `tools/analyze_log.ps1` and `tools/analyze_presents.ps1` by 
 
 | Needs | Examples | Milestones |
 | --- | --- | --- |
-| Offline only (CTest, `sedici_fgcheck`, `sedici_regression`, ABI scenarios, log analysis) | UI value logic, settings, lifetimes, error contracts, Stage 1 cost and quality on the synthetic scenes, module structure | P4.1 to P4.5 |
+| Offline only (the `cargo test` suite, log analysis; named `CTest`/`sedici_fgcheck`/`sedici_regression` when this was written, K175) | UI value logic, settings, lifetimes, error contracts, Stage 1 cost and quality on the synthetic scenes, module structure | P4.1 to P4.5 |
 | The game, a real display or RTSS (cannot be driven unattended: K23, K24, K36) | pacing on a VRR or fixed-refresh panel, stalls, window-mode changes, loading screens, Alt+F4, Alan Wake 2 | P4.6 to P4.8 |
 
 An entry that has an offline half and a game half is fixed and tested offline first and then
@@ -844,7 +860,7 @@ listed in the game checklist of its later milestone. The code is never launched 
 ### Phase 4 progress
 
 **Keep this table current**, in the same commit as any change to a milestone. Last
-updated: 2026-11-09.
+updated: 2026-11-10 (Rust port: the C++ build is retired; K170-K177).
 
 | Milestone | Size | Where | Status | Prerequisites |
 | --- | --- | --- | --- | --- |
