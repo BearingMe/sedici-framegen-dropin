@@ -6,3 +6,4 @@ pub mod gpu;
 pub mod input;
 pub mod overlay;
 pub mod swapchain;
+pub mod ui_renderer;

@@ -186,4 +186,50 @@ is `create_wrapper(&CreateContextDesc, WrapOrigin) -> (OpaqueHandle, Arc<dyn Wra
 adopting the chain and returning the game's chain handle. Until they land, `backend.rs` installs
 `UnsupportedSwapchains` (a defined local error, K149) and the split-recording queue wait returns an
 error; a frame generation create, configure, prepare, query and destroy all work end to end.
+## Overlay and menu slice (done)
+
+Landed on `experiment/rust`: `application/overlay.rs` (output-cadence recorder and `overlay present`
+lines, `OverlayState`, the `MiniView`/`FullView` view-model and `OverlayAction`),
+`application/ports/ui_renderer.rs`, and `adapters/driven/overlay_ui/{mod,device,menu,input}.rs`
+with `hlsl/overlay_vs.hlsl` and `hlsl/overlay_ps.hlsl`. `egui` (0.33, `default-features = off`,
+`default_fonts`) is the only new dependency; no egui renderer backend is used, the D3D12 renderer is
+hand-written. The C++ build is unaffected.
+
+**Ports the swapchain slice programs against.**
+
+- `ui_renderer::OverlayRenderer` — `draw(&mut self, target: &RenderTarget, view: &OverlayView,
+  input: &[UiInput], frame: UiFrameInfo) -> Result<Vec<OverlayAction>, OverlayDrawError>`,
+  `disabled`, `disabled_reason`, `disable(reason)`, `draw_counts` (ports `ui_on_present`,
+  `ui_disable`, `ui_render_status`). Call it once per presented output, real or generated, after
+  generation and before Present, on the list the frame is being recorded on. A view of
+  `OverlayView::Off` records nothing and costs nothing.
+- `ui_renderer::RenderTarget` — `command_list`, `resource`, `device` (raw pointer identities the
+  adapter downcasts; it refuses a device it was not created for), `width`, `height`,
+  `format: OutputFormat(u32)` (currently only `DXGI_FORMAT_R8G8B8A8_UNORM`), `state`
+  (`gpu::ResourceState`, the buffer's state before the draw), `generated`. The renderer transitions
+  into `RENDER_TARGET` and back out.
+- `ui_renderer::UiFrameInfo` — `output_width`, `output_height`, `client_width`, `client_height`,
+  `delta_seconds`. `ui_renderer::UiInput` — one consumed Win32 message in client pixels
+  (`msg`, `wparam`, `lparam`); Alt+F4 is filtered out (K126).
+- `ui_renderer::OverlayDrawError` — `Failed`, `NoDevice`, `DeviceChanged`, `UnsupportedFormat`,
+  `Disabled`; `is_permanent()` and `reason()` for the one `sedici: overlay disabled` line pair.
+  The adapter must call `disable` and give input back on the first error.
+- `application/overlay::OverlayState` — the menu's state machine: `enter_full`, `take_begin_request`,
+  `on_io_completion`, `mark_begin_failed`, `apply_mode_transition`, `full_view`, `mini_view`,
+  `effective_scale`, `set_applied_scale`, `edits_enabled`, `apply(action, tx)`. The swapchain slice
+  calls these and `OverlayUi::initialize`; the `OverlayUi` concrete type is the renderer.
+- `adapters/driven/overlay_ui::OverlayUi` — `new`, `initialize(&D3d12Device, OutputFormat)`,
+  `run_pass` (the egui pass, for an integration that drives egui itself), `draw_with_raw` (the
+  test-friendly path, taking the adapter's own list and texture), and the `OverlayRenderer` impl.
+
+**Renderer test.** `tests/overlay_ui.rs` ports the `gpu-mini`/`gpu-full` scenarios as one
+parameterised rstest: it renders a Mini and a Full frame to an offscreen 640x360 R8G8B8A8 texture,
+checks that the menu area is painted and the far corner is not, and that a disabled renderer records
+nothing and leaves the device healthy. It reads the DX12 info queue when the debug layer exists. It
+skips cleanly when no D3D12 adapter is present. `tests/overlay_egui.rs` proves an egui pass produces
+triangles without any D3D12 (it guards K152).
+
+**In-flight assumption.** The C++ ImGui DX12 backend rotated four vertex/index buffers with no
+fence of its own, safe only because draws never overlap; this renderer keeps that assumption and
+states it (`device::INFLIGHT_NOTE`). A change that lets two draws overlap must add a fence first.
 

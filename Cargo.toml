@@ -25,6 +25,10 @@ tracing-appender = "0.2"
 toml_edit = "0.22"
 # Config file identity: the file digest is part of the outside-edit check (K43, settings/config_patch).
 sha2 = "0.10"
+# Dear ImGui's replacement (port-design: "Dear ImGui becomes egui"). Only the UI adapter and the
+# view-model renderer use it; the application layer never imports it. No renderer backend is
+# enabled: the overlay's D3D12 renderer is written by hand in `adapters/driven/overlay_ui`.
+egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"

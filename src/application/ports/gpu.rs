@@ -158,9 +158,12 @@ pub struct TextureFlags(pub u32);
 
 impl TextureFlags {
     pub const NONE: Self = Self(0);
+    /// `D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET`. Required before `CreateRenderTargetView` accepts a
+    /// resource; the overlay draws onto the game's back buffer, which the game created with it.
+    pub const ALLOW_RENDER_TARGET: Self = Self(1);
+    pub const ALLOW_DEPTH_STENCIL: Self = Self(2);
     pub const ALLOW_UNORDERED_ACCESS: Self = Self(4);
     pub const DENY_SHADER_RESOURCE: Self = Self(8);
-    pub const ALLOW_DEPTH_STENCIL: Self = Self(2);
 
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
