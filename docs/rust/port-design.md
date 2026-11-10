@@ -260,3 +260,34 @@ refuses a hidden-window chain (K157 records that this session's `D3D12CreateDevi
 device that does not QI to `IDXGIDevice`, so the test builds the factory with `CreateDXGIFactory1`
 instead of from the device's parent).
 
+
+## Test parity with the C++ suite (audit)
+
+`docs/rust/test-parity.md` maps every C++ offline scenario group (`tests/abi`, `tests/integration`,
+`tests/regression`, `tests/settings`, `tests/tools`) to the Rust test that covers it, or records a
+`GAP` with the reason. It also states the `cargo test` procedure that stands in for
+`tools/baseline.ps1` (which is unchanged and still compares the C++ CTest output).
+
+Scenarios ported by this slice, not previously covered in Rust:
+
+- `tests/tenbit.rs` — `fgcheck_tenbit.cpp`: a scene through an 8-bit and a 10-bit `Stage1`, the C++
+  lift/reduce packing, and the same thresholds (`between > 42.0` dB, 10-bit not worse than 8-bit by
+  more than 0.5 dB). One rstest case per C++ scene.
+- `tests/lifecycle.rs` — `fgcheck_routing.cpp`'s AW2 block and the repeated-lifecycle memory check,
+  plus the `fgcheck.cpp` present-queue-count 0→1→0 check, through the production router, factory,
+  wrapper and Stage 1: the New and HWND 10-bit chains, the interpolation queries, the HDR-flagged
+  session with the game dispatch acknowledged, the null factory local error, 40 cycles of private and
+  video memory (4 MiB / 16 MiB bounds), and one presenter's shared queue count.
+- `tests/refcount.rs` — the lifetime `fgcheck_contract` relied on: the adapter borrows the game's
+  texture and command list and does not change the game's reference count (K165).
+- `tests/routing.rs` gained a case per missing input of the New and HWND create forms, matching the
+  C++ `run_contract` checks.
+
+`tests/presentation.rs` gained a fake that models the D3D12 rule "an allocator cannot be reset while
+its list is open", so the interpolation-list re-ask (K164) is now covered without a GPU.
+
+Three defects were found and fixed by this slice, each with a regression test: K163 (a stopped
+presenter's Present answered `E_INVALIDARG` instead of `DXGI_ERROR_INVALID_CALL`), K164 (the second
+interpolation-list ask reset an open list's allocator and failed every time), and K165 (the FFX
+resource seam adopted the game's handles and then AddRef'd them again, which leaked the game's
+reference and dereferenced freed memory on the second borrow).

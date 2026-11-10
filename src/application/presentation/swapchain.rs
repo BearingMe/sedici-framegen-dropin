@@ -703,6 +703,10 @@ where
         }
         let allocator = scratch.allocator.as_ref().ok_or(SwapchainError::OutOfMemory)?;
         let list = scratch.list.as_ref().ok_or(SwapchainError::OutOfMemory)?;
+        // The previous recording was never executed, so it is still open; a list must be closed
+        // before its allocator can be reset. K164: without this close, the re-ask failed every
+        // time (`allocator reset`) and the game was told the interpolation list was unavailable.
+        let _ = list.close_list();
         allocator.reset().map_err(|_| SwapchainError::OutOfMemory)?;
         list.reset_list(allocator).map_err(|_| SwapchainError::OutOfMemory)?;
         Ok(list.clone())

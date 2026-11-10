@@ -54,6 +54,11 @@ impl D3d12Texture {
     ///
     /// The resource is not created by Sedici: Stage 1 transitions it to its own states and back to
     /// `state` before returning (the same contract the C++ used for the game's depth and motion).
+    ///
+    /// `resource` is a borrowed view: `clone()` below is the AddRef that makes this value own its
+    /// reference. Callers must therefore pass a borrowed `&ID3D12Resource` (from
+    /// `from_raw_borrowed`/`InterfaceRef`), never the result of an owning `from_raw`, or the
+    /// AddRef would double-count and leak the game's resource (K165).
     pub fn borrow(resource: &ID3D12Resource, state: ResourceState) -> Self {
         Self {
             info: texture_info(resource),

@@ -122,21 +122,28 @@ impl FrameObjects<D3d12Device, D3d12CommandList> for D3d12FrameObjects {
         if handle == 0 {
             return None;
         }
+        // The game owns one reference; Sedici only borrows it for the call. An owning `from_raw`
+        // here would take a reference without taking it away from the game, and `borrow` would
+        // AddRef a second time, so the game's texture leaked and its release was unbalanced (K165:
+        // an access violation followed the first borrow). `from_raw_borrowed` takes no reference;
+        // `D3d12Texture::borrow` takes the one Sedici holds for the call.
+        let raw: *mut std::ffi::c_void = handle as *mut _;
         // SAFETY: every non-null handle reaching here came from a validated FFX descriptor's
-        // `resource` field. The FFX contract keeps it alive for the call; `borrow` takes a COM
-        // reference so the value outlives the game's reference.
-        let resource = unsafe { ID3D12Resource::from_raw(handle as *mut _) };
-        Some(D3d12Texture::borrow(&resource, ResourceState::COMMON))
+        // `resource` field, and the FFX contract keeps it alive for the call.
+        let resource = unsafe { ID3D12Resource::from_raw_borrowed(&raw) }?;
+        Some(D3d12Texture::borrow(resource, ResourceState::COMMON))
     }
 
     fn list(&self, handle: usize) -> Option<D3d12CommandList> {
         if handle == 0 {
             return None;
         }
-        // SAFETY: the handle came from a validated prepare desc's `commandList` field, which the
-        // FFX contract keeps live until the dispatch returns.
-        let list = unsafe { ID3D12GraphicsCommandList::from_raw(handle as *mut _) };
-        Some(D3d12CommandList::borrow(&list))
+        // As with `texture`: the FFX contract keeps the game's list alive until the dispatch
+        // returns, so Sedici borrows it rather than adopting the game's reference (K165).
+        let raw: *mut std::ffi::c_void = handle as *mut _;
+        // SAFETY: the handle came from a validated prepare desc's `commandList` field.
+        let list = unsafe { ID3D12GraphicsCommandList::from_raw_borrowed(&raw) }?;
+        Some(D3d12CommandList::borrow(list))
     }
 }
 

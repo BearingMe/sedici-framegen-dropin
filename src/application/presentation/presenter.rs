@@ -187,7 +187,11 @@ impl PresentError {
     /// The HRESULT-shaped value the C++ returned for the same failure.
     pub fn code(self) -> u32 {
         match self {
-            Self::Stopped => 0x8007_0057,                 // E_INVALIDARG
+            // K163: the C++ `Presenter::submit` answers `DXGI_ERROR_INVALID_CALL` when it has
+            // stopped (0x887A0001), not `E_INVALIDARG`. The port's `code_error` maps the former
+            // to `SwapchainError::InvalidCall`; `E_INVALIDARG` mapped to `InvalidArgument`
+            // instead, so a Present after a stopped presenter returned the wrong defined code.
+            Self::Stopped => crate::application::presentation::swapchain::DXGI_ERROR_INVALID_CALL,
             Self::QueueFull => 0x887A_000A,               // DXGI_ERROR_WAS_STILL_DRAWING
             Self::DeviceHung => 0x887A_0006,              // DXGI_ERROR_DEVICE_HUNG
             Self::Gpu => 0x8000_4005,                     // E_FAIL
@@ -1243,5 +1247,18 @@ mod tests {
         let rotated = DisplayMode::new(60.0, 1080, 1920, true, 0.00025);
         assert_eq!(rotated.active_lines, 1920);
         assert!((DisplayMode::new(0.0, 0, 0, false, 0.0).period - DisplayMode::DEFAULT_PERIOD).abs() < 1e-12);
+    }
+
+    /// K163: the C++ `Presenter::submit` returns `DXGI_ERROR_INVALID_CALL` when it has stopped and
+    /// `DXGI_ERROR_WAS_STILL_DRAWING` when its ring is full. The port's `Stopped` briefly answered
+    /// `E_INVALIDARG`, which the wrapper maps to `SwapchainError::InvalidArgument` instead of
+    /// `InvalidCall`, so a game that failed a Present after a stopped presenter saw the wrong code.
+    #[rstest]
+    #[case(PresentError::Stopped, 0x887A_0001)]
+    #[case(PresentError::QueueFull, 0x887A_000A)]
+    #[case(PresentError::DeviceHung, 0x887A_0006)]
+    #[case(PresentError::Gpu, 0x8000_4005)]
+    fn present_errors_map_to_the_cpp_codes(#[case] error: PresentError, #[case] code: u32) {
+        assert_eq!(error.code(), code);
     }
 }

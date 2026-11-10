@@ -141,6 +141,10 @@ impl GpuBuffer for FakeBuffer {
 struct FakeAllocator {
     resets: AtomicU32,
     world: Arc<World>,
+    /// D3D12 refuses `ID3D12CommandAllocator::Reset` while a list recorded from it is open. The
+    /// fake keeps that rule so a wrapper bug that resets the scratch allocator under an open
+    /// interpolation list fails here exactly as it does on a device (K164).
+    open: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for FakeAllocator {
@@ -155,6 +159,10 @@ impl GpuCommandAllocator for FakeAllocator {
         if self.world.fail_reset.load(Ordering::Acquire) {
             return Err(GpuError::failed("allocator reset", 0x8000_4005));
         }
+        if self.open.load(Ordering::Acquire) {
+            // The D3D12 rule: an allocator cannot be reset while its list is recording.
+            return Err(GpuError::failed("allocator reset", 0x8000_4005));
+        }
         Ok(())
     }
 }
@@ -164,6 +172,8 @@ struct FakeList {
     closed: Arc<AtomicBool>,
     barriers: Arc<AtomicU32>,
     resets: Arc<AtomicU32>,
+    /// Shared with the allocator: true while the list is recording.
+    open: Arc<AtomicBool>,
 }
 
 impl GpuCommandList<FakeTexture> for FakeList {
@@ -183,11 +193,13 @@ impl ListLifecycle for FakeList {
     fn reset_list(&self, _allocator: &FakeAllocator) -> Result<(), GpuError> {
         self.resets.fetch_add(1, Ordering::Relaxed);
         self.closed.store(false, Ordering::Release);
+        self.open.store(true, Ordering::Release);
         Ok(())
     }
 
     fn close_list(&self) -> Result<(), GpuError> {
         self.closed.store(true, Ordering::Release);
+        self.open.store(false, Ordering::Release);
         Ok(())
     }
 }
@@ -265,13 +277,18 @@ impl GpuDevice for FakeDevice {
         Ok(Vec::new())
     }
     fn create_command_allocator(&self, _kind: QueueKind) -> Result<Self::CommandAllocator, GpuError> {
-        Ok(FakeAllocator { resets: AtomicU32::new(0), world: Arc::clone(&self.world) })
+        Ok(FakeAllocator {
+            resets: AtomicU32::new(0),
+            world: Arc::clone(&self.world),
+            open: Arc::new(AtomicBool::new(false)),
+        })
     }
-    fn create_command_list(&self, _allocator: &Self::CommandAllocator) -> Result<Self::CommandList, GpuError> {
+    fn create_command_list(&self, allocator: &Self::CommandAllocator) -> Result<Self::CommandList, GpuError> {
         Ok(FakeList {
             closed: Arc::new(AtomicBool::new(true)),
             barriers: Arc::new(AtomicU32::new(0)),
             resets: Arc::new(AtomicU32::new(0)),
+            open: Arc::clone(&allocator.open),
         })
     }
     fn create_fence(&self, _initial: u64) -> Result<Self::Fence, GpuError> {
@@ -808,6 +825,22 @@ fn the_interpolation_list_is_reusable() {
     first.close_list().expect("closed");
     let again = h.swapchain.interpolation_list().expect("reset");
     assert!(!again.closed.load(Ordering::Acquire), "the second ask starts a fresh recording");
+}
+
+/// K164: a game asks for the interpolation list again while its previous recording is still open
+/// (the recording was never executed, so nothing closed it). D3D12 refuses to reset an allocator
+/// whose list is open, so the wrapper must close it first; the C++ did exactly that
+/// (`m_scratch_list->Close()` before `m_scratch_allocator->Reset()`). The fake allocator models the
+/// rule, so this fails if the close is dropped.
+#[test]
+fn a_second_interpolation_list_ask_closes_the_still_open_recording() {
+    let h = harness(Present::Vsync);
+    let first = h.swapchain.interpolation_list().expect("created");
+    assert!(!first.closed.load(Ordering::Acquire), "the first ask leaves the list open");
+    // No close in between: this is the per-frame ask a game makes.
+    let again = h.swapchain.interpolation_list().expect("the re-ask resets the open list");
+    assert!(!again.closed.load(Ordering::Acquire), "the re-ask hands back a fresh recording");
+    assert!(Arc::ptr_eq(&first.closed, &again.closed), "the pointer the game holds stays valid");
 }
 
 /// `check_pacing` decisions, through the wrapper's own pacing interval and the presenter's stale

@@ -542,32 +542,34 @@ fn a_create_chain_that_names_no_sedici_context_is_unknown() {
     assert_eq!(error.ffx, ReturnCode::ErrorUnknownDesctype);
 }
 
+/// `tests/abi/abi.cpp` `run_contract`: "a New swapchain create without factory, desc or queue is a
+/// local error and issues no handle". Each of the four inputs is a case, so a regression that drops
+/// one from the check is named by the case that fails.
 #[rstest]
-#[case::new_form(SwapchainNew { swapchain_slot: 0, desc: Some(Default::default()), dxgi_factory: 1, game_queue: 1 })]
+#[case::no_slot(SwapchainNew { swapchain_slot: 0, desc: Some(Default::default()), dxgi_factory: 1, game_queue: 1 })]
+#[case::no_desc(SwapchainNew { swapchain_slot: 1, desc: None, dxgi_factory: 1, game_queue: 1 })]
+#[case::no_factory(SwapchainNew { swapchain_slot: 1, desc: Some(Default::default()), dxgi_factory: 0, game_queue: 1 })]
+#[case::no_queue(SwapchainNew { swapchain_slot: 1, desc: Some(Default::default()), dxgi_factory: 1, game_queue: 0 })]
 fn a_new_swapchain_create_missing_an_input_is_a_local_error(
     #[case] swapchain_new: SwapchainNew,
 ) {
     let h = harness();
     let desc = CreateContextDesc { swapchain_new: Some(swapchain_new), ..Default::default() };
-    let error = h.router.create(&desc).expect_err("missing swapchain slot");
+    let error = h.router.create(&desc).expect_err("missing swapchain input");
     assert_eq!(error.ffx, ReturnCode::Error);
 }
 
-#[test]
-fn a_hwnd_swapchain_create_missing_an_input_is_a_local_error() {
+/// The same for the HWND form: `run_contract`'s "without factory, desc, window or queue".
+#[rstest]
+#[case::no_slot(SwapchainForHwnd { swapchain_slot: 0, hwnd: 1, desc: Some(Default::default()), fullscreen_desc: 0, dxgi_factory: 1, game_queue: 1 })]
+#[case::no_desc(SwapchainForHwnd { swapchain_slot: 1, hwnd: 1, desc: None, fullscreen_desc: 0, dxgi_factory: 1, game_queue: 1 })]
+#[case::no_window(SwapchainForHwnd { swapchain_slot: 1, hwnd: 0, desc: Some(Default::default()), fullscreen_desc: 0, dxgi_factory: 1, game_queue: 1 })]
+#[case::no_factory(SwapchainForHwnd { swapchain_slot: 1, hwnd: 1, desc: Some(Default::default()), fullscreen_desc: 0, dxgi_factory: 0, game_queue: 1 })]
+#[case::no_queue(SwapchainForHwnd { swapchain_slot: 1, hwnd: 1, desc: Some(Default::default()), fullscreen_desc: 0, dxgi_factory: 1, game_queue: 0 })]
+fn a_hwnd_swapchain_create_missing_an_input_is_a_local_error(#[case] form: SwapchainForHwnd) {
     let h = harness();
-    let desc = CreateContextDesc {
-        swapchain_for_hwnd: Some(SwapchainForHwnd {
-            swapchain_slot: 0,
-            hwnd: 1,
-            desc: Some(Default::default()),
-            fullscreen_desc: 0,
-            dxgi_factory: 1,
-            game_queue: 1,
-        }),
-        ..Default::default()
-    };
-    let error = h.router.create(&desc).expect_err("missing swapchain slot");
+    let desc = CreateContextDesc { swapchain_for_hwnd: Some(form), ..Default::default() };
+    let error = h.router.create(&desc).expect_err("missing swapchain input");
     assert_eq!(error.ffx, ReturnCode::Error);
 }
 
