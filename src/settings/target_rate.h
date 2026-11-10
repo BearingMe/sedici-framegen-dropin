@@ -34,8 +34,7 @@ inline double resolve_target_fps(double target_fps, bool automatic, double refre
 // The real-frame cap the limiter enforces for an output target. `ratio` is the
 // number of output frames per real frame (2 for 2x, 1 when nothing is
 // generated). 0 means uncapped.
-inline double resolve_real_cap(double target_fps, bool automatic, double refresh_hz,
-                               double ratio) noexcept
+inline double resolve_real_cap(double target_fps, bool automatic, double refresh_hz, double ratio) noexcept
 {
     const double output = resolve_target_fps(target_fps, automatic, refresh_hz);
     if (output <= 0.0) return 0.0;

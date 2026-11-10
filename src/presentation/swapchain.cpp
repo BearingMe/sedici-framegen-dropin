@@ -51,8 +51,8 @@ bool supported_color_format(DXGI_FORMAT format) noexcept
 
 } // namespace
 
-HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
-                        Swapchain** result, const PresentChoice* choice, ULONG handedRefs) noexcept
+HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue, Swapchain** result,
+                        const PresentChoice* choice, ULONG handedRefs) noexcept
 {
     if (!result) return E_POINTER;
     *result = nullptr;
@@ -73,39 +73,48 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
             // refused. The decision is logged either way.
             const LUID chainAdapter = nativeDevice->GetAdapterLuid();
             const LUID queueAdapter = object->m_device->GetAdapterLuid();
-            const bool sameAdapter = chainAdapter.LowPart == queueAdapter.LowPart &&
-                                     chainAdapter.HighPart == queueAdapter.HighPart;
+            const bool sameAdapter =
+                chainAdapter.LowPart == queueAdapter.LowPart && chainAdapter.HighPart == queueAdapter.HighPart;
             char text[200];
             std::snprintf(text, sizeof(text),
-                "fg: swapchain wrap: chain device %p differs from queue device %p; %s",
-                static_cast<void*>(nativeDevice.Get()), static_cast<void*>(object->m_device.Get()),
-                sameAdapter ? "same adapter, using the queue's device" : "different adapters, refused");
+                          "fg: swapchain wrap: chain device %p differs from queue device %p; %s",
+                          static_cast<void*>(nativeDevice.Get()), static_cast<void*>(object->m_device.Get()),
+                          sameAdapter ? "same adapter, using the queue's device" : "different adapters, refused");
             log_error(text);
             if (!sameAdapter) hr = E_INVALIDARG;
         }
     }
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator[0]));
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_allocator[1]));
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&object->m_generate_allocator));
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        object->m_allocator[0].Get(), nullptr, IID_PPV_ARGS(&object->m_list[0]));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                      IID_PPV_ARGS(&object->m_allocator[0]));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                      IID_PPV_ARGS(&object->m_allocator[1]));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                      IID_PPV_ARGS(&object->m_generate_allocator));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, object->m_allocator[0].Get(),
+                                                 nullptr, IID_PPV_ARGS(&object->m_list[0]));
     if (SUCCEEDED(hr)) hr = object->m_list[0]->Close();
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        object->m_allocator[1].Get(), nullptr, IID_PPV_ARGS(&object->m_list[1]));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, object->m_allocator[1].Get(),
+                                                 nullptr, IID_PPV_ARGS(&object->m_list[1]));
     if (SUCCEEDED(hr)) hr = object->m_list[1]->Close();
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        object->m_generate_allocator.Get(), nullptr, IID_PPV_ARGS(&object->m_generate_list));
+    if (SUCCEEDED(hr))
+        hr = object->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                 object->m_generate_allocator.Get(), nullptr,
+                                                 IID_PPV_ARGS(&object->m_generate_list));
     if (SUCCEEDED(hr)) hr = object->m_generate_list->Close();
-    if (SUCCEEDED(hr)) hr = object->m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-        IID_PPV_ARGS(&object->m_fence));
+    if (SUCCEEDED(hr)) hr = object->m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&object->m_fence));
     if (SUCCEEDED(hr)) {
         object->m_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!object->m_event) hr = HRESULT_FROM_WIN32(GetLastError());
     }
-    if (FAILED(hr)) { delete object; return hr; }
+    if (FAILED(hr)) {
+        delete object;
+        return hr;
+    }
 
     using Present = sedici::FrameGenerationSettings::Present;
     PresentChoice chosen;
@@ -129,7 +138,8 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     }
     if (chosen.present == Present::Vrr) {
         object->m_presenter = Presenter::create(object->m_device.Get(), chosen.guard, why);
-        if (!object->m_presenter) chosen.present = Present::Vsync;
+        if (!object->m_presenter)
+            chosen.present = Present::Vsync;
         else if (handedRefs == 0) {
             why = "the caller keeps its swapchain reference, so the chain cannot be recreated";
             object->m_presenter.reset();
@@ -139,7 +149,10 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
     // Everything fallible happens before the chain is recreated. The buffers
     // only depend on the description, which recreation keeps.
     hr = object->initialize_buffers();
-    if (FAILED(hr)) { delete object; return hr; }
+    if (FAILED(hr)) {
+        delete object;
+        return hr;
+    }
     bool originalKept = true; // still presenting through the chain the caller handed over
     if (object->m_presenter) {
         IDXGISwapChain4* const original = object->m_native.Get();
@@ -191,17 +204,19 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
             (void)object->m_native->GetMaximumFrameLatency(&latency);
             const bool waitable = object->m_native->GetFrameLatencyWaitableObject() != nullptr;
             log_event(1, "fg: native chain buffers=" + std::to_string(desc.BufferCount) +
-                " size=" + std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
-                " flags=" + std::to_string(desc.Flags) +
-                " max_latency=" + std::to_string(latency) +
-                " waitable=" + (waitable ? "yes" : "no") +
-                " present=" + (object->m_presenter ? "vrr" : object->m_force_sync ? "vsync" : "game") +
-                " align_vblank=" + (object->m_align_vblank ? "yes" : "no"));
+                             " size=" + std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
+                             " flags=" + std::to_string(desc.Flags) + " max_latency=" + std::to_string(latency) +
+                             " waitable=" + (waitable ? "yes" : "no") + " present=" +
+                             (object->m_presenter    ? "vrr"
+                              : object->m_force_sync ? "vsync"
+                                                     : "game") +
+                             " align_vblank=" + (object->m_align_vblank ? "yes" : "no"));
         }
-    } catch (...) {}
+    } catch (...) {
+    }
     // Timer availability affects precision, never whether wrapping succeeds.
-    object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr,
-        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    object->m_pacing_timer =
+        CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!object->m_pacing_timer)
         object->m_pacing_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     // K12: the caller handed `handedRefs` references to this wrapper. While the
@@ -237,12 +252,12 @@ namespace {
 std::mutex g_retained_mutex;
 Swapchain* g_retained_head = nullptr; // intrusive: parking never allocates
 std::atomic<unsigned> g_retained_count{0};
-}
+} // namespace
 
 bool Swapchain::retirable() const noexcept
 {
     if (!m_device || FAILED(m_device->GetDeviceRemovedReason())) return true; // nothing can run any more
-    if (FAILED(m_submission_failure)) return false; // untracked work: no token covers it
+    if (FAILED(m_submission_failure)) return false;                           // untracked work: no token covers it
     if (m_presenter && m_presenter->outstanding() != 0) return false;
     return !m_fence || m_fence->GetCompletedValue() >= m_fence_value;
 }
@@ -257,10 +272,16 @@ void Swapchain::park() noexcept
         g_retained_head = this;
     }
     g_retained_count.fetch_add(1, std::memory_order_release);
-    try { log_event(1, "fg: swapchain parked after a failed drain; it is released once its GPU work retires"); } catch (...) {}
+    try {
+        log_event(1, "fg: swapchain parked after a failed drain; it is released once its GPU work retires");
+    } catch (...) {
+    }
 }
 
-unsigned Swapchain::retained_now() noexcept { return g_retained_count.load(std::memory_order_acquire); }
+unsigned Swapchain::retained_now() noexcept
+{
+    return g_retained_count.load(std::memory_order_acquire);
+}
 
 void Swapchain::reap_retained() noexcept
 {
@@ -282,7 +303,10 @@ void Swapchain::reap_retained() noexcept
         g_retained_count.fetch_sub(1, std::memory_order_release);
         note_swapchain_release();
         delete ready; // its fence has retired, so the destructor's drain returns at once
-        try { log_event(1, "fg: a parked swapchain was released after its GPU work retired"); } catch (...) {}
+        try {
+            log_event(1, "fg: a parked swapchain was released after its GPU work retired");
+        } catch (...) {
+        }
     }
 }
 
@@ -304,7 +328,8 @@ void Swapchain::retain_gpu_state() noexcept
     hold(m_fence);
     for (auto& v : m_buffers) hold(v);
     hold(m_generated);
-    for (auto& set : m_phase_outputs) for (auto& v : set) hold(v);
+    for (auto& set : m_phase_outputs)
+        for (auto& v : set) hold(v);
     for (auto& v : m_snapshots) hold(v);
     for (auto& v : m_snapshot_allocators) hold(v);
     for (auto& v : m_snapshot_lists) hold(v);
@@ -313,20 +338,27 @@ void Swapchain::retain_gpu_state() noexcept
     (void)m_presenter.release(); // worker may be inside a driver call
     // A pending fence completion may still signal m_event; do not close it.
     if (m_pacing_timer) CloseHandle(m_pacing_timer);
-    try { log_event(1, "fg: swapchain GPU state retained after failed drain"); } catch (...) {}
-
+    try {
+        log_event(1, "fg: swapchain GPU state retained after failed drain");
+    } catch (...) {
+    }
 }
 
-HRESULT Swapchain::interpolation_list(ID3D12GraphicsCommandList** list) noexcept try
-{
+HRESULT Swapchain::interpolation_list(ID3D12GraphicsCommandList** list) noexcept
+try {
     if (!list) return E_POINTER;
     std::lock_guard lock(m_scratch_mutex);
     if (!m_scratch_list) {
-        HRESULT hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                      IID_PPV_ARGS(&m_scratch_allocator));
-        if (SUCCEEDED(hr)) hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            m_scratch_allocator.Get(), nullptr, IID_PPV_ARGS(&m_scratch_list));
-        if (FAILED(hr)) { m_scratch_list.Reset(); m_scratch_allocator.Reset(); return hr; }
+        HRESULT hr =
+            m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_scratch_allocator));
+        if (SUCCEEDED(hr))
+            hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_scratch_allocator.Get(), nullptr,
+                                             IID_PPV_ARGS(&m_scratch_list));
+        if (FAILED(hr)) {
+            m_scratch_list.Reset();
+            m_scratch_allocator.Reset();
+            return hr;
+        }
         *list = m_scratch_list.Get(); // created open
         return S_OK;
     }
@@ -337,11 +369,12 @@ HRESULT Swapchain::interpolation_list(ID3D12GraphicsCommandList** list) noexcept
     if (FAILED(hr)) return hr;
     *list = m_scratch_list.Get();
     return S_OK;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
-HRESULT Swapchain::interpolation_texture(ID3D12Resource** texture) noexcept try
-{
+HRESULT Swapchain::interpolation_texture(ID3D12Resource** texture) noexcept
+try {
     if (!texture) return E_POINTER;
     std::lock_guard lock(m_scratch_mutex);
     if (m_scratch_format == DXGI_FORMAT_UNKNOWN) return DXGI_ERROR_NOT_FOUND; // buffers not created yet
@@ -366,12 +399,14 @@ HRESULT Swapchain::interpolation_texture(ID3D12Resource** texture) noexcept try
     texDesc.SampleDesc.Count = 1;
     texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const HRESULT hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texDesc,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_scratch_texture));
+                                                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                         IID_PPV_ARGS(&m_scratch_texture));
     if (FAILED(hr)) return hr;
     *texture = m_scratch_texture.Get();
     return S_OK;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
 bool Swapchain::set_generator(const GenerateSink& sink) noexcept
 {
@@ -417,13 +452,13 @@ void Swapchain::set_output_hooks(const OutputHooks& hooks) noexcept
     if (m_presenter) m_presenter->set_output_hooks(hooks);
 }
 
-HRESULT Swapchain::initialize_buffers() noexcept try
-{
+HRESULT Swapchain::initialize_buffers() noexcept
+try {
     DXGI_SWAP_CHAIN_DESC1 desc{};
     HRESULT hr = m_native->GetDesc1(&desc);
     if (FAILED(hr)) return hr;
-    if (desc.SampleDesc.Count != 1 || desc.BufferCount == 0 || desc.Stereo ||
-        !supported_color_format(desc.Format)) return DXGI_ERROR_UNSUPPORTED;
+    if (desc.SampleDesc.Count != 1 || desc.BufferCount == 0 || desc.Stereo || !supported_color_format(desc.Format))
+        return DXGI_ERROR_UNSUPPORTED;
 
     {
         std::lock_guard scratch(m_scratch_mutex);
@@ -446,8 +481,8 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     D3D12_CLEAR_VALUE clear{};
     clear.Format = desc.Format;
     for (auto& buffer : buffers) {
-        hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texture,
-            D3D12_RESOURCE_STATE_PRESENT, &clear, IID_PPV_ARGS(&buffer));
+        hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texture, D3D12_RESOURCE_STATE_PRESENT,
+                                               &clear, IID_PPV_ARGS(&buffer));
         if (FAILED(hr)) return hr;
     }
 
@@ -462,7 +497,8 @@ HRESULT Swapchain::initialize_buffers() noexcept try
         for (auto& set : phases) {
             for (auto& output : set) {
                 hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
-                    D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&output));
+                                                       D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr,
+                                                       IID_PPV_ARGS(&output));
                 if (FAILED(hr)) return hr;
             }
         }
@@ -472,16 +508,17 @@ HRESULT Swapchain::initialize_buffers() noexcept try
         snapshot.Flags = D3D12_RESOURCE_FLAG_NONE;
         for (auto& image : snapshots) {
             hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &snapshot,
-                D3D12_RESOURCE_STATE_PRESENT, nullptr, IID_PPV_ARGS(&image));
+                                                   D3D12_RESOURCE_STATE_PRESENT, nullptr, IID_PPV_ARGS(&image));
             if (FAILED(hr)) return hr;
         }
         const auto makeList = [&](Microsoft::WRL::ComPtr<ID3D12CommandAllocator>& allocator,
                                   Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& list) {
             if (list) return S_OK;
-            HRESULT result = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                              IID_PPV_ARGS(&allocator));
-            if (SUCCEEDED(result)) result = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                allocator.Get(), nullptr, IID_PPV_ARGS(&list));
+            HRESULT result =
+                m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+            if (SUCCEEDED(result))
+                result = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                                     IID_PPV_ARGS(&list));
             if (SUCCEEDED(result)) result = list->Close();
             return result;
         };
@@ -492,7 +529,7 @@ HRESULT Swapchain::initialize_buffers() noexcept try
         }
     } else {
         hr = m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &generated,
-            D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&midpoint));
+                                               D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&midpoint));
         if (FAILED(hr)) return hr;
     }
 
@@ -508,13 +545,15 @@ HRESULT Swapchain::initialize_buffers() noexcept try
     m_generated_ready = false;
     m_game_index = 0;
     return S_OK;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
 void Swapchain::hold_untracked_generator() noexcept
 {
     if (!m_sink.user || !m_sink.submitted || !m_sink.lifetime || !m_sink.needsSubmission ||
-        !m_sink.needsSubmission(m_sink.user)) return;
+        !m_sink.needsSubmission(m_sink.user))
+        return;
     // Admission is serialized by m_mutex; an unresolved owner is never replaced.
     if (m_untracked_sink.user) return;
     m_untracked_sink = m_sink;
@@ -550,8 +589,7 @@ HRESULT Swapchain::drain() noexcept
     }
     if (m_fence_value == 0) return S_OK;
     auto progress = classify_fence(m_fence->GetCompletedValue(), m_fence_value);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     if (progress == FenceProgress::Complete) return S_OK;
     const HRESULT hr = m_fence->SetEventOnCompletion(m_fence_value, m_event);
     if (FAILED(hr)) return hr;
@@ -560,12 +598,12 @@ HRESULT Swapchain::drain() noexcept
     if (wait != WAIT_OBJECT_0)
         return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
     progress = classify_fence(m_fence->GetCompletedValue(), m_fence_value);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
-void Swapchain::wait_until(double deadline, double maxWait) noexcept{
+void Swapchain::wait_until(double deadline, double maxWait) noexcept
+{
     const double now = now_seconds();
     if (!std::isfinite(deadline) || !(maxWait > 0.0)) return;
     const double remaining = std::clamp(deadline - now, 0.0, std::min(maxWait, 0.05));
@@ -582,8 +620,8 @@ void Swapchain::wait_until(double deadline, double maxWait) noexcept{
         LARGE_INTEGER due{};
         due.QuadPart = -std::max<LONGLONG>(1, static_cast<LONGLONG>((remaining - spin) * 1e7));
         if (m_pacing_timer && SetWaitableTimer(m_pacing_timer, &due, 0, nullptr, nullptr, FALSE)) {
-            if (WaitForSingleObject(m_pacing_timer, static_cast<DWORD>(remaining * 1000.0) + 5)
-                != WAIT_OBJECT_0) return;
+            if (WaitForSingleObject(m_pacing_timer, static_cast<DWORD>(remaining * 1000.0) + 5) != WAIT_OBJECT_0)
+                return;
         } else {
             std::this_thread::sleep_for(std::chrono::duration<double>(remaining - spin));
         }
@@ -596,7 +634,8 @@ double Swapchain::vblank_deadline(double now) noexcept
     if (!m_align_vblank || !ticks_per_second()) return now;
     DXGI_FRAME_STATISTICS stats{};
     if (SUCCEEDED(m_native->GetFrameStatistics(&stats))) {
-        const double stamp = ticks_to_seconds(static_cast<uint64_t>(stats.SyncQPCTime.QuadPart), ticks_per_second());
+        const double stamp =
+            ticks_to_seconds(static_cast<uint64_t>(stats.SyncQPCTime.QuadPart), ticks_per_second());
         if (!m_have_vblank) {
             m_have_vblank = true;
             m_vblank_count = stats.SyncRefreshCount;
@@ -644,8 +683,7 @@ HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceSta
 
     D3D12_RESOURCE_BARRIER barriers[2]{};
     UINT count = 0;
-    const auto add = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
-                         D3D12_RESOURCE_STATES after) {
+    const auto add = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
         if (before == after) return;
         auto& barrier = barriers[count++];
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -695,20 +733,21 @@ double Swapchain::display_refresh_hz() const noexcept
             SUCCEEDED(output->GetDesc(&desc))) {
             DEVMODEW mode{};
             mode.dmSize = sizeof(mode);
-            if (EnumDisplaySettingsW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &mode) &&
-                mode.dmDisplayFrequency > 1)
+            if (EnumDisplaySettingsW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1)
                 hz = static_cast<double>(mode.dmDisplayFrequency);
         }
-    } catch (...) {}
+    } catch (...) {
+    }
     if (hz <= 0.0 && m_presenter) hz = m_presenter->refresh_hz();
     return hz;
 }
 
 void Swapchain::publish_output_context() noexcept
 {
-    const double ratio = !m_presenter ? 2.0
-        : m_schedule.adaptive() ? 1.0
-        : static_cast<double>(m_schedule.numerator()) / static_cast<double>(m_schedule.denominator());
+    const double ratio = !m_presenter            ? 2.0
+                         : m_schedule.adaptive() ? 1.0
+                                                 : static_cast<double>(m_schedule.numerator()) /
+                                                       static_cast<double>(m_schedule.denominator());
     const double hz = display_refresh_hz();
     if (m_presenter && m_schedule.adaptive()) {
         const double target = adaptive_target();
@@ -718,7 +757,8 @@ void Swapchain::publish_output_context() noexcept
     try {
         log_event(2, "fg: output context ratio=" + std::to_string(ratio) + " refresh_hz=" + std::to_string(hz) +
                          " real_cap=" + std::to_string(sedici::live_limiter_fps()));
-    } catch (...) {}
+    } catch (...) {
+    }
 }
 
 void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
@@ -732,20 +772,29 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
         return;
     }
     switch (choice.multiplier) {
-    case Multiplier::X1_75: m_schedule.set_ratio(7, 4); break;
-    case Multiplier::X1_5: m_schedule.set_ratio(3, 2); break;
-    case Multiplier::X1_25: m_schedule.set_ratio(5, 4); break;
+    case Multiplier::X1_75:
+        m_schedule.set_ratio(7, 4);
+        break;
+    case Multiplier::X1_5:
+        m_schedule.set_ratio(3, 2);
+        break;
+    case Multiplier::X1_25:
+        m_schedule.set_ratio(5, 4);
+        break;
     case Multiplier::Adaptive:
         m_schedule.set_target(adaptive_target());
         break;
-    case Multiplier::X2: m_schedule.set_ratio(2, 1); break;
+    case Multiplier::X2:
+        m_schedule.set_ratio(2, 1);
+        break;
     }
     try {
         log_event(1, std::string("fg: schedule multiplier=") + sedici::multiplier_name(choice.multiplier) +
-            (m_schedule.adaptive() ? " target_fps=" + std::to_string(m_schedule.target())
-                                   : " ratio=" + std::to_string(m_schedule.numerator()) + "/" +
-                                         std::to_string(m_schedule.denominator())));
-    } catch (...) {}
+                         (m_schedule.adaptive() ? " target_fps=" + std::to_string(m_schedule.target())
+                                                : " ratio=" + std::to_string(m_schedule.numerator()) + "/" +
+                                                      std::to_string(m_schedule.denominator())));
+    } catch (...) {
+    }
     publish_output_context();
 }
 
@@ -758,8 +807,7 @@ HRESULT Swapchain::wait_slot(uint32_t slot) noexcept
     if (!m_fence || slot >= kSlots) return E_INVALIDARG;
     const UINT64 target = m_snapshot_fences[slot];
     auto progress = classify_fence(m_fence->GetCompletedValue(), target);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     if (progress == FenceProgress::Complete) return S_OK;
     const HRESULT hr = m_fence->SetEventOnCompletion(target, m_event);
     if (FAILED(hr)) return hr;
@@ -767,8 +815,7 @@ HRESULT Swapchain::wait_slot(uint32_t slot) noexcept
     if (wait != WAIT_OBJECT_0)
         return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
     progress = classify_fence(m_fence->GetCompletedValue(), target);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
@@ -815,8 +862,7 @@ bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint3
         submissionFailure = m_submission_failure = E_POINTER;
         return false;
     }
-    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset)
-        ? E_FAIL : allocator->Reset();
+    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset) ? E_FAIL : allocator->Reset();
     if (SUCCEEDED(reset)) reset = list->Reset(allocator, nullptr);
     if (FAILED(reset)) {
         submissionFailure = m_submission_failure = reset;
@@ -833,8 +879,7 @@ bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint3
     // Even a generator refusal may leave a partially recorded list. A Close
     // failure is a submission-path error, not an ordinary skipped frame.
     const HRESULT closeResult = list->Close();
-    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose)
-        ? E_FAIL : closeResult;
+    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose) ? E_FAIL : closeResult;
     if (FAILED(closed)) {
         hold_untracked_generator();
         submissionFailure = m_submission_failure = closed;
@@ -848,7 +893,8 @@ bool Swapchain::record_phases(const GeneratePhase* phases, uint32_t count, uint3
     m_queue->ExecuteCommandLists(1, lists);
     ++m_fence_value;
     const HRESULT signaled = consume_bookkeeping_fault(BookkeepingFault::GenerationSignal)
-        ? E_FAIL : m_queue->Signal(m_fence.Get(), m_fence_value);
+                                 ? E_FAIL
+                                 : m_queue->Signal(m_fence.Get(), m_fence_value);
     if (FAILED(signaled)) {
         hold_untracked_generator();
         submissionFailure = m_submission_failure = signaled;
@@ -868,15 +914,13 @@ HRESULT Swapchain::record_generated() noexcept
     auto* allocator = m_generate_allocator.Get();
     auto* list = m_generate_list.Get();
     if (!allocator || !list) return m_submission_failure = E_POINTER;
-    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset)
-        ? E_FAIL : allocator->Reset();
+    HRESULT reset = consume_bookkeeping_fault(BookkeepingFault::GenerationReset) ? E_FAIL : allocator->Reset();
     if (SUCCEEDED(reset)) reset = list->Reset(allocator, nullptr);
     if (FAILED(reset)) return m_submission_failure = reset;
     auto* real = m_buffers[m_game_index].Get();
     const bool recorded = m_sink.record(m_sink.user, list, real, m_generated.Get(), m_generated_state);
     const HRESULT closeResult = list->Close();
-    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose)
-        ? E_FAIL : closeResult;
+    const HRESULT closed = consume_bookkeeping_fault(BookkeepingFault::GenerationClose) ? E_FAIL : closeResult;
     if (FAILED(closed)) {
         hold_untracked_generator();
         ++m_skipped_generates;
@@ -891,7 +935,8 @@ HRESULT Swapchain::record_generated() noexcept
     m_queue->ExecuteCommandLists(1, lists);
     ++m_fence_value;
     const HRESULT signaled = consume_bookkeeping_fault(BookkeepingFault::GenerationSignal)
-        ? E_FAIL : m_queue->Signal(m_fence.Get(), m_fence_value);
+                                 ? E_FAIL
+                                 : m_queue->Signal(m_fence.Get(), m_fence_value);
     if (FAILED(signaled)) {
         hold_untracked_generator();
         ++m_skipped_generates;
@@ -916,18 +961,24 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     struct PresentTimer {
         double start = now_seconds();
         double lockedAt = 0.0;
-        ~PresentTimer() noexcept {
+        ~PresentTimer() noexcept
+        {
             try {
                 const double total = (now_seconds() - start) * 1000.0;
-                if (total >= 250.0) log_event(1, "fg: slow present took " + std::to_string(total) + " ms" +
-                    (lockedAt - start >= 0.1 ? " (waited " + std::to_string((lockedAt - start) * 1000.0) +
-                     " ms for the swapchain lock)" : std::string()));
-            } catch (...) {}
+                if (total >= 250.0)
+                    log_event(1, "fg: slow present took " + std::to_string(total) + " ms" +
+                                     (lockedAt - start >= 0.1
+                                          ? " (waited " + std::to_string((lockedAt - start) * 1000.0) +
+                                                " ms for the swapchain lock)"
+                                          : std::string()));
+            } catch (...) {
+            }
         }
     } timer;
     std::lock_guard lock(m_mutex);
     timer.lockedAt = now_seconds();
-    if (flags & DXGI_PRESENT_TEST) return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
+    if (flags & DXGI_PRESENT_TEST)
+        return params ? m_native->Present1(sync, flags, params) : m_native->Present(sync, flags);
     if (FAILED(m_submission_failure)) return m_submission_failure;
     if (m_buffers.empty()) return DXGI_ERROR_INVALID_CALL;
     if (m_presenter) return present_async(sync, flags, params);
@@ -999,8 +1050,7 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
             m_generated_ready = false;
             ++m_skipped_generates;
         }
-        if (presentedGenerated)
-            wait_until(plan.realDeadline, m_pacing.interval * 0.5);
+        if (presentedGenerated) wait_until(plan.realDeadline, m_pacing.interval * 0.5);
     }
 
     if (midCopyFence) {
@@ -1039,17 +1089,19 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
         if (++m_present_cycles % 300 == 0) {
             try {
                 log_event(1, "fg: present pacing cycles=" + std::to_string(m_present_cycles) +
-                    " generated=" + std::to_string(m_generated_presents) +
-                    " skipped=" + std::to_string(m_skipped_generates) +
-                    " interval_ms=" + std::to_string(m_pacing.interval * 1000.0) +
-                    " cpu_gap_ms{avg=" + std::to_string(m_gap_samples ? m_gap_sum / m_gap_samples : 0.0) +
-                    " min=" + std::to_string(m_gap_min) + " max=" + std::to_string(m_gap_max) + "}" +
-                    " mid_not_ready=" + std::to_string(m_mid_not_ready) + "/" + std::to_string(m_mid_checks) +
-                    " drain_waits=" + std::to_string(m_drain_waits) + "/" + std::to_string(m_drain_samples) +
-                    " drain_wait_ms{avg=" + std::to_string(m_drain_waits ? m_drain_wait_sum / m_drain_waits : 0.0) +
-                    " max=" + std::to_string(m_drain_wait_max) + "}" +
-                    " align_misses=" + std::to_string(m_align_misses) + "/" + std::to_string(m_align_samples));
-            } catch (...) {}
+                                 " generated=" + std::to_string(m_generated_presents) +
+                                 " skipped=" + std::to_string(m_skipped_generates) +
+                                 " interval_ms=" + std::to_string(m_pacing.interval * 1000.0) + " cpu_gap_ms{avg=" +
+                                 std::to_string(m_gap_samples ? m_gap_sum / m_gap_samples : 0.0) +
+                                 " min=" + std::to_string(m_gap_min) + " max=" + std::to_string(m_gap_max) + "}" +
+                                 " mid_not_ready=" + std::to_string(m_mid_not_ready) + "/" +
+                                 std::to_string(m_mid_checks) + " drain_waits=" + std::to_string(m_drain_waits) +
+                                 "/" + std::to_string(m_drain_samples) + " drain_wait_ms{avg=" +
+                                 std::to_string(m_drain_waits ? m_drain_wait_sum / m_drain_waits : 0.0) +
+                                 " max=" + std::to_string(m_drain_wait_max) + "}" + " align_misses=" +
+                                 std::to_string(m_align_misses) + "/" + std::to_string(m_align_samples));
+            } catch (...) {
+            }
             m_gap_samples = 0;
             m_gap_sum = m_gap_min = m_gap_max = 0.0;
             m_mid_checks = m_mid_not_ready = 0;
@@ -1065,8 +1117,8 @@ HRESULT Swapchain::present(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS*
     return hr;
 }
 
-HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept try
-{
+HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) noexcept
+try {
     // Up to kInFlight older frames may still be presenting. Each job reads only
     // its own slot (real-frame snapshot and generated images), which a frame
     // kSlots ago used and has finished with once at most kInFlight are left.
@@ -1094,12 +1146,17 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     if (params) {
         job.hasParams = true;
         if (params->DirtyRectsCount && params->pDirtyRects) {
-            if (consume_bookkeeping_fault(BookkeepingFault::PresentParametersAllocation))
-                throw std::bad_alloc();
+            if (consume_bookkeeping_fault(BookkeepingFault::PresentParametersAllocation)) throw std::bad_alloc();
             job.dirty.assign(params->pDirtyRects, params->pDirtyRects + params->DirtyRectsCount);
         }
-        if (params->pScrollRect) { job.hasScroll = true; job.scroll = *params->pScrollRect; }
-        if (params->pScrollOffset) { job.hasOffset = true; job.offset = *params->pScrollOffset; }
+        if (params->pScrollRect) {
+            job.hasScroll = true;
+            job.scroll = *params->pScrollRect;
+        }
+        if (params->pScrollOffset) {
+            job.hasOffset = true;
+            job.offset = *params->pScrollOffset;
+        }
     }
 
     if (m_present_hook && !(flags & DXGI_PRESENT_DO_NOT_WAIT)) m_present_hook(now_ticks());
@@ -1121,8 +1178,8 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
     uint32_t phaseCount = 0;
     for (uint32_t i = 0; i < plan.count && phaseCount < kMaxPhases; ++i) {
         if (plan.outputs[i].real) continue;
-        phases[phaseCount] = GeneratePhase{set[phaseCount].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
-                                           plan.outputs[i].alpha};
+        phases[phaseCount] =
+            GeneratePhase{set[phaseCount].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, plan.outputs[i].alpha};
         ++phaseCount;
     }
     const bool showGenerated = phaseCount > 0;
@@ -1182,8 +1239,9 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
             const double realFps = elapsed > 0.0 ? 300.0 / elapsed : 0.0;
             const double outputFps = elapsed > 0.0 ? m_rate_window_outputs / elapsed : 0.0;
             const double refresh = m_presenter->refresh_hz();
-            std::string rates = " real_fps=" + std::to_string(realFps) + " planned_output_fps=" +
-                std::to_string(outputFps) + " refresh_hz=" + std::to_string(refresh);
+            std::string rates = " real_fps=" + std::to_string(realFps) +
+                                " planned_output_fps=" + std::to_string(outputFps) +
+                                " refresh_hz=" + std::to_string(refresh);
             // Only meaningful while frames are generated: with frame generation
             // off (menus) every real frame is shown as is.
             if (outputFps > refresh * 1.02 && m_rate_window_generated > 0) {
@@ -1195,13 +1253,15 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
                          " fps (set [fg] target_fps = \"auto\")";
                 if (!m_schedule.adaptive()) rates += " or use multiplier = \"adaptive\"";
             }
-            log_event(1, "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +
-                " skipped=" + std::to_string(m_skipped_generates) +
-                " backpressure_waits=" + std::to_string(m_backpressure_waits) + "/" +
-                std::to_string(m_backpressure_samples) +
-                " backpressure_ms{avg=" + std::to_string(m_backpressure_waits ? m_backpressure_sum / m_backpressure_waits : 0.0) +
-                " max=" + std::to_string(m_backpressure_max) + "}");
-        } catch (...) {}
+            log_event(1,
+                      "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +
+                          " skipped=" + std::to_string(m_skipped_generates) +
+                          " backpressure_waits=" + std::to_string(m_backpressure_waits) + "/" +
+                          std::to_string(m_backpressure_samples) + " backpressure_ms{avg=" +
+                          std::to_string(m_backpressure_waits ? m_backpressure_sum / m_backpressure_waits : 0.0) +
+                          " max=" + std::to_string(m_backpressure_max) + "}");
+        } catch (...) {
+        }
         m_backpressure_samples = m_backpressure_waits = 0;
         m_backpressure_sum = m_backpressure_max = 0.0;
         m_rate_window_start = now;
@@ -1209,23 +1269,27 @@ HRESULT Swapchain::present_async(UINT sync, UINT flags, const DXGI_PRESENT_PARAM
         m_rate_window_generated = 0;
     }
     return previous;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
 HRESULT STDMETHODCALLTYPE Swapchain::QueryInterface(REFIID iid, void** result)
 {
     if (!result) return E_POINTER;
     *result = nullptr;
     if (iid == __uuidof(IUnknown) || iid == __uuidof(IDXGIObject) || iid == __uuidof(IDXGIDeviceSubObject) ||
-        iid == __uuidof(IDXGISwapChain) || iid == __uuidof(IDXGISwapChain1) ||
-        iid == __uuidof(IDXGISwapChain2) || iid == __uuidof(IDXGISwapChain3) || iid == __uuidof(IDXGISwapChain4)) {
+        iid == __uuidof(IDXGISwapChain) || iid == __uuidof(IDXGISwapChain1) || iid == __uuidof(IDXGISwapChain2) ||
+        iid == __uuidof(IDXGISwapChain3) || iid == __uuidof(IDXGISwapChain4)) {
         *result = static_cast<IDXGISwapChain4*>(this);
         AddRef();
         return S_OK;
     }
     return E_NOINTERFACE; // Never leak native identity through QueryInterface.
 }
-ULONG STDMETHODCALLTYPE Swapchain::AddRef() { return ++m_refs; }
+ULONG STDMETHODCALLTYPE Swapchain::AddRef()
+{
+    return ++m_refs;
+}
 ULONG STDMETHODCALLTYPE Swapchain::Release()
 {
     const ULONG refs = --m_refs;
@@ -1240,7 +1304,10 @@ ULONG STDMETHODCALLTYPE Swapchain::Release()
     return refs;
 }
 
-HRESULT STDMETHODCALLTYPE Swapchain::Present(UINT sync, UINT flags) { return present(sync, flags, nullptr); }
+HRESULT STDMETHODCALLTYPE Swapchain::Present(UINT sync, UINT flags)
+{
+    return present(sync, flags, nullptr);
+}
 HRESULT STDMETHODCALLTYPE Swapchain::Present1(UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params)
 {
     if (!params) return DXGI_ERROR_INVALID_CALL;
@@ -1254,10 +1321,14 @@ HRESULT STDMETHODCALLTYPE Swapchain::GetBuffer(UINT index, REFIID iid, void** re
     if (index >= m_buffers.size()) return DXGI_ERROR_INVALID_CALL;
     return m_buffers[index]->QueryInterface(iid, result);
 }
-UINT STDMETHODCALLTYPE Swapchain::GetCurrentBackBufferIndex() { std::lock_guard lock(m_mutex); return m_game_index; }
+UINT STDMETHODCALLTYPE Swapchain::GetCurrentBackBufferIndex()
+{
+    std::lock_guard lock(m_mutex);
+    return m_game_index;
+}
 
-HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
-                          const UINT* masks, IUnknown* const* queues, bool version1) noexcept
+HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags, const UINT* masks,
+                          IUnknown* const* queues, bool version1) noexcept
 {
     std::lock_guard lock(m_mutex);
     if (format != DXGI_FORMAT_UNKNOWN && !supported_color_format(format)) return DXGI_ERROR_UNSUPPORTED;
@@ -1296,37 +1367,46 @@ HRESULT Swapchain::resize(UINT count, UINT width, UINT height, DXGI_FORMAT forma
     return hr;
 }
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags)
-{ return resize(n, w, h, f, flags, nullptr, nullptr, false); }
+{
+    return resize(n, w, h, f, flags, nullptr, nullptr, false);
+}
 HRESULT STDMETHODCALLTYPE Swapchain::ResizeBuffers1(UINT n, UINT w, UINT h, DXGI_FORMAT f, UINT flags,
-    const UINT* masks, IUnknown* const* queues) { return resize(n, w, h, f, flags, masks, queues, true); }
+                                                    const UINT* masks, IUnknown* const* queues)
+{
+    return resize(n, w, h, f, flags, masks, queues, true);
+}
 
-#define FORWARD_HR(name, args, call) HRESULT STDMETHODCALLTYPE Swapchain::name args { return m_native->name call; }
+#define FORWARD_HR(name, args, call)                                                                               \
+    HRESULT STDMETHODCALLTYPE Swapchain::name args                                                                 \
+    {                                                                                                              \
+        return m_native->name call;                                                                                \
+    }
 FORWARD_HR(SetPrivateData, (REFGUID n, UINT s, const void* d), (n, s, d))
 FORWARD_HR(SetPrivateDataInterface, (REFGUID n, const IUnknown* v), (n, v))
 FORWARD_HR(GetPrivateData, (REFGUID n, UINT* s, void* d), (n, s, d))
 FORWARD_HR(GetParent, (REFIID i, void** r), (i, r))
 FORWARD_HR(GetDevice, (REFIID i, void** r), (i, r))
-FORWARD_HR(GetFullscreenState, (BOOL* f, IDXGIOutput** t), (f, t))
-FORWARD_HR(GetDesc, (DXGI_SWAP_CHAIN_DESC* d), (d))
+FORWARD_HR(GetFullscreenState, (BOOL * f, IDXGIOutput** t), (f, t))
+FORWARD_HR(GetDesc, (DXGI_SWAP_CHAIN_DESC * d), (d))
 FORWARD_HR(ResizeTarget, (const DXGI_MODE_DESC* d), (d))
-FORWARD_HR(GetContainingOutput, (IDXGIOutput** o), (o))
-FORWARD_HR(GetFrameStatistics, (DXGI_FRAME_STATISTICS* s), (s))
-FORWARD_HR(GetLastPresentCount, (UINT* c), (c))
-FORWARD_HR(GetDesc1, (DXGI_SWAP_CHAIN_DESC1* d), (d))
-FORWARD_HR(GetFullscreenDesc, (DXGI_SWAP_CHAIN_FULLSCREEN_DESC* d), (d))
-FORWARD_HR(GetHwnd, (HWND* h), (h))
+FORWARD_HR(GetContainingOutput, (IDXGIOutput * *o), (o))
+FORWARD_HR(GetFrameStatistics, (DXGI_FRAME_STATISTICS * s), (s))
+FORWARD_HR(GetLastPresentCount, (UINT * c), (c))
+FORWARD_HR(GetDesc1, (DXGI_SWAP_CHAIN_DESC1 * d), (d))
+FORWARD_HR(GetFullscreenDesc, (DXGI_SWAP_CHAIN_FULLSCREEN_DESC * d), (d))
+FORWARD_HR(GetHwnd, (HWND * h), (h))
 FORWARD_HR(GetCoreWindow, (REFIID i, void** r), (i, r))
-FORWARD_HR(GetRestrictToOutput, (IDXGIOutput** o), (o))
+FORWARD_HR(GetRestrictToOutput, (IDXGIOutput * *o), (o))
 FORWARD_HR(SetBackgroundColor, (const DXGI_RGBA* c), (c))
-FORWARD_HR(GetBackgroundColor, (DXGI_RGBA* c), (c))
+FORWARD_HR(GetBackgroundColor, (DXGI_RGBA * c), (c))
 FORWARD_HR(SetRotation, (DXGI_MODE_ROTATION r), (r))
-FORWARD_HR(GetRotation, (DXGI_MODE_ROTATION* r), (r))
+FORWARD_HR(GetRotation, (DXGI_MODE_ROTATION * r), (r))
 FORWARD_HR(SetSourceSize, (UINT w, UINT h), (w, h))
-FORWARD_HR(GetSourceSize, (UINT* w, UINT* h), (w, h))
+FORWARD_HR(GetSourceSize, (UINT * w, UINT* h), (w, h))
 FORWARD_HR(SetMaximumFrameLatency, (UINT l), (l))
-FORWARD_HR(GetMaximumFrameLatency, (UINT* l), (l))
+FORWARD_HR(GetMaximumFrameLatency, (UINT * l), (l))
 FORWARD_HR(SetMatrixTransform, (const DXGI_MATRIX_3X2_F* m), (m))
-FORWARD_HR(GetMatrixTransform, (DXGI_MATRIX_3X2_F* m), (m))
+FORWARD_HR(GetMatrixTransform, (DXGI_MATRIX_3X2_F * m), (m))
 FORWARD_HR(CheckColorSpaceSupport, (DXGI_COLOR_SPACE_TYPE c, UINT* s), (c, s))
 FORWARD_HR(SetColorSpace1, (DXGI_COLOR_SPACE_TYPE c), (c))
 FORWARD_HR(SetHDRMetaData, (DXGI_HDR_METADATA_TYPE t, UINT s, void* d), (t, s, d))
@@ -1338,7 +1418,13 @@ HRESULT STDMETHODCALLTYPE Swapchain::SetFullscreenState(BOOL fullscreen, IDXGIOu
     if (m_presenter) (void)drain();
     return m_native->SetFullscreenState(fullscreen, target);
 }
-BOOL STDMETHODCALLTYPE Swapchain::IsTemporaryMonoSupported() { return m_native->IsTemporaryMonoSupported(); }
-HANDLE STDMETHODCALLTYPE Swapchain::GetFrameLatencyWaitableObject() { return m_native->GetFrameLatencyWaitableObject(); }
+BOOL STDMETHODCALLTYPE Swapchain::IsTemporaryMonoSupported()
+{
+    return m_native->IsTemporaryMonoSupported();
+}
+HANDLE STDMETHODCALLTYPE Swapchain::GetFrameLatencyWaitableObject()
+{
+    return m_native->GetFrameLatencyWaitableObject();
+}
 
 } // namespace sedici::fg

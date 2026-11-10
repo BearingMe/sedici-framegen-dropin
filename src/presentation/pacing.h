@@ -16,17 +16,17 @@ namespace sedici::fg {
 double ticks_to_seconds(uint64_t ticks, uint64_t frequency) noexcept;
 
 struct PacingInput {
-    double now = 0.0;              // seconds, monotonic
-    double lastCycle = 0.0;        // previous wrapper entry, never a delayed submission
-    double interval = 1.0 / 60.0;  // smoothed game frame interval, seconds
-    bool cycleStarted = false;     // false before the first real Present
-    bool generatedReady = false;   // a midpoint exists and is still current
+    double now = 0.0;             // seconds, monotonic
+    double lastCycle = 0.0;       // previous wrapper entry, never a delayed submission
+    double interval = 1.0 / 60.0; // smoothed game frame interval, seconds
+    bool cycleStarted = false;    // false before the first real Present
+    bool generatedReady = false;  // a midpoint exists and is still current
 };
 
 struct PacingOutput {
     bool presentGenerated = false;
-    double firstWait = 0.0;   // seconds before the first present of this cycle
-    double secondWait = 0.0;  // seconds between the generated and real present
+    double firstWait = 0.0;    // seconds before the first present of this cycle
+    double secondWait = 0.0;   // seconds between the generated and real present
     double realDeadline = 0.0; // absolute deadline anchored at wrapper entry
 };
 
@@ -72,7 +72,7 @@ struct PacingState {
 constexpr uint32_t kMaxPlannedOutputs = 3; // at most 2 generated + the real frame
 
 struct PlannedOutput {
-    float alpha = 1.0f;   // (0, 1); 1 means the real frame itself
+    float alpha = 1.0f; // (0, 1); 1 means the real frame itself
     bool real = true;
     double content = 0.0; // seconds on the entry clock
 };
@@ -109,11 +109,11 @@ private:
     double m_target = 0.0;
     bool m_started = false;
     double m_previous = 0.0;
-    uint32_t m_index = 0;      // fixed: real frames into the current pattern, 1..denominator
-    double m_next_slot = 0.0;  // adaptive: content time of the next grid point
-    double m_interval = 0.0;   // recent real-frame interval, for hitch detection
+    uint32_t m_index = 0;       // fixed: real frames into the current pattern, 1..denominator
+    double m_next_slot = 0.0;   // adaptive: content time of the next grid point
+    double m_interval = 0.0;    // recent real-frame interval, for hitch detection
     double m_last_sample = 0.0; // previous real-frame interval, for the two-sample mean
-    bool m_slow = false;       // smoothed rate below ~20 fps: real frames only (hysteresis)
+    bool m_slow = false;        // smoothed rate below ~20 fps: real frames only (hysteresis)
 };
 
 } // namespace sedici::fg

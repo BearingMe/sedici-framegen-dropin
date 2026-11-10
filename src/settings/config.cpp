@@ -123,28 +123,38 @@ std::string format_number(double value)
 std::string narrow(const std::wstring& text)
 {
     if (text.empty()) return {};
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                                           nullptr, 0, nullptr, nullptr);
+    const int length =
+        WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
     if (length <= 0) return {};
     std::string out(static_cast<size_t>(length), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                        out.data(), length, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), length, nullptr,
+                        nullptr);
     return out;
 }
 
 const char* type_name(toml::node_type type) noexcept
 {
     switch (type) {
-    case toml::node_type::none: return "nothing";
-    case toml::node_type::table: return "a table";
-    case toml::node_type::array: return "an array";
-    case toml::node_type::string: return "a string";
-    case toml::node_type::integer: return "an integer";
-    case toml::node_type::floating_point: return "a float";
-    case toml::node_type::boolean: return "a boolean";
-    case toml::node_type::date: return "a date";
-    case toml::node_type::time: return "a time";
-    case toml::node_type::date_time: return "a date-time";
+    case toml::node_type::none:
+        return "nothing";
+    case toml::node_type::table:
+        return "a table";
+    case toml::node_type::array:
+        return "an array";
+    case toml::node_type::string:
+        return "a string";
+    case toml::node_type::integer:
+        return "an integer";
+    case toml::node_type::floating_point:
+        return "a float";
+    case toml::node_type::boolean:
+        return "a boolean";
+    case toml::node_type::date:
+        return "a date";
+    case toml::node_type::time:
+        return "a time";
+    case toml::node_type::date_time:
+        return "a date-time";
     }
     return "an unknown type";
 }
@@ -160,8 +170,8 @@ std::string position_of(const node& where)
 }
 
 // Records a per-key problem. The caller has already decided to fall back.
-void problem_at(std::vector<std::string>& problems, const node& where,
-                std::string_view key, const std::string& message)
+void problem_at(std::vector<std::string>& problems, const node& where, std::string_view key,
+                const std::string& message)
 {
     std::ostringstream line;
     line << "sedici.toml";
@@ -243,8 +253,8 @@ void check_section(const toml::table& root, std::string_view name, std::vector<s
     const node* section = root[name].node();
     if (!section || section->is_table()) return;
     problem_at(problems, *section, name,
-               std::string("expected a table, got ") + type_name(section->type()) +
-                   " - ignoring the whole [" + std::string(name) + "] section");
+               std::string("expected a table, got ") + type_name(section->type()) + " - ignoring the whole [" +
+                   std::string(name) + "] section");
 }
 
 // ---------------------------------------------------------------------------
@@ -253,39 +263,52 @@ void check_section(const toml::table& root, std::string_view name, std::vector<s
 
 void note_removed_keys(const toml::table& root, std::vector<std::string>& notes);
 void note_unknown_keys(const toml::table& root, std::vector<std::string>& problems);
-void read_fg(const toml::table& root, FrameGenerationSettings& fg,
-             std::vector<std::string>& problems);
+void read_fg(const toml::table& root, FrameGenerationSettings& fg, std::vector<std::string>& problems);
 
 // "vblank" is the name finding 008 shipped with; it still selects vsync.
 bool parse_present(std::string_view text, FrameGenerationSettings::Present& out) noexcept
 {
     using Present = FrameGenerationSettings::Present;
-    if (iequals(text, "vsync") || iequals(text, "vblank")) out = Present::Vsync;
-    else if (iequals(text, "vrr")) out = Present::Vrr;
-    else if (iequals(text, "game")) out = Present::Game;
-    else return false;
+    if (iequals(text, "vsync") || iequals(text, "vblank"))
+        out = Present::Vsync;
+    else if (iequals(text, "vrr"))
+        out = Present::Vrr;
+    else if (iequals(text, "game"))
+        out = Present::Game;
+    else
+        return false;
     return true;
 }
 
 bool parse_multiplier(std::string_view text, FrameGenerationSettings::Multiplier& out) noexcept
 {
     using Multiplier = FrameGenerationSettings::Multiplier;
-    if (iequals(text, "2x") || iequals(text, "2")) out = Multiplier::X2;
-    else if (iequals(text, "1.75x") || iequals(text, "1.75")) out = Multiplier::X1_75;
-    else if (iequals(text, "1.5x") || iequals(text, "1.5")) out = Multiplier::X1_5;
-    else if (iequals(text, "1.25x") || iequals(text, "1.25")) out = Multiplier::X1_25;
-    else if (iequals(text, "adaptive")) out = Multiplier::Adaptive;
-    else return false;
+    if (iequals(text, "2x") || iequals(text, "2"))
+        out = Multiplier::X2;
+    else if (iequals(text, "1.75x") || iequals(text, "1.75"))
+        out = Multiplier::X1_75;
+    else if (iequals(text, "1.5x") || iequals(text, "1.5"))
+        out = Multiplier::X1_5;
+    else if (iequals(text, "1.25x") || iequals(text, "1.25"))
+        out = Multiplier::X1_25;
+    else if (iequals(text, "adaptive"))
+        out = Multiplier::Adaptive;
+    else
+        return false;
     return true;
 }
 
 bool parse_tear_guard(std::string_view text, FrameGenerationSettings::TearGuard& out) noexcept
 {
     using TearGuard = FrameGenerationSettings::TearGuard;
-    if (iequals(text, "scanline")) out = TearGuard::Scanline;
-    else if (iequals(text, "timer")) out = TearGuard::Timer;
-    else if (iequals(text, "off")) out = TearGuard::Off;
-    else return false;
+    if (iequals(text, "scanline"))
+        out = TearGuard::Scanline;
+    else if (iequals(text, "timer"))
+        out = TearGuard::Timer;
+    else if (iequals(text, "off"))
+        out = TearGuard::Off;
+    else
+        return false;
     return true;
 }
 
@@ -297,8 +320,7 @@ void read_ui(const toml::table& root, UiSettings& ui, std::vector<std::string>& 
 //
 // The parsed table lives in this frame for the whole call, so the per-key
 // readers can safely hold views into it.
-void load_from_file(Settings& config, std::vector<std::string>& problems,
-                    std::vector<std::string>& notes)
+void load_from_file(Settings& config, std::vector<std::string>& problems, std::vector<std::string>& notes)
 {
     const std::filesystem::path directory = dll_directory();
     if (directory.empty()) return;
@@ -314,8 +336,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
     {
         std::ifstream stream(file, std::ios::binary);
         if (!stream) {
-            problem_plain(problems,
-                          "could not be opened for reading - using built-in defaults for every key");
+            problem_plain(problems, "could not be opened for reading - using built-in defaults for every key");
             return;
         }
         text.assign(std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{});
@@ -329,8 +350,7 @@ void load_from_file(Settings& config, std::vector<std::string>& problems,
         const toml::parse_error& error = result.error();
         std::ostringstream line;
         line << "sedici.toml:" << error.source().begin.line << ':' << error.source().begin.column
-             << ": parse error: " << error.description()
-             << " - using built-in defaults for every key";
+             << ": parse error: " << error.description() << " - using built-in defaults for every key";
         problems.push_back(line.str());
         return;
     }
@@ -372,7 +392,10 @@ void note_removed_keys(const toml::table& root, std::vector<std::string>& notes)
 // not silently ignored. Removed forwarding-era keys have their own note.
 void note_unknown_keys(const toml::table& root, std::vector<std::string>& problems)
 {
-    struct Known { std::string_view section; std::vector<std::string_view> keys; };
+    struct Known {
+        std::string_view section;
+        std::vector<std::string_view> keys;
+    };
     static const Known known[] = {
         {"fg", {"present", "multiplier", "target_fps", "tear_guard", "mode"}},
         {"limiter", {"fps", "spin_us"}},
@@ -407,8 +430,7 @@ void note_unknown_keys(const toml::table& root, std::vector<std::string>& proble
     }
 }
 
-void read_fg(const toml::table& root, FrameGenerationSettings& fg,
-             std::vector<std::string>& problems)
+void read_fg(const toml::table& root, FrameGenerationSettings& fg, std::vector<std::string>& problems)
 {
     check_section(root, "fg", problems);
 
@@ -419,8 +441,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
         break;
     case Read::WrongType:
         problem_at(problems, *entry, "fg.present",
-                   std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"vrr\"");
+                   std::string("expected a string, got ") + type_name(entry->type()) + " - using default \"vrr\"");
         break;
     case Read::Ok:
         if (FrameGenerationSettings::Present parsed{}; parse_present(value, parsed)) {
@@ -440,8 +461,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
         break;
     case Read::WrongType:
         problem_at(problems, *entry, "fg.multiplier",
-                   std::string("expected a string, got ") + type_name(entry->type()) +
-                       " - using default \"2x\"");
+                   std::string("expected a string, got ") + type_name(entry->type()) + " - using default \"2x\"");
         break;
     case Read::Ok:
         if (FrameGenerationSettings::Multiplier parsed{}; parse_multiplier(value, parsed)) {
@@ -511,8 +531,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg,
     }
 }
 
-void read_limiter(const toml::table& root, Settings& config,
-                  std::vector<std::string>& problems)
+void read_limiter(const toml::table& root, Settings& config, std::vector<std::string>& problems)
 {
     LimiterSettings& limiter = config.limiter;
     check_section(root, "limiter", problems);
@@ -530,8 +549,7 @@ void read_limiter(const toml::table& root, Settings& config,
             break;
         case Read::Ok:
             if (!std::isfinite(value) || value < 0.0 || value > 1000.0) {
-                problem_at(problems, *entry, "limiter.fps",
-                           "must be within [0, 1000] (0 = off) - ignored");
+                problem_at(problems, *entry, "limiter.fps", "must be within [0, 1000] (0 = off) - ignored");
             } else {
                 config.legacy_limiter_fps = value;
                 config.legacy_limiter_source = Source::File;
@@ -576,13 +594,11 @@ void read_log(const toml::table& root, LogSettings& log, std::vector<std::string
         break;
     case Read::WrongType:
         problem_at(problems, *entry, "log.level",
-                   std::string("expected an integer, got ") + type_name(entry->type()) +
-                       " - using default 1");
+                   std::string("expected an integer, got ") + type_name(entry->type()) + " - using default 1");
         break;
     case Read::Ok:
         if (value < 0 || value > 2) {
-            problem_at(problems, *entry, "log.level",
-                       "must be 0, 1 or 2 - using default 1");
+            problem_at(problems, *entry, "log.level", "must be 0, 1 or 2 - using default 1");
         } else {
             log.level = static_cast<int>(value);
             log.level_source = Source::File;
@@ -615,8 +631,7 @@ bool valid_hotkey(std::string_view text) noexcept
                 }
                 if (number < 1 || number > 12) return false;
             } else if (part.size() != 1 ||
-                       !((part[0] >= 'a' && part[0] <= 'z') ||
-                         (part[0] >= '0' && part[0] <= '9'))) {
+                       !((part[0] >= 'a' && part[0] <= 'z') || (part[0] >= '0' && part[0] <= '9'))) {
                 return false;
             }
             has_key = true;
@@ -701,8 +716,8 @@ void read_ui(const toml::table& root, UiSettings& ui, std::vector<std::string>& 
                     }
                 } else {
                     problem_at(problems, *entry, "ui.scale",
-                               std::string("expected \"auto\" or a number, got ") +
-                                   type_name(entry->type()) + " - using default \"auto\"");
+                               std::string("expected \"auto\" or a number, got ") + type_name(entry->type()) +
+                                   " - using default \"auto\"");
                 }
             }
         }
@@ -808,8 +823,7 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
             config.log.level = value[0] - '0';
             config.log.level_source = Source::Env;
         } else {
-            problems.push_back("MFSRFG_LOG=\"" + value +
-                               "\": expected 0, 1 or 2 - override ignored");
+            problems.push_back("MFSRFG_LOG=\"" + value + "\": expected 0, 1 or 2 - override ignored");
         }
     }
 }
@@ -825,11 +839,16 @@ double nominal_output_ratio(const FrameGenerationSettings& fg) noexcept
     using M = FrameGenerationSettings::Multiplier;
     if (fg.present != FrameGenerationSettings::Present::Vrr) return 2.0;
     switch (fg.multiplier) {
-    case M::X1_75: return 1.75;
-    case M::X1_5: return 1.5;
-    case M::X1_25: return 1.25;
-    case M::Adaptive: return 1.0;
-    case M::X2: break;
+    case M::X1_75:
+        return 1.75;
+    case M::X1_5:
+        return 1.5;
+    case M::X1_25:
+        return 1.25;
+    case M::Adaptive:
+        return 1.0;
+    case M::X2:
+        break;
     }
     return 2.0;
 }
@@ -842,15 +861,16 @@ void finalize_target(Settings& config, std::vector<std::string>& notes)
     if (config.legacy_limiter_fps >= 0.0) {
         const bool legacyEnv = config.legacy_limiter_source == Source::Env;
         const char* name = legacyEnv ? "SEDICI_LIMIT_FPS" : "limiter.fps";
-        const bool wins = legacyEnv ? fg.target_fps_source != Source::Env
-                                    : fg.target_fps_source == Source::Default;
+        const bool wins = legacyEnv ? fg.target_fps_source != Source::Env : fg.target_fps_source == Source::Default;
         if (wins) {
             const double ratio = nominal_output_ratio(fg);
             fg.target_fps = legacy_limiter_to_target(config.legacy_limiter_fps, ratio);
             fg.target_auto = false;
             fg.target_fps_source = config.legacy_limiter_source;
-            notes.push_back(std::string("sedici: ") + name + " is deprecated (it capped real frames); read as "
-                            "fg.target_fps = " + format_number(fg.target_fps) + " output fps (" +
+            notes.push_back(std::string("sedici: ") + name +
+                            " is deprecated (it capped real frames); read as "
+                            "fg.target_fps = " +
+                            format_number(fg.target_fps) + " output fps (" +
                             format_number(config.legacy_limiter_fps) + " x " + format_number(ratio) +
                             "). Use fg.target_fps, a number or \"auto\"");
         } else {
@@ -861,11 +881,10 @@ void finalize_target(Settings& config, std::vector<std::string>& notes)
         const double cap = fg.target_fps / nominal_output_ratio(fg);
         const long interval_us = std::lround(1000000.0 / cap);
         if (static_cast<double>(config.limiter.spin_us) >= static_cast<double>(interval_us)) {
-            notes.push_back(
-                "sedici.toml: limiter.spin_us: " + std::to_string(config.limiter.spin_us) +
-                " us is not shorter than the " + std::to_string(interval_us) +
-                " us frame interval; the timer wait is skipped and the limiter spins for the "
-                "whole wait");
+            notes.push_back("sedici.toml: limiter.spin_us: " + std::to_string(config.limiter.spin_us) +
+                            " us is not shorter than the " + std::to_string(interval_us) +
+                            " us frame interval; the timer wait is skipped and the limiter spins for the "
+                            "whole wait");
         }
     }
 }
@@ -909,22 +928,19 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
     };
 
     const std::vector<Row> rows = {
-        {"fg.present", std::string("\"") + present_name(config.fg.present) + "\"",
-         config.fg.present_source},
+        {"fg.present", std::string("\"") + present_name(config.fg.present) + "\"", config.fg.present_source},
         {"fg.tear_guard", std::string("\"") + tear_guard_name(config.fg.tear_guard) + "\"",
          config.fg.tear_guard_source},
         {"fg.multiplier", std::string("\"") + multiplier_name(config.fg.multiplier) + "\"",
          config.fg.multiplier_source},
         {"fg.target_fps", target_text(config.fg), config.fg.target_fps_source},
-        {"limiter.spin_us", std::to_string(config.limiter.spin_us),
-         config.limiter.spin_us_source},
+        {"limiter.spin_us", std::to_string(config.limiter.spin_us), config.limiter.spin_us_source},
         {"ui.mode",
-         config.ui.mode == UiMode::Mini ? "\"mini\""
+         config.ui.mode == UiMode::Mini   ? "\"mini\""
          : config.ui.mode == UiMode::Full ? "\"full\""
                                           : "\"off\"",
          config.ui.mode_source},
-        {"ui.scale",
-         config.ui.scale_mode == UiScaleMode::Auto ? "\"auto\"" : format_number(config.ui.scale),
+        {"ui.scale", config.ui.scale_mode == UiScaleMode::Auto ? "\"auto\"" : format_number(config.ui.scale),
          config.ui.scale_source},
         {"ui.hotkey", "\"" + config.ui.hotkey + "\"", config.ui.hotkey_source},
         {"log.level", std::to_string(config.log.level), config.log.level_source},
@@ -935,15 +951,13 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
 
     for (const Row& row : rows) {
         std::ostringstream line;
-        line << "sedici:   " << std::left << std::setw(static_cast<int>(width) + 2) << row.key
-             << "= " << row.value;
+        line << "sedici:   " << std::left << std::setw(static_cast<int>(width) + 2) << row.key << "= " << row.value;
         line << " [" << source_name(row.source) << ']';
         log_raw(line.str());
     }
 
     // K101: which build wrote this log. A game-side sedici.log can mix builds.
-    log_raw(std::string("sedici: build ") + __DATE__ + " " + __TIME__ +
-            " (config.cpp compiled; SEDICI_PROXY_V1)");
+    log_raw(std::string("sedici: build ") + __DATE__ + " " + __TIME__ + " (config.cpp compiled; SEDICI_PROXY_V1)");
 
     // One line that answers the only question that matters when reading a log
     // from a play session: is the fix on, and is anything being rewritten?
@@ -953,8 +967,8 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
         effective << "auto (floor(Hz - Hz^2/3600) of the monitor, uncapped if unknown; spin "
                   << config.limiter.spin_us << " us)";
     } else if (config.fg.target_fps > 0.0) {
-        effective << format_number(config.fg.target_fps) << " output fps (spin "
-                  << config.limiter.spin_us << " us)";
+        effective << format_number(config.fg.target_fps) << " output fps (spin " << config.limiter.spin_us
+                  << " us)";
     } else {
         effective << "uncapped";
     }
@@ -966,9 +980,12 @@ void log_settings(const Settings& config, const std::vector<std::string>& proble
 const char* present_name(FrameGenerationSettings::Present present) noexcept
 {
     switch (present) {
-    case FrameGenerationSettings::Present::Game: return "game";
-    case FrameGenerationSettings::Present::Vrr: return "vrr";
-    case FrameGenerationSettings::Present::Vsync: break;
+    case FrameGenerationSettings::Present::Game:
+        return "game";
+    case FrameGenerationSettings::Present::Vrr:
+        return "vrr";
+    case FrameGenerationSettings::Present::Vsync:
+        break;
     }
     return "vsync";
 }
@@ -976,9 +993,12 @@ const char* present_name(FrameGenerationSettings::Present present) noexcept
 const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept
 {
     switch (guard) {
-    case FrameGenerationSettings::TearGuard::Timer: return "timer";
-    case FrameGenerationSettings::TearGuard::Off: return "off";
-    case FrameGenerationSettings::TearGuard::Scanline: break;
+    case FrameGenerationSettings::TearGuard::Timer:
+        return "timer";
+    case FrameGenerationSettings::TearGuard::Off:
+        return "off";
+    case FrameGenerationSettings::TearGuard::Scanline:
+        break;
     }
     return "scanline";
 }
@@ -986,11 +1006,16 @@ const char* tear_guard_name(FrameGenerationSettings::TearGuard guard) noexcept
 const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noexcept
 {
     switch (multiplier) {
-    case FrameGenerationSettings::Multiplier::X1_75: return "1.75x";
-    case FrameGenerationSettings::Multiplier::X1_5: return "1.5x";
-    case FrameGenerationSettings::Multiplier::X1_25: return "1.25x";
-    case FrameGenerationSettings::Multiplier::Adaptive: return "adaptive";
-    case FrameGenerationSettings::Multiplier::X2: break;
+    case FrameGenerationSettings::Multiplier::X1_75:
+        return "1.75x";
+    case FrameGenerationSettings::Multiplier::X1_5:
+        return "1.5x";
+    case FrameGenerationSettings::Multiplier::X1_25:
+        return "1.25x";
+    case FrameGenerationSettings::Multiplier::Adaptive:
+        return "adaptive";
+    case FrameGenerationSettings::Multiplier::X2:
+        break;
     }
     return "2x";
 }
@@ -998,9 +1023,12 @@ const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noex
 const char* source_name(Source source) noexcept
 {
     switch (source) {
-    case Source::File: return "file";
-    case Source::Env: return "env";
-    case Source::Default: break;
+    case Source::File:
+        return "file";
+    case Source::Env:
+        return "env";
+    case Source::Default:
+        break;
     }
     return "default";
 }
@@ -1019,9 +1047,8 @@ const Settings& settings() noexcept
         } catch (...) {
             // A parse or allocation failure must never reach the game. Anything
             // already applied stays; the rest stays at its default.
-            problems.push_back(
-                "sedici: internal error while reading the configuration - using built-in "
-                "defaults for every key that was not already read");
+            problems.push_back("sedici: internal error while reading the configuration - using built-in "
+                               "defaults for every key that was not already read");
         }
 
         // log_raw() bypasses the level filter and, crucially, cannot call back

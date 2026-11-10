@@ -30,17 +30,28 @@ enum class ErrorCode : uint16_t {
 inline const char* error_code_name(ErrorCode code) noexcept
 {
     switch (code) {
-    case ErrorCode::StaleHandle: return "E_STALE_HANDLE";
-    case ErrorCode::NullDescriptor: return "E_NULL_DESCRIPTOR";
-    case ErrorCode::InvalidDescriptor: return "E_INVALID_DESCRIPTOR";
-    case ErrorCode::Unsupported: return "E_UNSUPPORTED";
-    case ErrorCode::NamespaceExhausted: return "E_NAMESPACE";
-    case ErrorCode::Allocation: return "E_ALLOCATION";
-    case ErrorCode::WrapFailed: return "E_WRAP_FAILED";
-    case ErrorCode::NotRetired: return "E_NOT_RETIRED";
-    case ErrorCode::SlotBusy: return "E_SLOT_BUSY";
-    case ErrorCode::RetirementTimeout: return "E_RETIREMENT_TIMEOUT";
-    case ErrorCode::Rejected: break;
+    case ErrorCode::StaleHandle:
+        return "E_STALE_HANDLE";
+    case ErrorCode::NullDescriptor:
+        return "E_NULL_DESCRIPTOR";
+    case ErrorCode::InvalidDescriptor:
+        return "E_INVALID_DESCRIPTOR";
+    case ErrorCode::Unsupported:
+        return "E_UNSUPPORTED";
+    case ErrorCode::NamespaceExhausted:
+        return "E_NAMESPACE";
+    case ErrorCode::Allocation:
+        return "E_ALLOCATION";
+    case ErrorCode::WrapFailed:
+        return "E_WRAP_FAILED";
+    case ErrorCode::NotRetired:
+        return "E_NOT_RETIRED";
+    case ErrorCode::SlotBusy:
+        return "E_SLOT_BUSY";
+    case ErrorCode::RetirementTimeout:
+        return "E_RETIREMENT_TIMEOUT";
+    case ErrorCode::Rejected:
+        break;
     }
     return "E_REJECTED";
 }
@@ -48,7 +59,10 @@ inline const char* error_code_name(ErrorCode code) noexcept
 // Order matters: the first matching fragment wins.
 inline ErrorCode classify_reason(std::string_view reason) noexcept
 {
-    struct Rule { std::string_view fragment; ErrorCode code; };
+    struct Rule {
+        std::string_view fragment;
+        ErrorCode code;
+    };
     static constexpr Rule rules[] = {
         {"destroy before GPU retirement", ErrorCode::NotRetired},
         {"retirement timed out", ErrorCode::RetirementTimeout},

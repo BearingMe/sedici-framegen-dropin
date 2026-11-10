@@ -10,13 +10,14 @@ constexpr float kMinScale = 1.0f / 65536.0f;
 
 bool valid(const FrameParams& params) noexcept
 {
-    if (params.colorFormat != DXGI_FORMAT_R8G8B8A8_UNORM &&
-        params.colorFormat != DXGI_FORMAT_R10G10B10A2_UNORM) return false;
+    if (params.colorFormat != DXGI_FORMAT_R8G8B8A8_UNORM && params.colorFormat != DXGI_FORMAT_R10G10B10A2_UNORM)
+        return false;
     if (params.renderWidth == 0 || params.renderHeight == 0) return false;
     if (params.displayWidth == 0 || params.displayHeight == 0) return false;
     if (!(params.alpha > 0.0f && params.alpha < 1.0f)) return false;
     if (!std::isfinite(params.motionVectorScaleX) || !std::isfinite(params.motionVectorScaleY)) return false;
-    if (std::abs(params.motionVectorScaleX) < kMinScale || std::abs(params.motionVectorScaleY) < kMinScale) return false;
+    if (std::abs(params.motionVectorScaleX) < kMinScale || std::abs(params.motionVectorScaleY) < kMinScale)
+        return false;
     if (!std::isfinite(params.depthThreshold) || params.depthThreshold <= 0.0f) return false;
     if (!std::isfinite(params.colorThreshold) || params.colorThreshold < 0.0f) return false;
     if (params.displayWidth < params.renderWidth || params.displayHeight < params.renderHeight) return false;

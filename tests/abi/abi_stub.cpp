@@ -56,7 +56,8 @@ ffxReturnCode_t ffxConfigure(ffxContext* context, const ffxConfigureDescHeader* 
     record(StubConfigure, context, desc, nullptr);
     for (const ffxApiHeader* item = desc; item; item = item->pNext) {
         if (item->type == FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12) {
-            const auto* keyValue = reinterpret_cast<const ffxConfigureDescFrameGenerationSwapChainKeyValueDX12*>(item);
+            const auto* keyValue =
+                reinterpret_cast<const ffxConfigureDescFrameGenerationSwapChainKeyValueDX12*>(item);
             if (keyValue->key == FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING && keyValue->ptr) {
                 ++g_state.pacingSends;
                 g_state.tuning = *static_cast<const FfxApiSwapchainFramePacingTuning*>(keyValue->ptr);

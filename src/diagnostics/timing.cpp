@@ -31,8 +31,7 @@ void push(Ring& ring, uint64_t qpc) noexcept
 {
     if (!g_frequency) return;
     if (ring.have_last && qpc > ring.last_qpc) {
-        const double ms = static_cast<double>(qpc - ring.last_qpc) * 1000.0 /
-                          static_cast<double>(g_frequency);
+        const double ms = static_cast<double>(qpc - ring.last_qpc) * 1000.0 / static_cast<double>(g_frequency);
         if (ms > 0.0 && ms < 10000.0) {
             ring.samples[ring.head] = static_cast<float>(ms);
             ring.head = (ring.head + 1) % kTimingSamples;

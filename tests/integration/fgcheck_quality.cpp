@@ -19,25 +19,21 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     FrameTextures frames[2];
     for (int index = 0; index < 2; ++index) {
-        frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                             kDisplayWidth, kDisplayHeight,
-                                             D3D12_RESOURCE_FLAG_NONE);
+        frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth,
+                                             kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
         // Match the game's depth-target allocation; FFX describes it as R32_FLOAT.
-        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_D32_FLOAT,
-                                              kRenderWidth, kRenderHeight,
-                                              D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-        frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
-                                              kRenderWidth, kRenderHeight,
-                                              D3D12_RESOURCE_FLAG_NONE);
+        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_D32_FLOAT, kRenderWidth, kRenderHeight,
+                                             D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, kRenderWidth,
+                                              kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
         if (!frames[index].color || !frames[index].depth || !frames[index].motion) {
             std::fprintf(stderr, "input textures failed\n");
             return false;
         }
     }
 
-    const auto output = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                       kDisplayWidth, kDisplayHeight,
-                                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    const auto output = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth,
+                                       kDisplayHeight, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
     if (!output) {
         std::fprintf(stderr, "output texture failed\n");
         return false;
@@ -47,8 +43,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     const uint32_t renderRowPitch = align_to(kRenderWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     const uint64_t colorBytes = static_cast<uint64_t>(colorRowPitch) * kDisplayHeight;
     const uint64_t renderBytes = static_cast<uint64_t>(renderRowPitch) * kRenderHeight;
-    const uint64_t motionBytes = static_cast<uint64_t>(align_to(kRenderWidth * 8,
-        D3D12_TEXTURE_DATA_PITCH_ALIGNMENT)) * kRenderHeight;
+    const uint64_t motionBytes =
+        static_cast<uint64_t>(align_to(kRenderWidth * 8, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT)) * kRenderHeight;
 
     for (int index = 0; index < 2; ++index) {
         const auto& color = index == 0 ? previousColor : currentColor;
@@ -64,17 +60,16 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
         state.allocator->Reset();
         state.list->Reset(state.allocator.Get(), nullptr);
-        upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), color.data(),
-               kDisplayWidth, kDisplayHeight, 4);
-        upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), render.depth.data(),
-               kRenderWidth, kRenderHeight, 4);
-        upload(state.list.Get(), frames[index].motion.Get(), motionStaging.Get(), motion.data(),
-               kRenderWidth, kRenderHeight, 8);
+        upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), color.data(), kDisplayWidth,
+               kDisplayHeight, 4);
+        upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), render.depth.data(), kRenderWidth,
+               kRenderHeight, 4);
+        upload(state.list.Get(), frames[index].motion.Get(), motionStaging.Get(), motion.data(), kRenderWidth,
+               kRenderHeight, 8);
         if (!state.submit()) {
             std::fprintf(stderr, "upload failed\n");
             return false;
         }
-
     }
 
     sedici::fg::Context context;
@@ -112,8 +107,7 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     }
 
     const uint32_t outputRowPitch = align_to(kDisplayWidth * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-    auto readback = create_buffer(state.device.Get(),
-                                  static_cast<uint64_t>(outputRowPitch) * kDisplayHeight,
+    auto readback = create_buffer(state.device.Get(), static_cast<uint64_t>(outputRowPitch) * kDisplayHeight,
                                   D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
 
     D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON;
@@ -122,7 +116,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     for (uint32_t iteration = 0; iteration < kIterations; ++iteration) {
         const uint32_t source = iteration % 2;
-        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+            return false;
         state.list->EndQuery(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
         profile.next = 2;
         profile.names.clear();
@@ -151,8 +146,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         state.list->EndQuery(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
         // Marks are in recording order; the end timestamp is last in time, so resolve
         // the start, the end and the marks as one range.
-        state.list->ResolveQueryData(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, profile.next,
-                                     timings.Get(), 0);
+        state.list->ResolveQueryData(queryHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, profile.next, timings.Get(),
+                                     0);
 
         transition(state.list.Get(), output.Get(), outputState, D3D12_RESOURCE_STATE_COPY_SOURCE);
         outputState = D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -219,18 +214,18 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     const auto reference = quantise(truth.color);
     const double psnrValue = psnr(reference, generated);
     const double ssimValue = ssim(reference, generated, kDisplayWidth, kDisplayHeight);
-    const double milliseconds = measured && frequency
-        ? static_cast<double>(ticks) / measured / static_cast<double>(frequency) * 1000.0
-        : 0.0;
+    const double milliseconds =
+        measured && frequency ? static_cast<double>(ticks) / measured / static_cast<double>(frequency) * 1000.0
+                              : 0.0;
 
-    std::printf("%-18s psnr %6.2f dB  ssim %.4f  stage1 %.3f ms\n",
-                config.name, psnrValue, ssimValue, milliseconds);
+    std::printf("%-18s psnr %6.2f dB  ssim %.4f  stage1 %.3f ms\n", config.name, psnrValue, ssimValue,
+                milliseconds);
     if (g_profile) {
         sedici::fg::stage1_set_pass_mark(nullptr, nullptr);
         std::printf("%-18s passes (ms, time to each pass end):", config.name);
         for (size_t k = 0; k < passTicks.size(); ++k) {
-            const double ms = measured && frequency
-                ? passTicks[k] / measured / static_cast<double>(frequency) * 1000.0 : 0.0;
+            const double ms =
+                measured && frequency ? passTicks[k] / measured / static_cast<double>(frequency) * 1000.0 : 0.0;
             std::printf(" %s %.3f", passNames[k], ms);
         }
         std::printf("\n");
@@ -249,13 +244,13 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     // Each must be closer to the true scene at its time than simply showing the
     // nearer real frame, which a wrong or shared alpha would not be.
     {
-        const auto second = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                           kDisplayWidth, kDisplayHeight,
-                                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        const auto second = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth,
+                                           kDisplayHeight, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         if (!second) return false;
         D3D12_RESOURCE_STATES secondState = D3D12_RESOURCE_STATE_COMMON;
         for (uint32_t step = 0; step < 2; ++step) {
-            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
             ffxConfigureDescFrameGeneration configure{};
             configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
             configure.frameGenerationEnabled = true;
@@ -272,7 +267,7 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             prepare.unused_reset = step == 0;
             if (!context.configure(&configure.header) || !context.prepare(&prepare.header)) return false;
             const sedici::fg::GeneratePhase phases[2]{{output.Get(), outputState, 1.0f / 3.0f},
-                                                     {second.Get(), secondState, 2.0f / 3.0f}};
+                                                      {second.Get(), secondState, 2.0f / 3.0f}};
             if (!context.generate(state.list.Get(), phases, 2)) {
                 std::fprintf(stderr, "phases: stage 1 rejected the frame\n");
                 return false;
@@ -281,7 +276,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         }
         const auto readTexture = [&](ID3D12Resource* texture, D3D12_RESOURCE_STATES& textureState,
                                      std::vector<uint8_t>& pixels) {
-            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
             transition(state.list.Get(), texture, textureState, D3D12_RESOURCE_STATE_COPY_SOURCE);
             textureState = D3D12_RESOURCE_STATE_COPY_SOURCE;
             D3D12_TEXTURE_COPY_LOCATION from{};
@@ -290,7 +286,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             D3D12_TEXTURE_COPY_LOCATION to{};
             to.pResource = readback.Get();
             to.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            to.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth, kDisplayHeight, 1, outputRowPitch};
+            to.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth, kDisplayHeight, 1,
+                                            outputRowPitch};
             state.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
             if (!state.submit()) return false;
             void* data = nullptr;
@@ -305,7 +302,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             return true;
         };
         std::vector<uint8_t> third, twoThirds;
-        if (!readTexture(output.Get(), outputState, third) || !readTexture(second.Get(), secondState, twoThirds)) return false;
+        if (!readTexture(output.Get(), outputState, third) || !readTexture(second.Get(), secondState, twoThirds))
+            return false;
         const auto truthThird = quantise(make_scene(config, 1.0f / 3.0f, kDisplayWidth, kDisplayHeight).color);
         const auto truthTwoThirds = quantise(make_scene(config, 2.0f / 3.0f, kDisplayWidth, kDisplayHeight).color);
         const double generatedThird = psnr(truthThird, third);
@@ -315,8 +313,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         const bool phasesOk = generatedThird > nearestThird && generatedTwoThirds > nearestTwoThirds;
         std::printf("%s %-18s phases in one list: 1/3 psnr %6.2f dB (nearest real %6.2f), "
                     "2/3 psnr %6.2f dB (nearest real %6.2f)\n",
-                    phasesOk ? "PASS" : "FAIL", config.name, generatedThird, nearestThird,
-                    generatedTwoThirds, nearestTwoThirds);
+                    phasesOk ? "PASS" : "FAIL", config.name, generatedThird, nearestThird, generatedTwoThirds,
+                    nearestTwoThirds);
         if (!phasesOk) return false;
     }
 
@@ -335,16 +333,16 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             }
         }
         const auto hudBytes = quantise(hudColor);
-        auto hudTexture = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                         kDisplayWidth, kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
-        auto hudStaging = create_buffer(state.device.Get(), outputRowPitch * kDisplayHeight,
-                                        D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+        auto hudTexture = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth,
+                                         kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
+        auto hudStaging = create_buffer(state.device.Get(), outputRowPitch * kDisplayHeight, D3D12_HEAP_TYPE_UPLOAD,
+                                        D3D12_RESOURCE_STATE_GENERIC_READ);
         if (!hudTexture || !hudStaging) return false;
-        if (FAILED(state.allocator->Reset()) ||
-            FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+            return false;
 
-        upload(state.list.Get(), hudTexture.Get(), hudStaging.Get(), hudBytes.data(),
-               kDisplayWidth, kDisplayHeight, 4);
+        upload(state.list.Get(), hudTexture.Get(), hudStaging.Get(), hudBytes.data(), kDisplayWidth, kDisplayHeight,
+               4);
 
         ffxConfigureDescFrameGeneration hudConfigure{};
         hudConfigure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
@@ -413,8 +411,8 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
         // HUD-less colour.
         const auto seedOutput = [&](const sedici::fg::HudSource* source, uint64_t frameId,
                                     std::vector<uint8_t>& pixels) {
-            if (FAILED(state.allocator->Reset()) ||
-                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
             hudConfigure.frameID = frameId;
             hudPrepare.frameID = frameId;
             hudPrepare.unused_reset = true;
@@ -435,10 +433,9 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
             return true;
         };
         std::vector<uint8_t> seededWithHud, seededWithout;
-        const bool seeded = seedOutput(&hud, kIterations + 1, seededWithHud) &&
-                            seedOutput(nullptr, kIterations + 2, seededWithout);
-        const bool seedOk = seeded && seededWithHud == hudBytes &&
-                            seededWithout == quantise(currentDisplay.color);
+        const bool seeded =
+            seedOutput(&hud, kIterations + 1, seededWithHud) && seedOutput(nullptr, kIterations + 2, seededWithout);
+        const bool seedOk = seeded && seededWithHud == hudBytes && seededWithout == quantise(currentDisplay.color);
         std::printf("%s %-18s reset seed: the game frame with a HUD source, the HUD-less colour without\n",
                     seedOk ? "PASS" : "FAIL", config.name);
         return seedOk;
@@ -446,7 +443,6 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
 
     return true;
 }
-
 
 // Contract checks for the FFX-facing context: the descs Cyberpunk sends must be
 // accepted, and anything the generator cannot honour must be refused so the
@@ -459,14 +455,13 @@ int check_contract(Device& state)
         if (!condition) ++failures;
     };
 
-    const auto color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                      64, 36, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-    const auto depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
-                                      32, 18, D3D12_RESOURCE_FLAG_NONE);
-    const auto motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
-                                       32, 18, D3D12_RESOURCE_FLAG_NONE);
-    const auto output = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                       64, 36, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    const auto color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, 64, 36,
+                                      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    const auto depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT, 32, 18, D3D12_RESOURCE_FLAG_NONE);
+    const auto motion =
+        create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, 32, 18, D3D12_RESOURCE_FLAG_NONE);
+    const auto output = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, 64, 36,
+                                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
     if (!color || !depth || !motion || !output) {
         std::printf("FAIL contract textures\n");
         return 1;
@@ -508,18 +503,17 @@ int check_contract(Device& state)
     prepare.motionVectors.resource = motion.Get();
     prepare.motionVectors.state = FFX_API_RESOURCE_STATE_COMMON;
     expect(context.prepare(&prepare.header), "prepare accepts the legacy prepare desc");
-    expect(!context.retired() && !context.destroy(),
-           "recorded prepare prevents premature teardown");
+    expect(!context.retired() && !context.destroy(), "recorded prepare prevents premature teardown");
 
     // Queue ordering alone is not proof that the borrowed prepare retired.
     // A generation rejection must leave its resources protected (K45).
     context.note_ordered_submission();
-    expect(!context.generate(state.list.Get(), static_cast<ID3D12Resource*>(nullptr),
-                             D3D12_RESOURCE_STATE_COMMON) && !context.retired() && !context.destroy(),
-           "rejected ordered generation keeps the prepare unretired");
+    expect(
+        !context.generate(state.list.Get(), static_cast<ID3D12Resource*>(nullptr), D3D12_RESOURCE_STATE_COMMON) &&
+            !context.retired() && !context.destroy(),
+        "rejected ordered generation keeps the prepare unretired");
 
-    const bool generated = context.generate(state.list.Get(), output.Get(),
-                                            D3D12_RESOURCE_STATE_COMMON);
+    const bool generated = context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON);
     expect(generated, "generate produces a frame");
     expect(state.submit() && context.track_submission(state.fence.Get(), state.fenceValue),
            "the frame command list executes and registers retirement");
@@ -529,18 +523,20 @@ int check_contract(Device& state)
     // The FFX description hides the native depth format. Exercise the actual
     // D32 and two-plane depth/stencil allocations through Context, not only
     // Stage1 with a hand-selected view. Each must use a typed depth-plane SRV.
-    for (const auto format : {DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_TYPELESS,
-                              DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT}) {
-        const bool stencil = format == DXGI_FORMAT_R32G8X24_TYPELESS ||
-                             format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    for (const auto format : {DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R32G8X24_TYPELESS,
+                              DXGI_FORMAT_D32_FLOAT_S8X24_UINT}) {
+        const bool stencil = format == DXGI_FORMAT_R32G8X24_TYPELESS || format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
         const DXGI_FORMAT dsvFormat = stencil ? DXGI_FORMAT_D32_FLOAT_S8X24_UINT : DXGI_FORMAT_D32_FLOAT;
         D3D12_CLEAR_VALUE clear{};
         clear.Format = dsvFormat;
         clear.DepthStencil.Depth = 0.75f;
         clear.DepthStencil.Stencil = 37;
-        const auto nativeDepth = create_texture(state.device.Get(), format, 32, 18,
-                                                D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, &clear);
-        if (!nativeDepth) { expect(false, "native depth texture creation"); continue; }
+        const auto nativeDepth =
+            create_texture(state.device.Get(), format, 32, 18, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL, &clear);
+        if (!nativeDepth) {
+            expect(false, "native depth texture creation");
+            continue;
+        }
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         heapDesc.NumDescriptors = 1;
@@ -551,28 +547,25 @@ int check_contract(Device& state)
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
         const auto target = heap->GetCPUDescriptorHandleForHeapStart();
         state.device->CreateDepthStencilView(nativeDepth.Get(), &dsv, target);
-        if (FAILED(state.allocator->Reset()) ||
-            FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return failures + 1;
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+            return failures + 1;
         transition(state.list.Get(), nativeDepth.Get(), D3D12_RESOURCE_STATE_COMMON,
                    D3D12_RESOURCE_STATE_DEPTH_WRITE);
-        state.list->ClearDepthStencilView(target, stencil
-            ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH,
-            0.75f, 37, 0, nullptr);
+        state.list->ClearDepthStencilView(
+            target, stencil ? D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL : D3D12_CLEAR_FLAG_DEPTH, 0.75f, 37,
+            0, nullptr);
         transition(state.list.Get(), nativeDepth.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE,
                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        prepare.depth = ffxApiGetResourceDX12(nativeDepth.Get(),
-            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        prepare.depth = ffxApiGetResourceDX12(nativeDepth.Get(), FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
         const bool accepted = context.prepare(&prepare.header);
-        const char* label = format == DXGI_FORMAT_D32_FLOAT
-            ? "prepare samples native D32_FLOAT using an R32_FLOAT view"
-            : format == DXGI_FORMAT_R32_TYPELESS
-            ? "prepare samples native R32_TYPELESS using an R32_FLOAT view"
-            : format == DXGI_FORMAT_R32G8X24_TYPELESS
-            ? "prepare samples Cyberpunk's R32G8X24_TYPELESS depth plane"
-            : "prepare samples native D32_FLOAT_S8X24_UINT depth plane";
+        const char* label =
+            format == DXGI_FORMAT_D32_FLOAT      ? "prepare samples native D32_FLOAT using an R32_FLOAT view"
+            : format == DXGI_FORMAT_R32_TYPELESS ? "prepare samples native R32_TYPELESS using an R32_FLOAT view"
+            : format == DXGI_FORMAT_R32G8X24_TYPELESS ? "prepare samples Cyberpunk's R32G8X24_TYPELESS depth plane"
+                                                      : "prepare samples native D32_FLOAT_S8X24_UINT depth plane";
         expect(accepted, label);
-        const bool generatedDepth = accepted && context.generate(state.list.Get(), output.Get(),
-                                                                  D3D12_RESOURCE_STATE_COMMON);
+        const bool generatedDepth =
+            accepted && context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON);
         expect(generatedDepth, "native depth snapshot generates a frame");
         const bool submitted = state.submit();
         expect(submitted && (!accepted || context.track_submission(state.fence.Get(), state.fenceValue)),
@@ -608,7 +601,8 @@ int check_contract(Device& state)
         FAILED(state.device->CreateCommandList(0, queueDesc.Type, prepareAllocator.Get(), nullptr,
                                                IID_PPV_ARGS(&prepareList))) ||
         FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&prepareFence))) ||
-        FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)))) return failures + 1;
+        FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate))))
+        return failures + 1;
 
     configure.frameGenerationEnabled = true;
     configure.frameID = 8;
@@ -636,8 +630,8 @@ int check_contract(Device& state)
     if (FAILED(state.queue->Wait(prepareFence.Get(), 1)) || !state.wait()) return failures + 1;
     expect(context.retired(), "prepare becomes reusable after GPU retirement");
 
-    if (FAILED(prepareAllocator->Reset()) ||
-        FAILED(prepareList->Reset(prepareAllocator.Get(), nullptr))) return failures + 1;
+    if (FAILED(prepareAllocator->Reset()) || FAILED(prepareList->Reset(prepareAllocator.Get(), nullptr)))
+        return failures + 1;
     configure.frameGenerationEnabled = true;
     configure.frameID = 9;
     prepare.frameID = 9;
@@ -646,13 +640,12 @@ int check_contract(Device& state)
     if (FAILED(prepareList->Close())) return failures + 1;
     prepareQueue->ExecuteCommandLists(1, prepareLists);
     if (FAILED(prepareQueue->Signal(prepareFence.Get(), 2))) return failures + 1;
-    if (FAILED(state.allocator->Reset()) ||
-        FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return failures + 1;
+    if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+        return failures + 1;
     expect(context.track_submission(prepareFence.Get(), 2), "split prepare registers its completion fence");
     expect(!context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
            "split generation without an explicit queue dependency is refused");
-    expect(context.wait_prepare(state.queue.Get()),
-           "generation queue waits for the registered compute prepare");
+    expect(context.wait_prepare(state.queue.Get()), "generation queue waits for the registered compute prepare");
     expect(context.generate(state.list.Get(), output.Get(), D3D12_RESOURCE_STATE_COMMON),
            "split-queue generation consumes the recovered snapshot");
     expect(state.submit() && context.track_submission(state.fence.Get(), state.fenceValue),
@@ -661,6 +654,5 @@ int check_contract(Device& state)
     expect(context.destroy(), "retired context destroys safely");
     return failures;
 }
-
 
 } // namespace fgcheck

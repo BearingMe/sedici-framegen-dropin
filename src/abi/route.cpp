@@ -70,8 +70,9 @@ bool g_token_reserved = false;
 void* issue_token_locked() noexcept
 {
     if (consume_bookkeeping_fault(BookkeepingFault::TokenReservation)) return nullptr;
-    return issue_reserved_token(g_tokens, g_token_reserved, kTokenBytes, kTokenStride,
-        [](size_t bytes) noexcept { return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_NOACCESS); });
+    return issue_reserved_token(g_tokens, g_token_reserved, kTokenBytes, kTokenStride, [](size_t bytes) noexcept {
+        return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_NOACCESS);
+    });
 }
 
 bool is_issued_token_locked(void* handle) noexcept
@@ -94,8 +95,7 @@ template <typename T>
 const T* find_desc(const ffxApiHeader* desc, uint64_t type) noexcept
 {
     size_t visited = 0;
-    for (const ffxApiHeader* item = desc; item && visited < kMaxChainItems;
-         item = item->pNext, ++visited) {
+    for (const ffxApiHeader* item = desc; item && visited < kMaxChainItems; item = item->pNext, ++visited) {
         if (item->type == type) return reinterpret_cast<const T*>(item);
     }
     return nullptr;
@@ -148,7 +148,8 @@ void pin_module_once() noexcept
     HMODULE module = nullptr;
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                            reinterpret_cast<LPCWSTR>(&pin_module_once), &module))
-        log_event(1, "fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)");
+        log_event(
+            1, "fg: module pinned in memory; a FreeLibrary is now a no-op (handle namespace is process-lifetime)");
 }
 
 std::string call_identity()
@@ -166,7 +167,8 @@ void log_slow_call(const char* op, const void* context, double ms) noexcept
         std::snprintf(text, sizeof(text), "fg: slow call op=%s ctx=0x%llx took %.1f ms", op ? op : "?",
                       static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(context)), ms);
         log_event(1, text);
-    } catch (...) {}
+    } catch (...) {
+    }
 }
 
 void log_route(const char* what, const std::string& detail) noexcept
@@ -246,10 +248,11 @@ ffxReturnCode_t failure(const char* reason) noexcept
     // Converting the reason to a string can allocate; an error report must not
     // terminate the game when memory is already exhausted.
     try {
-        log_route("rejected: ", std::string(reason) + " [code=" +
-                                    sedici::error_code_name(sedici::classify_reason(reason)) + "]" +
+        log_route("rejected: ", std::string(reason) +
+                                    " [code=" + sedici::error_code_name(sedici::classify_reason(reason)) + "]" +
                                     call_identity());
-    } catch (...) {}
+    } catch (...) {
+    }
     return FFX_API_RETURN_ERROR;
 }
 
@@ -326,8 +329,8 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 
     const auto* wrap = find_desc<ffxCreateContextDescFrameGenerationSwapChainWrapDX12>(
         desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12);
-    const auto* frameGeneration = find_desc<ffxCreateContextDescFrameGeneration>(
-        desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
+    const auto* frameGeneration =
+        find_desc<ffxCreateContextDescFrameGeneration>(desc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
     // Alan Wake 2 asks for a chain (New form) instead of handing one over (K100); the
     // HWND form is the same request with a window handle. Both are built on the game's
     // queue and then owned like a wrapped chain.
@@ -350,8 +353,8 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         *result = failure("swapchain new without a factory, desc, output or queue");
         return true;
     }
-    if (forHwnd && (!forHwnd->swapchain || !forHwnd->desc || !forHwnd->hwnd || !forHwnd->dxgiFactory ||
-                    !forHwnd->gameQueue)) {
+    if (forHwnd &&
+        (!forHwnd->swapchain || !forHwnd->desc || !forHwnd->hwnd || !forHwnd->dxgiFactory || !forHwnd->gameQueue)) {
         *result = failure("swapchain for hwnd without a factory, desc, window, output or queue");
         return true;
     }
@@ -376,7 +379,8 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
         if (consume_bookkeeping_fault(BookkeepingFault::OwnerAllocation)) throw std::bad_alloc();
         owned = std::make_shared<Owned>();
         owned->kind = swapchainForm ? Kind::Wrap : Kind::Session;
-        if (swapchainForm) owned->wrap = std::make_unique<WrapHandle>();
+        if (swapchainForm)
+            owned->wrap = std::make_unique<WrapHandle>();
         else {
             owned->session = std::make_unique<Session>();
             owned->session->set_callback_lifetime(owned);
@@ -407,7 +411,9 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
 
     if (swapchainForm) {
         IDXGISwapChain4* native = wrap ? wrap->swapchain[0] : nullptr;
-        ID3D12CommandQueue* const queue = wrap ? wrap->gameQueue : created ? created->gameQueue : forHwnd->gameQueue;
+        ID3D12CommandQueue* const queue = wrap      ? wrap->gameQueue
+                                          : created ? created->gameQueue
+                                                    : forHwnd->gameQueue;
         IDXGISwapChain4** const output = wrap ? wrap->swapchain : created ? created->swapchain : forHwnd->swapchain;
         // The New and HWND forms ask for a chain: build it as requested on the game's
         // queue. The reference from creation is handed to the wrapper like the game's
@@ -424,8 +430,9 @@ bool route_create(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t
             } else {
                 Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
                 made = forHwnd->dxgiFactory->QueryInterface(IID_PPV_ARGS(&factory2));
-                if (SUCCEEDED(made)) made = factory2->CreateSwapChainForHwnd(
-                    queue, forHwnd->hwnd, forHwnd->desc, forHwnd->fullscreenDesc, nullptr, &chain);
+                if (SUCCEEDED(made))
+                    made = factory2->CreateSwapChainForHwnd(queue, forHwnd->hwnd, forHwnd->desc,
+                                                            forHwnd->fullscreenDesc, nullptr, &chain);
             }
             if (FAILED(made) || FAILED(chain.As(&madeNative))) {
                 rollback();
@@ -496,8 +503,8 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
     if (!result || !context || !*context) return false;
     reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
-    if (!owned) return is_issued_token(*context)
-        ? failure_result(result, "configure on a destroyed context") : false;
+    if (!owned)
+        return is_issued_token(*context) ? failure_result(result, "configure on a destroyed context") : false;
     if (!desc) return failure_result(result, "null descriptor on a Sedici-owned context");
 
     std::lock_guard call(owned->call);
@@ -512,11 +519,13 @@ bool route_configure(ffxContext* context, const ffxApiHeader* desc, ffxReturnCod
     }
     const bool configured = owned->session->configure(desc);
     if (configured) {
-        const auto* modern = find_desc<ffxConfigureDescFrameGeneration>(
-            desc, FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
+        const auto* modern =
+            find_desc<ffxConfigureDescFrameGeneration>(desc, FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
         const auto* legacy = find_desc<FfxFrameGenerationConfig>(desc, FFX_API_FRAME_GENERATION_CONFIG);
-        if (modern) owned->generation_on.store(modern->frameGenerationEnabled, std::memory_order_relaxed);
-        else if (legacy) owned->generation_on.store(legacy->frameGenerationEnabled, std::memory_order_relaxed);
+        if (modern)
+            owned->generation_on.store(modern->frameGenerationEnabled, std::memory_order_relaxed);
+        else if (legacy)
+            owned->generation_on.store(legacy->frameGenerationEnabled, std::memory_order_relaxed);
     }
     *result = configured ? FFX_API_RETURN_OK : failure(owned->session->last_error());
     return true;
@@ -528,8 +537,8 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
     if (!result || !context || !*context) return false;
     reap_parked(); // K41: parked owners are released on any router call
     const Lease owned = find_owned(*context);
-    if (!owned) return is_issued_token(*context)
-        ? failure_result(result, "dispatch on a destroyed context") : false;
+    if (!owned)
+        return is_issued_token(*context) ? failure_result(result, "dispatch on a destroyed context") : false;
     if (!desc) return failure_result(result, "null descriptor on a Sedici-owned context");
 
     std::lock_guard call(owned->call);
@@ -550,8 +559,7 @@ bool route_dispatch(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode
         *result = failure("unsupported frame generation dispatch type");
         return true;
     }
-    *result = owned->session->prepare(desc) ? FFX_API_RETURN_OK
-                                            : failure(owned->session->last_error());
+    *result = owned->session->prepare(desc) ? FFX_API_RETURN_OK : failure(owned->session->last_error());
     return true;
 }
 
@@ -607,8 +615,7 @@ bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t*
         return route_get_versions(*reinterpret_cast<const ffxQueryDescGetVersions*>(desc), result);
     if (!context || !*context) return false;
     const Lease owned = find_owned(*context);
-    if (!owned) return is_issued_token(*context)
-        ? failure_result(result, "query on a destroyed context") : false;
+    if (!owned) return is_issued_token(*context) ? failure_result(result, "query on a destroyed context") : false;
     if (!desc) return failure_result(result, "null descriptor on a Sedici-owned context");
 
     // Alan Wake 2 asks the swapchain for an interpolation command list and texture (K131).
@@ -617,7 +624,8 @@ bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t*
     if (owned->kind == Kind::Wrap && owned->wrap && owned->wrap->wrapper()) {
         Swapchain* const wrapper = owned->wrap->wrapper();
         if (desc->type == FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12) {
-            const auto* query = reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12*>(desc);
+            const auto* query =
+                reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12*>(desc);
             ID3D12GraphicsCommandList* list = nullptr;
             if (!query->pOutCommandList || FAILED(wrapper->interpolation_list(&list)))
                 return failure_result(result, "interpolation command list unavailable");
@@ -627,7 +635,8 @@ bool route_query(ffxContext* context, const ffxApiHeader* desc, ffxReturnCode_t*
             return true;
         }
         if (desc->type == FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12) {
-            const auto* query = reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12*>(desc);
+            const auto* query =
+                reinterpret_cast<const ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12*>(desc);
             ID3D12Resource* texture = nullptr;
             if (!query->pOutTexture || FAILED(wrapper->interpolation_texture(&texture)))
                 return failure_result(result, "interpolation texture unavailable");
@@ -699,6 +708,9 @@ bool route_destroy(ffxContext* context, ffxReturnCode_t* result) noexcept
     return true;
 }
 
-unsigned route_parked_count() noexcept { return g_parked_count.load(std::memory_order_acquire); }
+unsigned route_parked_count() noexcept
+{
+    return g_parked_count.load(std::memory_order_acquire);
+}
 
 } // namespace sedici::fg

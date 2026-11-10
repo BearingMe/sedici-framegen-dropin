@@ -13,8 +13,8 @@
 
 namespace sedici {
 namespace {
-using SetPos = BOOL (WINAPI*)(int, int);
-using Clip = BOOL (WINAPI*)(const RECT*);
+using SetPos = BOOL(WINAPI*)(int, int);
+using Clip = BOOL(WINAPI*)(const RECT*);
 SetPos g_set_pos = ::SetCursorPos;
 Clip g_clip = ::ClipCursor;
 std::atomic<bool> g_active{false};
@@ -31,8 +31,7 @@ std::atomic<unsigned> g_suppressed_clip{0};
 bool capturing() noexcept
 {
     const HWND hwnd = g_window.load(std::memory_order_acquire);
-    return !g_disabled.load(std::memory_order_acquire) &&
-           live_ui_mode() == UiMode::Full &&
+    return !g_disabled.load(std::memory_order_acquire) && live_ui_mode() == UiMode::Full &&
            g_active.load(std::memory_order_acquire) && hwnd && GetForegroundWindow() == hwnd;
 }
 
@@ -59,9 +58,9 @@ bool replace_slot(ULONG_PTR* slot, ULONG_PTR expected, ULONG_PTR replacement) no
 {
     DWORD protection = 0;
     if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &protection)) return false;
-    const auto previous = InterlockedCompareExchangePointer(
-        reinterpret_cast<void* volatile*>(slot), reinterpret_cast<void*>(replacement),
-        reinterpret_cast<void*>(expected));
+    const auto previous =
+        InterlockedCompareExchangePointer(reinterpret_cast<void* volatile*>(slot),
+                                          reinterpret_cast<void*>(replacement), reinterpret_cast<void*>(expected));
     DWORD ignored = 0;
     VirtualProtect(slot, sizeof(*slot), protection, &ignored);
     return previous == reinterpret_cast<void*>(expected);
@@ -95,13 +94,16 @@ bool is_system_module(HMODULE module) noexcept
 void patch_if_cursor_import(const char* api, ULONG_PTR* slot, bool* sawPosition, bool* sawClip) noexcept
 {
     bool position = false;
-    if (std::strcmp(api, "SetCursorPos") == 0) position = true;
-    else if (std::strcmp(api, "ClipCursor") != 0) return;
-    for (const PatchedSlot& done : g_patched) if (done.slot == slot) return;
-    const ULONG_PTR expected = position ? reinterpret_cast<ULONG_PTR>(g_set_pos)
-                                        : reinterpret_cast<ULONG_PTR>(g_clip);
-    const ULONG_PTR replacement = position ? reinterpret_cast<ULONG_PTR>(&set_pos_hook)
-                                           : reinterpret_cast<ULONG_PTR>(&clip_hook);
+    if (std::strcmp(api, "SetCursorPos") == 0)
+        position = true;
+    else if (std::strcmp(api, "ClipCursor") != 0)
+        return;
+    for (const PatchedSlot& done : g_patched)
+        if (done.slot == slot) return;
+    const ULONG_PTR expected =
+        position ? reinterpret_cast<ULONG_PTR>(g_set_pos) : reinterpret_cast<ULONG_PTR>(g_clip);
+    const ULONG_PTR replacement =
+        position ? reinterpret_cast<ULONG_PTR>(&set_pos_hook) : reinterpret_cast<ULONG_PTR>(&clip_hook);
     (position ? *sawPosition : *sawClip) = true;
     if (*slot != expected) {
         // Another hook, or a delay-load stub that has not resolved yet. Chaining through a
@@ -109,9 +111,15 @@ void patch_if_cursor_import(const char* api, ULONG_PTR* slot, bool* sawPosition,
         ++g_summary.skippedSlots;
         return;
     }
-    if (!replace_slot(slot, expected, replacement)) { ++g_summary.skippedSlots; return; }
+    if (!replace_slot(slot, expected, replacement)) {
+        ++g_summary.skippedSlots;
+        return;
+    }
     g_patched.push_back({slot, position});
-    if (position) ++g_summary.setCursorPosSlots; else ++g_summary.clipCursorSlots;
+    if (position)
+        ++g_summary.setCursorPosSlots;
+    else
+        ++g_summary.clipCursorSlots;
 }
 
 void scan_module(HMODULE module, bool* sawPosition, bool* sawClip) noexcept
@@ -131,8 +139,8 @@ void scan_module(HMODULE module, bool* sawPosition, bool* sawClip) noexcept
             for (; names->u1.AddressOfData; ++names, ++slots) {
                 if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
                 const auto* name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function,
-                                       sawPosition, sawClip);
+                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function, sawPosition,
+                                       sawClip);
             }
         }
     }
@@ -148,8 +156,8 @@ void scan_module(HMODULE module, bool* sawPosition, bool* sawClip) noexcept
             for (; names->u1.AddressOfData; ++names, ++slots) {
                 if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
                 const auto* name = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function,
-                                       sawPosition, sawClip);
+                patch_if_cursor_import(reinterpret_cast<const char*>(name->Name), &slots->u1.Function, sawPosition,
+                                       sawClip);
             }
         }
     }
@@ -200,11 +208,11 @@ bool install_hooks() noexcept
                          g_summary.clipCursorSlots != before.clipCursorSlots;
     if (changed || (g_patched.empty() && before.modulesScanned == 0)) {
         log_event(1, std::string("sedici: overlay cursor interception ") +
-                         (g_patched.empty() ? "unavailable" : "installed") + ": modules=" +
-                         std::to_string(scanned) + " slots{SetCursorPos=" +
-                         std::to_string(g_summary.setCursorPosSlots) + " ClipCursor=" +
-                         std::to_string(g_summary.clipCursorSlots) + "} skipped=" +
-                         std::to_string(g_summary.skippedSlots) + " seen{SetCursorPos=" +
+                         (g_patched.empty() ? "unavailable" : "installed") +
+                         ": modules=" + std::to_string(scanned) +
+                         " slots{SetCursorPos=" + std::to_string(g_summary.setCursorPosSlots) +
+                         " ClipCursor=" + std::to_string(g_summary.clipCursorSlots) +
+                         "} skipped=" + std::to_string(g_summary.skippedSlots) + " seen{SetCursorPos=" +
                          (sawPosition ? "yes" : "no") + " ClipCursor=" + (sawClip ? "yes" : "no") + "}");
     }
     // One of the two is enough to be useful: the game then loses only the call it does not make
@@ -272,9 +280,11 @@ void ui_input_leave_window(HWND hwnd, bool restore_clip) noexcept
         if (GetWindowThreadProcessId(hwnd, nullptr) != GetCurrentThreadId()) return;
         g_active.store(false, std::memory_order_release);
         g_window.store(nullptr, std::memory_order_release);
-        while (g_show_adjustments > 0) { ShowCursor(FALSE); --g_show_adjustments; }
-        if (restore_clip && GetForegroundWindow() == hwnd)
-            g_clip(g_clip_set ? &g_clip_rect : nullptr);
+        while (g_show_adjustments > 0) {
+            ShowCursor(FALSE);
+            --g_show_adjustments;
+        }
+        if (restore_clip && GetForegroundWindow() == hwnd) g_clip(g_clip_set ? &g_clip_rect : nullptr);
         const unsigned positions = g_suppressed_pos.exchange(0);
         const unsigned clips = g_suppressed_clip.exchange(0);
         if (positions || clips) {
@@ -286,14 +296,23 @@ void ui_input_leave_window(HWND hwnd, bool restore_clip) noexcept
     }
 }
 
-void ui_input_disable() noexcept { g_disabled.store(true, std::memory_order_release); }
+void ui_input_disable() noexcept
+{
+    g_disabled.store(true, std::memory_order_release);
+}
 
-bool ui_input_active() noexcept { return capturing(); }
+bool ui_input_active() noexcept
+{
+    return capturing();
+}
 
-bool ui_input_available() noexcept { return install_hooks(); }
+bool ui_input_available() noexcept
+{
+    return install_hooks();
+}
 
-POINT ui_input_map_point(LONG x, LONG y, LONG client_width, LONG client_height,
-                         LONG output_width, LONG output_height) noexcept
+POINT ui_input_map_point(LONG x, LONG y, LONG client_width, LONG client_height, LONG output_width,
+                         LONG output_height) noexcept
 {
     POINT point{x, y};
     if (client_width <= 0 || client_height <= 0 || output_width <= 0 || output_height <= 0) {

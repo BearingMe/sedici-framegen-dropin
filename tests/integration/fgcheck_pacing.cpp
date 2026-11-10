@@ -18,8 +18,7 @@ bool check_pacing()
     const double later = sedici::fg::ticks_to_seconds(987654321277778ULL, 10000000);
     expect(std::abs((later - uptime) - 1.0 / 36.0) < 1e-7,
            "QPC conversion preserves a 36 fps interval after long uptime");
-    expect(sedici::fg::ticks_to_seconds(1, 0) == 0.0,
-           "missing QPC frequency does not divide by zero");
+    expect(sedici::fg::ticks_to_seconds(1, 0) == 0.0, "missing QPC frequency does not divide by zero");
 
     sedici::fg::PacingInput input;
     input.cycleStarted = false;
@@ -40,8 +39,7 @@ bool check_pacing()
 
     input.now = 10.0;
     plan = sedici::fg::plan_present(input);
-    expect(plan.firstWait == 0.0,
-           "an early cycle never waits before the current midpoint");
+    expect(plan.firstWait == 0.0, "an early cycle never waits before the current midpoint");
 
     input.now = 10.0 + 3.0 * input.interval;
     plan = sedici::fg::plan_present(input);
@@ -101,9 +99,9 @@ bool check_pacing()
 
     // Current presenter policy, characterized without changing real-drop semantics.
     expect(!sedici::fg::later_output_is_due(false, 1.0, 0.1, 9.0) &&
-           !sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.124) &&
-           sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.125) &&
-           sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.126),
+               !sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.124) &&
+               sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.125) &&
+               sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.126),
            "presenter stale-output policy uses the later deadline including equality");
 
     {
@@ -133,7 +131,10 @@ bool check_pacing()
     // For each ratio, count outputs over many real frames, check the pattern
     // never needs more than two generated frames per real frame, and that the
     // spacing between consecutive outputs is constant.
-    struct Ratio { uint32_t p, q; const char* name; };
+    struct Ratio {
+        uint32_t p, q;
+        const char* name;
+    };
     for (const Ratio ratio : {Ratio{2, 1, "2x"}, Ratio{7, 4, "1.75x"}, Ratio{3, 2, "1.5x"}, Ratio{5, 4, "1.25x"}}) {
         sedici::fg::OutputSchedule schedule;
         schedule.set_ratio(ratio.p, ratio.q);
@@ -162,7 +163,8 @@ bool check_pacing()
                       "%s schedule: %u outputs per %u real frames, %u real, <=2 generated, even %.3f ms grid",
                       ratio.name, produced, frames - 1, reals, expectedGap * 1000.0);
         expect(produced == 400 * ratio.p && reals == 400 && maxGenerated <= 2 &&
-               std::abs(minGap - expectedGap) < 1e-6 && std::abs(maxGap - expectedGap) < 1e-6, what);
+                   std::abs(minGap - expectedGap) < 1e-6 && std::abs(maxGap - expectedGap) < 1e-6,
+               what);
     }
     {
         // A hitch is a discontinuity: the frame after a 3x interval shows only
@@ -190,7 +192,8 @@ bool check_pacing()
             for (uint32_t i = 0; i < step.count; ++i) {
                 if (frame > 1) {
                     ++produced;
-                    maxGapError = std::max(maxGapError, std::abs(step.outputs[i].content - previousContent - 1.0 / 72.0));
+                    maxGapError =
+                        std::max(maxGapError, std::abs(step.outputs[i].content - previousContent - 1.0 / 72.0));
                 }
                 previousContent = step.outputs[i].content;
             }
@@ -200,10 +203,12 @@ bool check_pacing()
         // A pause resets to the real frame alone, and a slower real rate than the
         // target still never asks for more than two generated frames.
         const auto paused = schedule.plan(20.0);
-        expect(paused.count == 1 && paused.outputs[0].real, "adaptive schedule: a 0.25 s gap shows only the real frame");
+        expect(paused.count == 1 && paused.outputs[0].real,
+               "adaptive schedule: a 0.25 s gap shows only the real frame");
         // Below 20 real fps the schedule stops generating.
         uint32_t slowGenerated = 0;
-        for (uint32_t frame = 0; frame < 40; ++frame) slowGenerated += schedule.plan(21.0 + frame * 0.055).generated();
+        for (uint32_t frame = 0; frame < 40; ++frame)
+            slowGenerated += schedule.plan(21.0 + frame * 0.055).generated();
         expect(slowGenerated == 0, "adaptive schedule: below 20 real fps shows only real frames");
         // K95: jitter around 20 real fps must not halve the output. Alternate
         // 46 ms and 54 ms (average 50 ms) with the fixed 2x ratio.
@@ -215,7 +220,10 @@ bool check_pacing()
             for (uint32_t frame = 0; frame < 400; ++frame) {
                 t += (frame % 2 == 0) ? 0.046 : 0.054;
                 const auto step = jitter.plan(t);
-                if (frame >= 20) { ++frames; generated += step.generated() > 0 ? 1u : 0u; }
+                if (frame >= 20) {
+                    ++frames;
+                    generated += step.generated() > 0 ? 1u : 0u;
+                }
             }
             expect(generated >= frames * 95 / 100,
                    "2x schedule: jitter averaging 20 real fps still generates for almost every frame");
@@ -223,17 +231,18 @@ bool check_pacing()
             jitter.reset();
             uint32_t slowOnly = 0, recoveredCount = 0;
             for (uint32_t frame = 0; frame < 100; ++frame) slowOnly += jitter.plan(50.0 + frame * 0.06).generated();
-            for (uint32_t frame = 0; frame < 100; ++frame) recoveredCount += jitter.plan(60.0 + frame * 0.04).generated();
+            for (uint32_t frame = 0; frame < 100; ++frame)
+                recoveredCount += jitter.plan(60.0 + frame * 0.04).generated();
             expect(slowOnly == 0 && recoveredCount > 90,
                    "2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation");
         }
         schedule.set_target(144.0);
         uint32_t worst = 0;
-        for (uint32_t frame = 0; frame < 200; ++frame) worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
+        for (uint32_t frame = 0; frame < 200; ++frame)
+            worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
         expect(worst <= 2, "adaptive schedule: 40 real fps towards 144 caps at two generated frames");
     }
     return failures == 0;
 }
-
 
 } // namespace fgcheck

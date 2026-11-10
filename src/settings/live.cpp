@@ -46,8 +46,7 @@ void live_initialize(const Settings& config) noexcept
 double live_limiter_fps() noexcept
 {
     const LiveValues values = live_snapshot();
-    return resolve_real_cap(values.target_fps, values.target_auto,
-                            g_refresh_hz.load(std::memory_order_relaxed),
+    return resolve_real_cap(values.target_fps, values.target_auto, g_refresh_hz.load(std::memory_order_relaxed),
                             g_ratio.load(std::memory_order_relaxed));
 }
 void live_set_target_fps(double fps) noexcept
@@ -60,7 +59,10 @@ void live_set_target_auto(bool automatic) noexcept
     std::lock_guard lock(g_values_mutex);
     g_values.target_auto = automatic;
 }
-void live_set_cap_listener(LiveCapListener listener) noexcept { g_cap_listener.store(listener, std::memory_order_release); }
+void live_set_cap_listener(LiveCapListener listener) noexcept
+{
+    g_cap_listener.store(listener, std::memory_order_release);
+}
 void live_notify_cap_changed() noexcept
 {
     if (const LiveCapListener listener = g_cap_listener.load(std::memory_order_acquire)) listener();
@@ -73,8 +75,14 @@ bool live_set_output_context(double ratio, double refresh_hz) noexcept
     g_refresh_hz.store(refresh_hz > 0.0 ? refresh_hz : 0.0, std::memory_order_relaxed);
     return live_limiter_fps() != before;
 }
-double live_output_refresh_hz() noexcept { return g_refresh_hz.load(std::memory_order_relaxed); }
-int live_log_level() noexcept { return live_snapshot().log_level; }
+double live_output_refresh_hz() noexcept
+{
+    return g_refresh_hz.load(std::memory_order_relaxed);
+}
+int live_log_level() noexcept
+{
+    return live_snapshot().log_level;
+}
 void live_set_log_level(int level) noexcept
 {
     std::lock_guard lock(g_values_mutex);
@@ -95,13 +103,19 @@ void live_set_ui_mode(UiMode mode) noexcept
     g_ui_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
 }
 
-UiScaleMode live_ui_scale_mode() noexcept { return live_snapshot().scale_mode; }
+UiScaleMode live_ui_scale_mode() noexcept
+{
+    return live_snapshot().scale_mode;
+}
 void live_set_ui_scale_mode(UiScaleMode mode) noexcept
 {
     std::lock_guard lock(g_values_mutex);
     g_values.scale_mode = mode;
 }
-float live_ui_scale() noexcept { return live_snapshot().ui_scale; }
+float live_ui_scale() noexcept
+{
+    return live_snapshot().ui_scale;
+}
 void live_set_ui_scale(float scale) noexcept
 {
     std::lock_guard lock(g_values_mutex);

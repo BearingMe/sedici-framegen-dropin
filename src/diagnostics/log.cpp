@@ -1,6 +1,5 @@
 #include "diagnostics/log.h"
 
-
 #include <windows.h>
 
 #include <algorithm>
@@ -33,7 +32,8 @@ std::filesystem::path module_directory()
 {
     try {
         HMODULE module = nullptr;
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                 reinterpret_cast<LPCWSTR>(&module_directory), &module)) {
             return {};
         }
@@ -77,8 +77,8 @@ struct Bucket {
 // static destructors execute at process exit.
 struct State {
     std::mutex mutex;
-    std::condition_variable wake;  // the writer waits here
-    std::condition_variable idle;  // log_flush waits here
+    std::condition_variable wake; // the writer waits here
+    std::condition_variable idle; // log_flush waits here
     Slot ring[kSlots];
     size_t head = 0;
     size_t count = 0;
@@ -205,8 +205,9 @@ void flush_batch(const std::string& text, size_t lines) noexcept
         lostIncluded = s.outage_reported ? s.lost_unreported : 0;
         if (s.dropped_unreported) {
             char buffer[160];
-            std::snprintf(buffer, sizeof(buffer), "[%.3f ms] log: %llu line(s) were dropped because the queue was full\n",
-                          elapsed_ms(), static_cast<unsigned long long>(s.dropped_unreported));
+            std::snprintf(buffer, sizeof(buffer),
+                          "[%.3f ms] log: %llu line(s) were dropped because the queue was full\n", elapsed_ms(),
+                          static_cast<unsigned long long>(s.dropped_unreported));
             prefix += buffer;
         }
         if (s.lost_unreported && s.outage_reported) {
@@ -287,7 +288,8 @@ DWORD WINAPI writer_thread(LPVOID self) noexcept
 bool start_writer() noexcept
 {
     HMODULE self = nullptr;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&writer_thread), &self))
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&writer_thread),
+                            &self))
         return false;
     HANDLE thread = CreateThread(nullptr, 0, &writer_thread, self, 0, nullptr);
     if (!thread) {
@@ -368,7 +370,10 @@ namespace {
 std::atomic<int> g_published_level{1};
 }
 
-void log_publish_level(int level) noexcept { g_published_level.store(level, std::memory_order_relaxed); }
+void log_publish_level(int level) noexcept
+{
+    g_published_level.store(level, std::memory_order_relaxed);
+}
 
 int log_level() noexcept
 {

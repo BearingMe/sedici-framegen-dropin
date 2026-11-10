@@ -12,7 +12,10 @@ namespace fgcheck {
 
 namespace {
 
-uint32_t lift(uint8_t v) { return (static_cast<uint32_t>(v) << 2) | (v >> 6); }
+uint32_t lift(uint8_t v)
+{
+    return (static_cast<uint32_t>(v) << 2) | (v >> 6);
+}
 
 std::vector<uint8_t> to_ten_bit(const std::vector<uint8_t>& rgba8)
 {
@@ -25,7 +28,10 @@ std::vector<uint8_t> to_ten_bit(const std::vector<uint8_t>& rgba8)
     return out;
 }
 
-uint8_t reduce(uint32_t v10) { return static_cast<uint8_t>((v10 * 255 + 511) / 1023); }
+uint8_t reduce(uint32_t v10)
+{
+    return static_cast<uint8_t>((v10 * 255 + 511) / 1023);
+}
 
 std::vector<uint8_t> from_ten_bit(const std::vector<uint8_t>& packed)
 {
@@ -52,17 +58,18 @@ std::vector<uint8_t> run_format(Device& state, const SceneConfig& config, bool t
     const auto currentRender = make_scene(config, 1.0f, kRenderWidth, kRenderHeight);
 
     std::vector<uint8_t> colors[2] = {quantise(previousDisplay.color), quantise(currentDisplay.color)};
-    if (tenBit) for (auto& color : colors) color = to_ten_bit(color);
+    if (tenBit)
+        for (auto& color : colors) color = to_ten_bit(color);
     const std::vector<uint16_t> motions[2] = {pack_ffx_motion(previousRender.motion),
                                               pack_ffx_motion(currentRender.motion)};
     const Image* renders[2] = {&previousRender, &currentRender};
 
     FrameTextures frames[2];
     for (int index = 0; index < 2; ++index) {
-        frames[index].color = create_texture(state.device.Get(), format, kDisplayWidth, kDisplayHeight,
-                                             D3D12_RESOURCE_FLAG_NONE);
-        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_D32_FLOAT, kRenderWidth,
-                                             kRenderHeight, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        frames[index].color =
+            create_texture(state.device.Get(), format, kDisplayWidth, kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
+        frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_D32_FLOAT, kRenderWidth, kRenderHeight,
+                                             D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
         frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, kRenderWidth,
                                               kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
         if (!frames[index].color || !frames[index].depth || !frames[index].motion) return {};
@@ -83,8 +90,8 @@ std::vector<uint8_t> run_format(Device& state, const SceneConfig& config, bool t
                                            D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
         state.allocator->Reset();
         state.list->Reset(state.allocator.Get(), nullptr);
-        upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), colors[index].data(),
-               kDisplayWidth, kDisplayHeight, 4);
+        upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), colors[index].data(), kDisplayWidth,
+               kDisplayHeight, 4);
         upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), renders[index]->depth.data(),
                kRenderWidth, kRenderHeight, 4);
         upload(state.list.Get(), frames[index].motion.Get(), motionStaging.Get(), motions[index].data(),
@@ -100,11 +107,12 @@ std::vector<uint8_t> run_format(Device& state, const SceneConfig& config, bool t
     create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
     create.header.pNext = &backend.header;
     // The HDR flag is what the game sends; it must not change the passes.
-    create.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED |
-                   (tenBit ? FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE : 0u);
+    create.flags =
+        FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED | (tenBit ? FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE : 0u);
     create.displaySize = {kDisplayWidth, kDisplayHeight};
     create.maxRenderSize = {kRenderWidth, kRenderHeight};
-    create.backBufferFormat = tenBit ? FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+    create.backBufferFormat =
+        tenBit ? FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
     if (!context.create(&create.header)) return {};
 
     auto readback = create_buffer(state.device.Get(), static_cast<uint64_t>(rowPitch) * kDisplayHeight,
@@ -112,7 +120,8 @@ std::vector<uint8_t> run_format(Device& state, const SceneConfig& config, bool t
     D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON;
     for (uint32_t iteration = 0; iteration < 4; ++iteration) {
         const uint32_t source = iteration % 2;
-        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return {};
+        if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+            return {};
         ffxConfigureDescFrameGeneration configure{};
         configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         configure.frameGenerationEnabled = true;

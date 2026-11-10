@@ -31,7 +31,9 @@ public:
             m_slot = g_registry.insert(g_registry.end(), nullptr);
             m_pending = true;
             return true;
-        } catch (...) { return false; }
+        } catch (...) {
+            return false;
+        }
     }
     void publish(Swapchain* wrapper) noexcept
     {
@@ -45,6 +47,7 @@ public:
         std::lock_guard lock(g_registry_mutex);
         g_registry.erase(m_slot);
     }
+
 private:
     std::list<Swapchain*>::iterator m_slot{};
     bool m_pending = false;
@@ -81,7 +84,10 @@ Microsoft::WRL::ComPtr<Swapchain> find_wrapper(IDXGISwapChain4* pointer) noexcep
 
 } // namespace
 
-WrapHandle::~WrapHandle() { destroy(); }
+WrapHandle::~WrapHandle()
+{
+    destroy();
+}
 
 bool WrapHandle::create(IDXGISwapChain4* native, ID3D12CommandQueue* queue, ULONG handedRefs) noexcept
 {
@@ -93,7 +99,8 @@ bool WrapHandle::create(IDXGISwapChain4* native, ID3D12CommandQueue* queue, ULON
     const HRESULT wrapped = Swapchain::wrap(native, queue, &created, nullptr, handedRefs);
     if (FAILED(wrapped) || !created) {
         char text[64];
-        std::snprintf(text, sizeof(text), "fg: swapchain wrap failed hr=0x%08lX", static_cast<unsigned long>(wrapped));
+        std::snprintf(text, sizeof(text), "fg: swapchain wrap failed hr=0x%08lX",
+                      static_cast<unsigned long>(wrapped));
         log_error(text);
         return false;
     }
@@ -125,8 +132,8 @@ Session::~Session()
     if (m_context.ready()) (void)m_context.destroy();
 }
 
-bool Session::record(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
-                     ID3D12Resource* output, D3D12_RESOURCE_STATES state) noexcept
+bool Session::record(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real, ID3D12Resource* output,
+                     D3D12_RESOURCE_STATES state) noexcept
 {
     auto* session = static_cast<Session*>(user);
     if (!session || !list || !real || !output) return false;
@@ -191,15 +198,24 @@ void Session::detach() noexcept
 const char* session_state_name(SessionState state) noexcept
 {
     switch (state) {
-    case SessionState::Empty: return "empty";
-    case SessionState::Ready: return "ready";
-    case SessionState::Suspended: return "suspended";
-    case SessionState::Degraded: return "degraded";
-    case SessionState::DeviceLost: return "device-lost";
-    case SessionState::Warmup: return "warmup";
-    case SessionState::Active: return "active";
-    case SessionState::Draining: return "draining";
-    case SessionState::Stopped: return "stopped";
+    case SessionState::Empty:
+        return "empty";
+    case SessionState::Ready:
+        return "ready";
+    case SessionState::Suspended:
+        return "suspended";
+    case SessionState::Degraded:
+        return "degraded";
+    case SessionState::DeviceLost:
+        return "device-lost";
+    case SessionState::Warmup:
+        return "warmup";
+    case SessionState::Active:
+        return "active";
+    case SessionState::Draining:
+        return "draining";
+    case SessionState::Stopped:
+        return "stopped";
     }
     return "unknown";
 }
@@ -283,8 +299,13 @@ bool Session::configure(const ffxApiHeader* configureDesc) noexcept
 
     if (m_swapchain) {
         if (enabled) {
-            const GenerateSink sink{this, &Session::record, &Session::record_phases, &Session::submitted,
-                                    &Session::abandoned, m_callback_lifetime.lock(), &Session::needs_submission};
+            const GenerateSink sink{this,
+                                    &Session::record,
+                                    &Session::record_phases,
+                                    &Session::submitted,
+                                    &Session::abandoned,
+                                    m_callback_lifetime.lock(),
+                                    &Session::needs_submission};
             if (!m_swapchain->set_generator(sink)) {
                 // Destruction may have closed this wrapper after lookup.
                 m_swapchain.Reset();

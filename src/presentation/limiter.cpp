@@ -133,8 +133,7 @@ bool initialize_locked()
         return false;
     }
 
-    g_state.interval = static_cast<uint64_t>(
-        std::llround(static_cast<double>(g_frequency) / fps));
+    g_state.interval = static_cast<uint64_t>(std::llround(static_cast<double>(g_frequency) / fps));
     if (g_state.interval == 0) g_state.interval = 1;
 
     g_state.spin = static_cast<uint64_t>(
@@ -143,8 +142,8 @@ bool initialize_locked()
     // The high-resolution flavour is what makes the timer wake close enough to
     // the deadline for the spin window to matter. If it is unavailable, a
     // standard waitable timer still honours the schedule, just more coarsely.
-    g_state.timer = CreateWaitableTimerExW(nullptr, nullptr,
-                                           CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    g_state.timer =
+        CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (g_state.timer) {
         g_state.timer_high_resolution = true;
     } else {
@@ -152,16 +151,16 @@ bool initialize_locked()
         g_state.timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
         if (g_state.timer) {
             std::ostringstream out;
-            out << "sedici: limiter: high-resolution waitable timer unavailable (GetLastError="
-                << first_error << "); using the standard timer, spin accuracy may be worse";
+            out << "sedici: limiter: high-resolution waitable timer unavailable (GetLastError=" << first_error
+                << "); using the standard timer, spin accuracy may be worse";
             log_event(1, out.str());
         }
     }
 
     if (!g_state.timer) {
         std::ostringstream out;
-        out << "sedici: limiter disabled: could not create a waitable timer (GetLastError="
-            << GetLastError() << ')';
+        out << "sedici: limiter disabled: could not create a waitable timer (GetLastError=" << GetLastError()
+            << ')';
         log_error(out.str());
         g_state.disabled = true;
         return false;
@@ -201,8 +200,7 @@ std::string activation_line_locked(bool fg_active)
     const double fps = sedici::live_limiter_fps();
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);
-    out << "sedici: limiter active target=" << format_fps(fps)
-        << " fps interval=" << ticks_to_ms(g_state.interval)
+    out << "sedici: limiter active target=" << format_fps(fps) << " fps interval=" << ticks_to_ms(g_state.interval)
         << " ms spin=" << limiter.spin_us << " us"
         << " fg=" << (fg_active ? "on" : "off");
     return out.str();
@@ -219,8 +217,8 @@ std::string stats_line_locked(bool fg_active)
 
     out << " interval_ms{avg=" << average(g_state.window.intervals)
         << " p50=" << percentile(g_state.window.intervals, 0.50)
-        << " p99=" << percentile(g_state.window.intervals, 0.99)
-        << " max=" << maximum(g_state.window.intervals) << '}';
+        << " p99=" << percentile(g_state.window.intervals, 0.99) << " max=" << maximum(g_state.window.intervals)
+        << '}';
 
     out << " wait_ms{avg=" << average(g_state.window.waits) << '}';
 
@@ -232,8 +230,7 @@ std::string stats_line_locked(bool fg_active)
             << " max=" << maximum(g_state.window.overshoots) << '}';
     }
 
-    out << " late=" << g_state.window.late
-        << " resets=" << g_state.window.resets
+    out << " late=" << g_state.window.late << " resets=" << g_state.window.resets
         << " fg=" << (fg_active ? "on" : "off");
     return out.str();
 }
@@ -244,10 +241,13 @@ namespace {
 std::atomic<bool (*)() noexcept> g_fg_probe{nullptr};
 }
 
-void limiter_set_fg_probe(bool (*probe)() noexcept) noexcept { g_fg_probe.store(probe, std::memory_order_release); }
+void limiter_set_fg_probe(bool (*probe)() noexcept) noexcept
+{
+    g_fg_probe.store(probe, std::memory_order_release);
+}
 
 void limiter_before_present(uint64_t now_qpc) noexcept
-{    // The overwhelmingly common case is the limiter being off. Keep it to one
+{ // The overwhelmingly common case is the limiter being off. Keep it to one
     // immutable read so milestone-1 behaviour is untouched.
     if (sedici::live_limiter_fps() <= 0.0) return;
 
@@ -269,16 +269,14 @@ void limiter_before_present(uint64_t now_qpc) noexcept
                 activation = activation_line_locked(fg_active);
             }
 
-            const sedici::LimiterStep step = sedici::limiter_step(
-                now_qpc, g_state.deadline, g_state.have_deadline, g_state.interval);
+            const sedici::LimiterStep step =
+                sedici::limiter_step(now_qpc, g_state.deadline, g_state.have_deadline, g_state.interval);
 
             g_state.deadline = step.deadline;
             g_state.have_deadline = true;
 
             if (step.wait) {
-                const uint64_t wait_target = step.deadline > g_state.spin
-                    ? step.deadline - g_state.spin
-                    : now_qpc;
+                const uint64_t wait_target = step.deadline > g_state.spin ? step.deadline - g_state.spin : now_qpc;
                 if (wait_target > now_qpc) {
                     if (!wait_on_timer_locked(wait_target, now_qpc)) timer_failed = true;
                 }
@@ -297,9 +295,7 @@ void limiter_before_present(uint64_t now_qpc) noexcept
 
             g_state.window.waits.push_back(ticks_to_ms(actual - now_qpc));
             if (step.wait && !timer_failed) {
-                const double overshoot = actual > step.deadline
-                    ? ticks_to_ms(actual - step.deadline)
-                    : 0.0;
+                const double overshoot = actual > step.deadline ? ticks_to_ms(actual - step.deadline) : 0.0;
                 g_state.window.overshoots.push_back(overshoot);
             }
 

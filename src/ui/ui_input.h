@@ -27,6 +27,6 @@ InterceptionSummary ui_input_interception_summary() noexcept;
 // Maps a client-area point to output pixels. The overlay is drawn at the
 // output resolution while Windows reports input in client coordinates, so the
 // two only match when the window is not scaled.
-POINT ui_input_map_point(LONG x, LONG y, LONG client_width, LONG client_height,
-                         LONG output_width, LONG output_height) noexcept;
-}
+POINT ui_input_map_point(LONG x, LONG y, LONG client_width, LONG client_height, LONG output_width,
+                         LONG output_height) noexcept;
+} // namespace sedici

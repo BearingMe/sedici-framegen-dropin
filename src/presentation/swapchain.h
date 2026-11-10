@@ -40,8 +40,8 @@ struct GenerateSink {
     void* user = nullptr;
     // `outputState` is the state `output` is in when recording starts; the hook
     // must restore it before returning, because the wrapper copies from it.
-    bool (*record)(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
-                   ID3D12Resource* output, D3D12_RESOURCE_STATES outputState) = nullptr;
+    bool (*record)(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real, ID3D12Resource* output,
+                   D3D12_RESOURCE_STATES outputState) = nullptr;
     // "vrr" schedules: records every phase of one real frame into one list.
     // Without it, `record` is called once per phase (enough for count-only
     // sinks; a real generator must advance its history once per real frame).
@@ -81,9 +81,8 @@ public:
     // a handed-over reference, the native chain is recreated on Sedici's present
     // queue and the old one is destroyed, as AMD's swapchain does; if that is
     // not possible the wrapper falls back to "vsync" and still succeeds.
-    static HRESULT wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue,
-                        Swapchain** result, const PresentChoice* choice = nullptr,
-                        ULONG handedRefs = 0) noexcept;
+    static HRESULT wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue, Swapchain** result,
+                        const PresentChoice* choice = nullptr, ULONG handedRefs = 0) noexcept;
 
     // K47: a swapchain whose final Release could not drain stays parked, with every
     // GPU object intact, until its fence retires (or the device is removed); it is
@@ -96,7 +95,10 @@ public:
 
     // What parking does to the presenter, exposed so the offline host can cancel it
     // at a chosen moment instead of racing the 5 s drain bound.
-    void cancel_presenter() noexcept { if (m_presenter) m_presenter->request_stop(); }
+    void cancel_presenter() noexcept
+    {
+        if (m_presenter) m_presenter->request_stop();
+    }
 
     // True when "vrr" is active (presenter thread and queue in use).
     bool async_present() const noexcept { return m_presenter != nullptr; }
@@ -135,9 +137,13 @@ public:
     // Generated midpoints presented since wrap, and midpoint deadline misses
     // that fell back to real-frame-only presentation.
     uint64_t generated_presents() const noexcept
-    { return m_generated_presents + (m_presenter ? m_presenter->midpoints_shown() : 0); }
+    {
+        return m_generated_presents + (m_presenter ? m_presenter->midpoints_shown() : 0);
+    }
     uint64_t skipped_generates() const noexcept
-    { return m_skipped_generates + (m_presenter ? m_presenter->midpoints_dropped() : 0); }
+    {
+        return m_skipped_generates + (m_presenter ? m_presenter->midpoints_dropped() : 0);
+    }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** result) override;
     ULONG STDMETHODCALLTYPE AddRef() override;
@@ -153,7 +159,8 @@ public:
     HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL fullscreen, IDXGIOutput* target) override;
     HRESULT STDMETHODCALLTYPE GetFullscreenState(BOOL* fullscreen, IDXGIOutput** target) override;
     HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC* desc) override;
-    HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) override;
+    HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT count, UINT width, UINT height, DXGI_FORMAT format,
+                                            UINT flags) override;
     HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC* desc) override;
     HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput** output) override;
     HRESULT STDMETHODCALLTYPE GetFrameStatistics(DXGI_FRAME_STATISTICS* stats) override;
@@ -179,8 +186,8 @@ public:
     UINT STDMETHODCALLTYPE GetCurrentBackBufferIndex() override;
     HRESULT STDMETHODCALLTYPE CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE color, UINT* support) override;
     HRESULT STDMETHODCALLTYPE SetColorSpace1(DXGI_COLOR_SPACE_TYPE color) override;
-    HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT count, UINT width, UINT height, DXGI_FORMAT format,
-        UINT flags, const UINT* masks, IUnknown* const* queues) override;
+    HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
+                                             const UINT* masks, IUnknown* const* queues) override;
     HRESULT STDMETHODCALLTYPE SetHDRMetaData(DXGI_HDR_METADATA_TYPE type, UINT size, void* data) override;
 
 private:
@@ -214,8 +221,8 @@ private:
     double adaptive_target() const noexcept;
     // "vrr": copies the game's backbuffer into snapshot `slot` on the game queue.
     HRESULT snapshot_real(uint32_t slot) noexcept;
-    HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags,
-                   const UINT* masks, IUnknown* const* queues, bool version1) noexcept;
+    HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags, const UINT* masks,
+                   IUnknown* const* queues, bool version1) noexcept;
     // Keeps every GPU object alive after a drain that timed out on a live device.
     void retain_gpu_state() noexcept;
     // True when no GPU work or presenter job can still touch this object. Never
@@ -240,11 +247,12 @@ private:
     // them while another thread sits in Present (which holds m_mutex through its waits) would
     // otherwise block, and Alan Wake 2's submitting thread did (K138).
     std::mutex m_scratch_mutex;
-    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_scratch_allocator;   // guarded by m_scratch_mutex
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_scratch_list;     // guarded by m_scratch_mutex
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_scratch_texture;             // guarded by m_scratch_mutex
-    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_scratch_retired; // replaced by a resize; kept: the game may hold the pointer
-    DXGI_FORMAT m_scratch_format = DXGI_FORMAT_UNKNOWN;                    // the chain's format and size, set with the buffers
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_scratch_allocator; // guarded by m_scratch_mutex
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_scratch_list;   // guarded by m_scratch_mutex
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_scratch_texture;           // guarded by m_scratch_mutex
+    std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>>
+        m_scratch_retired;                              // replaced by a resize; kept: the game may hold the pointer
+    DXGI_FORMAT m_scratch_format = DXGI_FORMAT_UNKNOWN; // the chain's format and size, set with the buffers
     UINT m_scratch_width = 0;
     UINT m_scratch_height = 0;
     Microsoft::WRL::ComPtr<ID3D12Fence> m_fence;
@@ -309,7 +317,7 @@ private:
     uint64_t m_generated_presents = 0;
     uint64_t m_skipped_generates = 0;
 
-    UINT m_game_index = 0;   // game-facing buffer, advances once per cycle
+    UINT m_game_index = 0; // game-facing buffer, advances once per cycle
     UINT64 m_fence_value = 0;
     // Once submission retirement cannot be established, do not admit further
     // frames or reuse any slot until the wrapper is replaced (K37).
@@ -324,7 +332,8 @@ private:
     double m_gap_min = 0.0;
     double m_gap_max = 0.0;
 
-    // Diagnostic-only evidence, never used to decide what to present:    // - whether the GPU finished the midpoint copy before the real frame was
+    // Diagnostic-only evidence, never used to decide what to present:    // - whether the GPU finished the midpoint
+    // copy before the real frame was
     //   presented, which distinguishes "queued by DXGI" from "not rendered yet";
     // - how often a cycle had to wait for the previous real copy to retire.
     uint64_t m_mid_checks = 0;

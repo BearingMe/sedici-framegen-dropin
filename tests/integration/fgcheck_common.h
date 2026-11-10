@@ -58,7 +58,6 @@ using Microsoft::WRL::ComPtr;
 #pragma warning(push)
 #pragma warning(disable : 4996) // Exercise the desc Cyberpunk actually uses.
 
-
 namespace fgcheck {
 
 inline std::atomic<unsigned> g_debug_errors{0};
@@ -74,9 +73,9 @@ constexpr uint32_t kIterations = 40;
 
 struct SceneConfig {
     const char* name;
-    float travelX;      // screen widths per frame
-    float travelY;      // screen heights per frame
-    float barWidth;     // fraction of the width
+    float travelX;  // screen widths per frame
+    float travelY;  // screen heights per frame
+    float barWidth; // fraction of the width
     float startX;
     float startY;
 };
@@ -132,13 +131,11 @@ inline Image make_scene(const SceneConfig& config, float t, uint32_t width, uint
             const float pixelX = static_cast<float>(x) + 0.5f;
             const float pixelY = static_cast<float>(y) + 0.5f;
 
-            const float horizontal = smooth_step(halfWidth, halfWidth - feather,
-                                                 std::abs(pixelX - centreX));
+            const float horizontal = smooth_step(halfWidth, halfWidth - feather, std::abs(pixelX - centreX));
             // Full height for horizontal scenes, a box when the scene also
             // moves vertically (that is where disocclusion shows up).
             const float halfHeight = config.travelY != 0.0f ? 0.15f * heightf : 0.5f * heightf;
-            const float vertical = smooth_step(halfHeight, halfHeight - feather,
-                                               std::abs(pixelY - centreY));
+            const float vertical = smooth_step(halfHeight, halfHeight - feather, std::abs(pixelY - centreY));
             const float inside = horizontal * vertical;
 
             const size_t index = static_cast<size_t>(y) * width + x;
@@ -192,8 +189,8 @@ inline std::vector<uint16_t> pack_ffx_motion(const std::vector<float>& values)
     return result;
 }
 
-inline ComPtr<ID3D12Resource> create_buffer(ID3D12Device* device, uint64_t size,
-                                     D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state)
+inline ComPtr<ID3D12Resource> create_buffer(ID3D12Device* device, uint64_t size, D3D12_HEAP_TYPE heap,
+                                            D3D12_RESOURCE_STATES state)
 {
     D3D12_HEAP_PROPERTIES properties{};
     properties.Type = heap;
@@ -208,17 +205,16 @@ inline ComPtr<ID3D12Resource> create_buffer(ID3D12Device* device, uint64_t size,
     description.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
     ComPtr<ID3D12Resource> resource;
-    if (FAILED(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE, &description,
-                                               state, nullptr, IID_PPV_ARGS(&resource)))) {
+    if (FAILED(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE, &description, state, nullptr,
+                                               IID_PPV_ARGS(&resource)))) {
         return nullptr;
     }
     return resource;
 }
 
-inline ComPtr<ID3D12Resource> create_texture(ID3D12Device* device, DXGI_FORMAT format,
-                                       uint32_t width, uint32_t height,
-                                       D3D12_RESOURCE_FLAGS flags,
-                                       const D3D12_CLEAR_VALUE* clear = nullptr)
+inline ComPtr<ID3D12Resource> create_texture(ID3D12Device* device, DXGI_FORMAT format, uint32_t width,
+                                             uint32_t height, D3D12_RESOURCE_FLAGS flags,
+                                             const D3D12_CLEAR_VALUE* clear = nullptr)
 {
     D3D12_HEAP_PROPERTIES properties{};
     properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -236,15 +232,14 @@ inline ComPtr<ID3D12Resource> create_texture(ID3D12Device* device, DXGI_FORMAT f
 
     ComPtr<ID3D12Resource> resource;
     if (FAILED(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE, &description,
-                                               D3D12_RESOURCE_STATE_COMMON, clear,
-                                               IID_PPV_ARGS(&resource)))) {
+                                               D3D12_RESOURCE_STATE_COMMON, clear, IID_PPV_ARGS(&resource)))) {
         return nullptr;
     }
     return resource;
 }
 
-inline void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
-                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+inline void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
+                       D3D12_RESOURCE_STATES after)
 {
     if (before == after) return;
     D3D12_RESOURCE_BARRIER barrier{};
@@ -257,7 +252,7 @@ inline void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource
 }
 
 inline void upload(ID3D12GraphicsCommandList* list, ID3D12Resource* texture, ID3D12Resource* staging,
-            const void* data, uint32_t width, uint32_t height, uint32_t pixelBytes)
+                   const void* data, uint32_t width, uint32_t height, uint32_t pixelBytes)
 {
     const uint32_t rowPitch = align_to(width * pixelBytes, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     void* mapped = nullptr;
@@ -267,8 +262,7 @@ inline void upload(ID3D12GraphicsCommandList* list, ID3D12Resource* texture, ID3
     auto* destination = static_cast<uint8_t*>(mapped);
     for (uint32_t y = 0; y < height; ++y) {
         std::memcpy(destination + static_cast<size_t>(y) * rowPitch,
-                    source + static_cast<size_t>(y) * width * pixelBytes,
-                    static_cast<size_t>(width) * pixelBytes);
+                    source + static_cast<size_t>(y) * width * pixelBytes, static_cast<size_t>(width) * pixelBytes);
     }
     staging->Unmap(0, nullptr);
 
@@ -309,8 +303,8 @@ inline double psnr(const std::vector<uint8_t>& reference, const std::vector<uint
     return 10.0 * std::log10((255.0 * 255.0) / mse);
 }
 
-inline double ssim(const std::vector<uint8_t>& reference, const std::vector<uint8_t>& candidate,
-            uint32_t width, uint32_t height)
+inline double ssim(const std::vector<uint8_t>& reference, const std::vector<uint8_t>& candidate, uint32_t width,
+                   uint32_t height)
 {
     constexpr double c1 = 6.5025;
     constexpr double c2 = 58.5225;
@@ -400,9 +394,9 @@ inline std::vector<uint8_t> read_presented(Device& state, ID3D12Resource* textur
     const auto width = static_cast<uint32_t>(desc.Width);
     const auto pitch = align_to(width * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     auto buffer = create_buffer(state.device.Get(), static_cast<uint64_t>(pitch) * desc.Height,
-        D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
-    if (!buffer || FAILED(state.allocator->Reset()) ||
-        FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return {};
+                                D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (!buffer || FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+        return {};
     transition(state.list.Get(), texture, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
     D3D12_TEXTURE_COPY_LOCATION from{};
     from.pResource = texture;
@@ -447,7 +441,6 @@ inline void pass_mark(void* user, ID3D12GraphicsCommandList* list, const char* p
     profile->names.push_back(pass);
 }
 
-
 struct TestGenerator {
     uint32_t calls = 0;
     IDXGISwapChain4* native = nullptr;
@@ -457,22 +450,22 @@ struct TestGenerator {
 // Stand-in for the real generator. Presentation is what is under test here, so
 // the sink only has to be a well-formed, empty recording; the real host records
 // fg::Context into the same output resource.
-inline bool record_solid(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
-                  ID3D12Resource* output, D3D12_RESOURCE_STATES state)
+inline bool record_solid(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real, ID3D12Resource* output,
+                         D3D12_RESOURCE_STATES state)
 {
     (void)state;
     auto* generator = static_cast<TestGenerator*>(user);
     if (!generator || !list || !output || !real) return false;
     UINT count = 0;
     const UINT expected = generator->calls ? generator->calls * 2 - 1 : 0;
-    generator->before_present &= generator->native &&
-        SUCCEEDED(generator->native->GetLastPresentCount(&count)) && count == expected;
+    generator->before_present &=
+        generator->native && SUCCEEDED(generator->native->GetLastPresentCount(&count)) && count == expected;
     ++generator->calls;
     return true;
 }
 
 inline bool record_counted(void* user, ID3D12GraphicsCommandList* list, ID3D12Resource* real,
-                    ID3D12Resource* output, D3D12_RESOURCE_STATES)
+                           ID3D12Resource* output, D3D12_RESOURCE_STATES)
 {
     auto* calls = static_cast<uint32_t*>(user);
     if (!calls || !list || !output || !real) return false;
@@ -484,24 +477,20 @@ inline ID3D12Fence* recoveryTestGate = nullptr;
 inline std::atomic<bool> recoveryTestReleased{false};
 inline void release_recovery_test_gate() noexcept
 {
-    if (recoveryTestGate && SUCCEEDED(recoveryTestGate->Signal(1)))
-        recoveryTestReleased = true;
+    if (recoveryTestGate && SUCCEEDED(recoveryTestGate->Signal(1))) recoveryTestReleased = true;
 }
-
 
 // Entry points of the check groups.
 bool run_case(Device& state, const SceneConfig& config, bool keepImages);
 int check_contract(Device& state);
 bool check_ten_bit(Device& state);
 bool check_pacing();
-bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier,
-                      const char* label, DWORD frameMs = 27, bool signalFault = false,
-                      bool closeFault = false, bool resetFault = false, bool liveRecovery = false,
-                      bool paramsFault = false);
+bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier, const char* label,
+                      DWORD frameMs = 27, bool signalFault = false, bool closeFault = false,
+                      bool resetFault = false, bool liveRecovery = false, bool paramsFault = false);
 bool check_generated_window(Device& state, bool* knownSignature = nullptr);
-bool check_session_window(Device& state, bool loseDevice = false, bool signalFault = false,
-                          bool closeFault = false, bool resetFault = false,
-                          bool contextRace = false, bool sessionRecovery = false,
+bool check_session_window(Device& state, bool loseDevice = false, bool signalFault = false, bool closeFault = false,
+                          bool resetFault = false, bool contextRace = false, bool sessionRecovery = false,
                           bool registrationFault = false, bool* knownSignature = nullptr);
 bool check_routing(Device& state, bool wrapFirst = false);
 bool check_routing_faults(Device& state);

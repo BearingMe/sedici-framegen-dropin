@@ -46,12 +46,14 @@ void capture_wrapped_window(const ffxCreateContextDescHeader* desc) noexcept
     try {
         for (const ffxApiHeader* item = desc; item; item = item->pNext) {
             if (item->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12) {
-                const auto& made = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainNewDX12&>(*item);
+                const auto& made =
+                    reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainNewDX12&>(*item);
                 if (made.desc && made.desc->OutputWindow) sedici::ui_capture_window(made.desc->OutputWindow);
                 return;
             }
             if (item->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12) {
-                const auto& made = reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainForHwndDX12&>(*item);
+                const auto& made =
+                    reinterpret_cast<const ffxCreateContextDescFrameGenerationSwapChainForHwndDX12&>(*item);
                 if (made.hwnd) sedici::ui_capture_window(made.hwnd);
                 return;
             }
@@ -78,8 +80,7 @@ constexpr ffxReturnCode_t kUnknownDesc = FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE;
 
 } // namespace
 
-extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
-                                            ffxCreateContextDescHeader* desc,
+extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context, ffxCreateContextDescHeader* desc,
                                             const ffxAllocationCallbacks* /*callbacks*/)
 {
     (void)sedici::settings();
@@ -93,15 +94,17 @@ extern "C" ffxReturnCode_t ffxCreateContext(ffxContext* context,
     sedici::fg::route_set_output_hooks(hooks);
 
     ffxReturnCode_t routed = kUnknownDesc;
-    if (!context || !desc) routed = kForeignHandle;
-    else if (!sedici::fg::route_create(context, desc, &routed)) routed = kUnknownDesc;
-    describe_call(FfxExportKind::Create, desc, routed, (routed == FFX_API_RETURN_OK && context) ? *context : nullptr);
+    if (!context || !desc)
+        routed = kForeignHandle;
+    else if (!sedici::fg::route_create(context, desc, &routed))
+        routed = kUnknownDesc;
+    describe_call(FfxExportKind::Create, desc, routed,
+                  (routed == FFX_API_RETURN_OK && context) ? *context : nullptr);
     if (routed == FFX_API_RETURN_OK) capture_wrapped_window(desc);
     return routed;
 }
 
-extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
-                                             const ffxAllocationCallbacks* /*callbacks*/)
+extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context, const ffxAllocationCallbacks* /*callbacks*/)
 {
     (void)sedici::settings();
     void* existing = context ? *context : nullptr;
@@ -111,8 +114,7 @@ extern "C" ffxReturnCode_t ffxDestroyContext(ffxContext* context,
     return routed;
 }
 
-extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context,
-                                        const ffxConfigureDescHeader* desc)
+extern "C" ffxReturnCode_t ffxConfigure(ffxContext* context, const ffxConfigureDescHeader* desc)
 {
     (void)sedici::settings();
     void* existing = context ? *context : nullptr;
@@ -132,8 +134,7 @@ extern "C" ffxReturnCode_t ffxQuery(ffxContext* context, ffxQueryDescHeader* des
     return routed;
 }
 
-extern "C" ffxReturnCode_t ffxDispatch(ffxContext* context,
-                                       const ffxDispatchDescHeader* desc)
+extern "C" ffxReturnCode_t ffxDispatch(ffxContext* context, const ffxDispatchDescHeader* desc)
 {
     (void)sedici::settings();
     void* existing = context ? *context : nullptr;

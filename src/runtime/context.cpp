@@ -22,8 +22,7 @@ template <typename T>
 const T* find_desc(const ffxApiHeader* desc, uint64_t type) noexcept
 {
     size_t visited = 0;
-    for (const ffxApiHeader* item = desc; item && visited < kMaxChainItems;
-         item = item->pNext, ++visited) {
+    for (const ffxApiHeader* item = desc; item && visited < kMaxChainItems; item = item->pNext, ++visited) {
         if (item->type == type) return reinterpret_cast<const T*>(item);
     }
     return nullptr;
@@ -80,7 +79,10 @@ bool Context::fail(const char* reason) noexcept
     // Level 1: a generation that fails inside a present never reaches the router, so this line is the
     // only trace of why a frame was not generated (Alan Wake 2 black screen, finding 016). The log
     // rate-limits repeats of one message.
-    try { log_event(1, std::string("fg: rejected: ") + reason); } catch (...) {}
+    try {
+        log_event(1, std::string("fg: rejected: ") + reason);
+    } catch (...) {
+    }
     return false;
 }
 
@@ -119,8 +121,7 @@ bool Context::wait_prepare(ID3D12CommandQueue* queue) noexcept
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     if (FAILED(queue->GetDevice(IID_PPV_ARGS(&device))) || device.Get() != m_device)
         return fail("generation queue belongs to another device");
-    if (m_retirement_fence->GetCompletedValue() == UINT64_MAX)
-        return fail("prepare device removed");
+    if (m_retirement_fence->GetCompletedValue() == UINT64_MAX) return fail("prepare device removed");
     if (FAILED(queue->Wait(m_retirement_fence.Get(), m_retirement_value)))
         return fail("generation queue wait failed");
     m_prepare_waited = true;
@@ -129,7 +130,7 @@ bool Context::wait_prepare(ID3D12CommandQueue* queue) noexcept
 
 bool Context::wait_for_retirement(uint32_t timeoutMs) noexcept
 {
-    if (m_recorded) return false;      // not submitted yet: nothing to wait for
+    if (m_recorded) return false; // not submitted yet: nothing to wait for
     if (!m_retirement_fence) return true;
     if (retired()) return true;
 
@@ -172,15 +173,15 @@ bool Context::destroy() noexcept
     return true;
 }
 
-bool Context::create(const ffxApiHeader* createDesc) noexcept try
-{
+bool Context::create(const ffxApiHeader* createDesc) noexcept
+try {
     const auto* frameGeneration = find_desc<ffxCreateContextDescFrameGeneration>(
         createDesc, FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION);
     if (!frameGeneration) return fail("create without FrameGenerationCreate");
     if (m_device) return fail("context already created");
-    constexpr uint32_t supported = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED |
-        FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT |
-        FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
+    constexpr uint32_t supported =
+        FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED | FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE |
+        FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT | FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
     if (frameGeneration->flags & ~supported) return fail("unsupported frame generation create flags");
     // The HDR flag only says the inputs are high dynamic range encoded (P4.8, K129). Stage 1 warps,
     // fills and blends in the encoded space it is given, so the flag changes nothing in the passes.
@@ -192,8 +193,8 @@ bool Context::create(const ffxApiHeader* createDesc) noexcept try
     else
         return fail("unsupported back buffer format");
 
-    const auto* backend = find_desc<ffxCreateBackendDX12Desc>(
-        createDesc, FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12);
+    const auto* backend =
+        find_desc<ffxCreateBackendDX12Desc>(createDesc, FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12);
     if (!backend || !backend->device) return fail("create without a DX12 device");
 
     if (frameGeneration->displaySize.width == 0 || frameGeneration->displaySize.height == 0) {
@@ -211,24 +212,24 @@ bool Context::create(const ffxApiHeader* createDesc) noexcept try
     if (!m_stage.initialize(m_device)) return fail("stage 1 initialization");
 
     log_event(1, "fg: context created, display " + std::to_string(m_display_width) + "x" +
-                     std::to_string(m_display_height) + ", max render " +
-                     std::to_string(m_max_render_width) + "x" +
+                     std::to_string(m_display_height) + ", max render " + std::to_string(m_max_render_width) + "x" +
                      std::to_string(m_max_render_height) +
                      ((m_create_flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED) ? ", depth inverted" : "") +
                      ((m_create_flags & FFX_FRAMEGENERATION_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS)
-                          ? ", display-res motion" : ""));
+                          ? ", display-res motion"
+                          : ""));
     return true;
+} catch (...) {
+    return fail("context initialization exception");
 }
-catch (...) { return fail("context initialization exception"); }
 
 bool Context::configure(const ffxApiHeader* configureDesc) noexcept
 {
     if (!m_device) return fail("configure without a context");
 
-    const auto* modern = find_desc<ffxConfigureDescFrameGeneration>(
-        configureDesc, FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
-    const auto* legacy = find_desc<FfxFrameGenerationConfig>(
-        configureDesc, FFX_API_FRAME_GENERATION_CONFIG);
+    const auto* modern =
+        find_desc<ffxConfigureDescFrameGeneration>(configureDesc, FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION);
+    const auto* legacy = find_desc<FfxFrameGenerationConfig>(configureDesc, FFX_API_FRAME_GENERATION_CONFIG);
 
     if (modern) {
         m_enabled = modern->frameGenerationEnabled;
@@ -262,7 +263,8 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     // rejection fails the game's dispatch (K98: after a resolution change the
     // GPU took 93-194 ms, longer than the 50 ms wait this used to be).
     constexpr uint32_t kPrepareSlotWaitMs = 250;
-    if (!retired() && !m_recorded && !wait_for_retirement(kPrepareSlotWaitMs)) return fail("prepare slot is still in flight");
+    if (!retired() && !m_recorded && !wait_for_retirement(kPrepareSlotWaitMs))
+        return fail("prepare slot is still in flight");
     if (!retired()) return fail("prepare slot is still recorded or in flight");
     // An invalidated prepare still owns its descriptors until its submission
     // retires. Only now may it be abandoned, without releasing its textures.
@@ -298,20 +300,19 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
         try {
             const auto nativeDepth = m_depth->GetDesc();
             const auto nativeMotion = m_motion->GetDesc();
-            log_event(1, "fg: native inputs depth{format=" + std::to_string(nativeDepth.Format) +
-                " flags=" + std::to_string(nativeDepth.Flags) + " size=" +
-                std::to_string(nativeDepth.Width) + "x" + std::to_string(nativeDepth.Height) +
-                "} motion{format=" + std::to_string(nativeMotion.Format) + " flags=" +
-                std::to_string(nativeMotion.Flags) + " size=" + std::to_string(nativeMotion.Width) +
-                "x" + std::to_string(nativeMotion.Height) + "}");
-        } catch (...) {}
+            log_event(1, "fg: native inputs depth{format=" + std::to_string(nativeDepth.Format) + " flags=" +
+                             std::to_string(nativeDepth.Flags) + " size=" + std::to_string(nativeDepth.Width) +
+                             "x" + std::to_string(nativeDepth.Height) + "} motion{format=" +
+                             std::to_string(nativeMotion.Format) + " flags=" + std::to_string(nativeMotion.Flags) +
+                             " size=" + std::to_string(nativeMotion.Width) + "x" +
+                             std::to_string(nativeMotion.Height) + "}");
+        } catch (...) {
+        }
     }
     if (renderSize.width == 0 || renderSize.height == 0) return fail("prepare without a render size");
 
-    const bool geometry_ok = renderSize.width <= m_max_render_width &&
-                             renderSize.height <= m_max_render_height &&
-                             renderSize.width <= m_display_width &&
-                             renderSize.height <= m_display_height;
+    const bool geometry_ok = renderSize.width <= m_max_render_width && renderSize.height <= m_max_render_height &&
+                             renderSize.width <= m_display_width && renderSize.height <= m_display_height;
     if (!geometry_ok) return fail("prepare outside the created sizes");
 
     const DXGI_FORMAT depthFormat = depth_srv_format(format_of(m_depth));
@@ -319,15 +320,15 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     if (!is_supported_motion(format_of(m_motion))) return fail("unsupported motion vector format");
     for (auto* resource : {m_depth, m_motion}) {
         const auto desc = resource->GetDesc();
-        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-            desc.Width != renderSize.width || desc.Height != renderSize.height ||
-            desc.MipLevels != 1 || desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1 ||
-            (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.Width != renderSize.width ||
+            desc.Height != renderSize.height || desc.MipLevels != 1 || desc.DepthOrArraySize != 1 ||
+            desc.SampleDesc.Count != 1 || (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
             return fail("unsupported input texture geometry or usage");
     }
 
-    if (!std::isfinite(motionScale.x) || !std::isfinite(motionScale.y) ||
-        motionScale.x == 0.0f || motionScale.y == 0.0f) return fail("invalid motion vector scale");
+    if (!std::isfinite(motionScale.x) || !std::isfinite(motionScale.y) || motionScale.x == 0.0f ||
+        motionScale.y == 0.0f)
+        return fail("invalid motion vector scale");
     if (m_render_width != renderSize.width || m_render_height != renderSize.height) {
         m_reset_requested = true;
         m_history_valid = false;
@@ -376,8 +377,8 @@ bool Context::prepare(const ffxApiHeader* prepareDesc) noexcept
     return true;
 }
 
-bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
-                       D3D12_RESOURCE_STATES outputState, const HudSource* hud) noexcept
+bool Context::generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output, D3D12_RESOURCE_STATES outputState,
+                       const HudSource* hud) noexcept
 {
     if (!list || !output) return fail("generate without a command list or output");
     const GeneratePhase phase{output, outputState, m_stage.params().alpha};
@@ -392,8 +393,7 @@ bool Context::generate(ID3D12GraphicsCommandList* list, const GeneratePhase* pha
     if (!m_prepare_valid) return fail("generate without prepare");
     if (m_recorded && list != m_prepare_list && !m_prepare_waited)
         return fail("split generation before prepare submission registration");
-    if (!m_recorded && !m_prepare_waited)
-        return fail("split generation without a prepare queue dependency");
+    if (!m_recorded && !m_prepare_waited) return fail("split generation without a prepare queue dependency");
     if (m_prepared_frame_id != m_frame_id) return fail("configure/prepare frame ID mismatch");
     if (!m_hudless) return fail("generate without a HUD-less colour resource");
 

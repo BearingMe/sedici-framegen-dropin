@@ -16,10 +16,10 @@ void pause_file_io() noexcept
     SetEvent(g_arrived);
     (void)WaitForSingleObject(g_resume, 5000);
 }
-}
+} // namespace
 
-extern "C" __declspec(dllexport) BOOL WINAPI start_settings_worker_test(
-    HANDLE arrived, HANDLE resume, const wchar_t* path)
+extern "C" __declspec(dllexport) BOOL WINAPI start_settings_worker_test(HANDLE arrived, HANDLE resume,
+                                                                        const wchar_t* path)
 {
     if (!arrived || !resume || !path) return FALSE;
     g_arrived = arrived;

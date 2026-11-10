@@ -22,6 +22,6 @@ void overlay_on_present(const ffxCallbackDescFrameGenerationPresent* params) noe
 // these two (fg::OutputHooks). `overlay_draw_output` records the overlay onto
 // a native backbuffer in PRESENT state on the list executed right before it is
 // presented; `overlay_output_presented` follows each successful Present.
-void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list,
-                         ID3D12Resource* backbuffer, bool generated) noexcept;
+void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer,
+                         bool generated) noexcept;
 void overlay_output_presented(bool generated) noexcept;

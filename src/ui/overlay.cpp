@@ -27,7 +27,6 @@ constexpr uint64_t kReportEvery = 300;
 constexpr uint64_t kEarlyReportEvery = 60;
 constexpr unsigned kEarlyReports = 8;
 
-
 uint64_t qpc_now() noexcept
 {
     LARGE_INTEGER value{};
@@ -78,13 +77,12 @@ std::string active_line_locked(const ffxCallbackDescFrameGenerationPresent& para
     out << "sedici: overlay present callback active"
         << " device=" << (params.device ? pointer_text(params.device) : std::string("n/a"))
         << " commandList=" << (params.commandList ? pointer_text(params.commandList) : std::string("n/a"))
-        << " output=" << (output.resource ? pointer_text(output.resource) : std::string("n/a"))
-        << " size=";
-    if (output.resource) out << output.description.width << 'x' << output.description.height;
-    else out << "n/a";
-    out
-        << " format=" << output.description.format
-        << " state=" << output.state
+        << " output=" << (output.resource ? pointer_text(output.resource) : std::string("n/a")) << " size=";
+    if (output.resource)
+        out << output.description.width << 'x' << output.description.height;
+    else
+        out << "n/a";
+    out << " format=" << output.description.format << " state=" << output.state
         << " ui=" << (params.currentUI.resource ? "yes" : "no");
     return out.str();
 }
@@ -99,12 +97,9 @@ std::string stats_line_locked()
 
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);
-    out << "sedici: overlay present frames=" << g_window.calls
-        << " real=" << g_window.real
-        << " generated=" << g_window.generated
-        << " output_fps=" << std::setprecision(2) << output_fps
-        << " real_fps=" << real_fps
-        << " span_ms=" << std::setprecision(1) << span_ms;
+    out << "sedici: overlay present frames=" << g_window.calls << " real=" << g_window.real
+        << " generated=" << g_window.generated << " output_fps=" << std::setprecision(2) << output_fps
+        << " real_fps=" << real_fps << " span_ms=" << std::setprecision(1) << span_ms;
     return out.str();
 }
 
@@ -165,8 +160,8 @@ void record_present(const ffxCallbackDescFrameGenerationPresent* params)
 
 } // namespace
 
-void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list,
-                         ID3D12Resource* backbuffer, bool generated) noexcept
+void overlay_draw_output(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* backbuffer,
+                         bool generated) noexcept
 {
     if (!device || !list || !backbuffer) return;
     // The fields ui_on_present reads, as AMD's callback fills them when no

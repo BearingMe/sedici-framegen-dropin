@@ -87,8 +87,7 @@ public:
 
     // Creates everything that can fail (queue, lists, fence, thread) without
     // touching any swapchain. Returns null, with `why` set, on failure.
-    static std::unique_ptr<Presenter> create(ID3D12Device* device, TearGuard guard,
-                                             std::string& why) noexcept;
+    static std::unique_ptr<Presenter> create(ID3D12Device* device, TearGuard guard, std::string& why) noexcept;
 
     // Recreates `native` for the same window, description and fullscreen state
     // on the present queue, as AMD's swapchain replacement does. Overlays that
@@ -103,8 +102,8 @@ public:
     //   `native` is untouched.
     // Failure after destruction: `native` is a replacement on `gameQueue`, or
     //   null if even that could not be created.
-    HRESULT adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG owned,
-                  ID3D12CommandQueue* gameQueue, std::string& why) noexcept;
+    HRESULT adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG owned, ID3D12CommandQueue* gameQueue,
+                  std::string& why) noexcept;
     ~Presenter();
     Presenter(const Presenter&) = delete;
     Presenter& operator=(const Presenter&) = delete;
@@ -176,8 +175,8 @@ private:
     std::condition_variable m_wake;
     std::condition_variable m_done;
     FixedQueue<PresentJob, kPresenterQueueCapacity> m_jobs;
-    OutputHooks m_hooks{};        // guarded by m_mutex
-    OutputHooks m_job_hooks{};    // presenter thread's copy for the current job
+    OutputHooks m_hooks{};     // guarded by m_mutex
+    OutputHooks m_job_hooks{}; // presenter thread's copy for the current job
     uint64_t m_submitted = 0;
     uint64_t m_completed = 0;
     HRESULT m_last = S_OK;
@@ -198,8 +197,8 @@ private:
     uint64_t m_generated_shown = 0;
     uint64_t m_generated_dropped = 0;
     uint64_t m_back_to_back = 0;
-    double m_latency = 0.0;    // seconds from content time to flip
-    double m_structural = 0.0; // schedule part of the latency
+    double m_latency = 0.0;     // seconds from content time to flip
+    double m_structural = 0.0;  // schedule part of the latency
     double m_gpu_latency = 0.0; // Present-to-ready part of the latency
     static constexpr uint32_t kStructuralWindow = 8;
     static constexpr uint32_t kGpuWindow = 16;
@@ -215,24 +214,24 @@ private:
         uint32_t generatedDropped = 0;
         uint32_t realsShown = 0;
         uint32_t realsDropped = 0;
-        uint32_t late = 0;         // flipped more than 1 ms after its target
+        uint32_t late = 0; // flipped more than 1 ms after its target
         double latencySum = 0.0;
         uint32_t latencySamples = 0;
         uint32_t gpuWaits = 0;
         uint32_t flips = 0;
-        uint32_t shortGaps = 0;    // flip sooner than one refresh after the previous
-        uint32_t backToBack = 0;   // flip within 2 ms of the previous
+        uint32_t shortGaps = 0;  // flip sooner than one refresh after the previous
+        uint32_t backToBack = 0; // flip within 2 ms of the previous
         double gapMin = 0.0;
-        double gpuWaitSum = 0.0;   // waiting for the image to finish on the GPU
+        double gpuWaitSum = 0.0; // waiting for the image to finish on the GPU
         double gpuWaitMax = 0.0;
-        uint32_t guardHolds = 0;   // the tear guard actually delayed a flip
+        uint32_t guardHolds = 0; // the tear guard actually delayed a flip
         double guardSum = 0.0;
         double guardMax = 0.0;
         uint32_t guardTimeouts = 0;
-        double callSum = 0.0;      // native Present call duration
+        double callSum = 0.0; // native Present call duration
         double callMax = 0.0;
-        uint32_t scan[6]{};        // at the flip: blank, 0-25, 25-50, 50-75, 75-100 %, unread
-        uint32_t idleBlank = 0;    // > one refresh since the last flip and the panel in blank
+        uint32_t scan[6]{};     // at the flip: blank, 0-25, 25-50, 50-75, 75-100 %, unread
+        uint32_t idleBlank = 0; // > one refresh since the last flip and the panel in blank
         uint32_t idleSamples = 0;
     } m_window;
 };

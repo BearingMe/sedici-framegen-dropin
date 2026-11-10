@@ -25,9 +25,9 @@
 namespace sedici::fg {
 
 struct InputFrame {
-    ID3D12Resource* color = nullptr;   // display resolution, FrameParams::colorFormat
-    ID3D12Resource* depth = nullptr;   // render resolution
-    ID3D12Resource* motion = nullptr;  // render resolution, two or more float channels
+    ID3D12Resource* color = nullptr;  // display resolution, FrameParams::colorFormat
+    ID3D12Resource* depth = nullptr;  // render resolution
+    ID3D12Resource* motion = nullptr; // render resolution, two or more float channels
 
     D3D12_RESOURCE_STATES colorState = D3D12_RESOURCE_STATE_COPY_SOURCE;
     D3D12_RESOURCE_STATES depthState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -98,9 +98,8 @@ public:
     // not configured or the inputs do not match the configured geometry.
     // `output` is display resolution and is returned to `outputState`.
     // With `hud`, the HUD layer of `hud->real` is composited onto the midpoint.
-    bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
-                  ID3D12Resource* output, bool resetHistory,
-                  D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON,
+    bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame, ID3D12Resource* output,
+                  bool resetHistory, D3D12_RESOURCE_STATES outputState = D3D12_RESOURCE_STATE_COMMON,
                   const HudSource* hud = nullptr) noexcept;
 
     // Reset seed contract (K53). When history is reset or not yet valid there is
@@ -112,9 +111,8 @@ public:
     // Same, for `count` (1..kMaxPhases) generated frames between the same pair
     // of real frames, each at its own alpha into its own output. The history
     // advances once. On a reset every output receives the real frame.
-    bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame,
-                  const GeneratePhase* phases, uint32_t count, bool resetHistory,
-                  const HudSource* hud = nullptr) noexcept;
+    bool generate(ID3D12GraphicsCommandList* list, const InputFrame& frame, const GeneratePhase* phases,
+                  uint32_t count, bool resetHistory, const HudSource* hud = nullptr) noexcept;
 
     const FrameParams& params() const noexcept { return m_params; }
     bool ready() const noexcept { return m_device != nullptr && m_pipelines_ready; }
@@ -130,14 +128,12 @@ private:
         ID3D12Resource* get() const noexcept { return resource.Get(); }
     };
 
-    bool compile_pipeline(const char* body, const char* name,
-                          ID3D12PipelineState** out) noexcept;
+    bool compile_pipeline(const char* body, const char* name, ID3D12PipelineState** out) noexcept;
     bool create_target(Target& target, DXGI_FORMAT format, uint32_t width, uint32_t height,
                        D3D12_RESOURCE_FLAGS flags) noexcept;
     bool create_targets() noexcept;
 
-    void transition(ID3D12GraphicsCommandList* list, Target& target,
-                    D3D12_RESOURCE_STATES after) noexcept;
+    void transition(ID3D12GraphicsCommandList* list, Target& target, D3D12_RESOURCE_STATES after) noexcept;
     void transition_external(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
                              D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) noexcept;
     void uav_barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource) noexcept;
@@ -149,12 +145,12 @@ private:
     void write_uav(uint32_t slot, ID3D12Resource* resource, DXGI_FORMAT format) noexcept;
     void copy_target(ID3D12GraphicsCommandList* list, Target& source, Target& destination) noexcept;
 
-    bool dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline,
-                  uint32_t groupsX, uint32_t groupsY) noexcept;
-    void synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous,
-                    float alpha, uint32_t block) noexcept;
-    void composite_hud(ID3D12GraphicsCommandList* list, uint32_t current,
-                       const GeneratePhase& phase, const HudSource* hud, uint32_t block) noexcept;
+    bool dispatch(ID3D12GraphicsCommandList* list, ID3D12PipelineState* pipeline, uint32_t groupsX,
+                  uint32_t groupsY) noexcept;
+    void synthesize(ID3D12GraphicsCommandList* list, uint32_t current, uint32_t previous, float alpha,
+                    uint32_t block) noexcept;
+    void composite_hud(ID3D12GraphicsCommandList* list, uint32_t current, const GeneratePhase& phase,
+                       const HudSource* hud, uint32_t block) noexcept;
 
     ID3D12Device* m_device = nullptr;
     bool m_pipelines_ready = false;

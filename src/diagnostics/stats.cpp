@@ -189,13 +189,11 @@ std::string stats_line_locked()
     out << "stats prepares=" << g_window.frame_time_delta.size();
 
     out << " frameTimeDelta_ms{avg=" << average(g_window.frame_time_delta)
-        << " min=" << minimum(g_window.frame_time_delta)
-        << " max=" << maximum(g_window.frame_time_delta)
+        << " min=" << minimum(g_window.frame_time_delta) << " max=" << maximum(g_window.frame_time_delta)
         << " sd=" << stddev(g_window.frame_time_delta) << '}';
 
     out << " prepareQpc_ms{avg=" << average(g_window.prepare_interval)
-        << " min=" << minimum(g_window.prepare_interval)
-        << " max=" << maximum(g_window.prepare_interval)
+        << " min=" << minimum(g_window.prepare_interval) << " max=" << maximum(g_window.prepare_interval)
         << " sd=" << stddev(g_window.prepare_interval) << '}';
 
     if (g_window.present_interval.empty()) {
@@ -257,8 +255,7 @@ bool find_prepare(const ffxDispatchDescHeader* desc, PrepareInfo& info)
         if (!seen.insert(item).second) break;
         switch (item->type) {
         case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE: {
-            const auto& prepare =
-                reinterpret_cast<const ffxDispatchDescFrameGenerationPrepare&>(*item);
+            const auto& prepare = reinterpret_cast<const ffxDispatchDescFrameGenerationPrepare&>(*item);
             info.frame_time_delta = prepare.frameTimeDelta;
             info.frame_id = prepare.frameID;
             info.reset = false;
@@ -268,8 +265,7 @@ bool find_prepare(const ffxDispatchDescHeader* desc, PrepareInfo& info)
             return true;
         }
         case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: {
-            const auto& prepare =
-                reinterpret_cast<const ffxDispatchDescFrameGenerationPrepareV2&>(*item);
+            const auto& prepare = reinterpret_cast<const ffxDispatchDescFrameGenerationPrepareV2&>(*item);
             info.frame_time_delta = prepare.frameTimeDelta;
             info.frame_id = prepare.frameID;
             info.reset = prepare.reset;
@@ -292,10 +288,8 @@ std::string stall_line_locked(const PrepareInfo& info, double interval_ms, doubl
 {
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);
-    out << "sedici: stall prepare interval=" << interval_ms
-        << " ms median=" << median_ms
-        << " ms ratio=" << (median_ms > 0.0 ? interval_ms / median_ms : 0.0) << 'x'
-        << " frameID=" << info.frame_id;
+    out << "sedici: stall prepare interval=" << interval_ms << " ms median=" << median_ms
+        << " ms ratio=" << (median_ms > 0.0 ? interval_ms / median_ms : 0.0) << 'x' << " frameID=" << info.frame_id;
 
     if (info.reset_known) {
         out << " reset=" << (info.reset ? "true" : "false");
@@ -356,11 +350,9 @@ void stats_on_dispatch(const ffxDispatchDescHeader* desc) noexcept
                 const double median_ms = median_of(g_window.stall_baseline);
                 const bool enough_samples = g_window.stall_baseline.count >= kStallMinSamples;
                 const bool rate_limited =
-                    g_window.have_stall_log &&
-                    qpc_ms(now - g_window.last_stall_log_qpc) < kStallLogIntervalMs;
+                    g_window.have_stall_log && qpc_ms(now - g_window.last_stall_log_qpc) < kStallLogIntervalMs;
 
-                if (enough_samples && interval_ms > kStallRatio * median_ms &&
-                    interval_ms >= kStallFloorMs) {
+                if (enough_samples && interval_ms > kStallRatio * median_ms && interval_ms >= kStallFloorMs) {
                     ++g_window.stall_count;
                     g_window.last_stall_interval_ms = interval_ms;
                     if (!rate_limited) {
@@ -425,7 +417,10 @@ namespace {
 std::atomic<uint64_t> g_swapchain_events{0};
 }
 
-uint64_t stats_swapchain_event_count() noexcept { return g_swapchain_events.load(std::memory_order_relaxed); }
+uint64_t stats_swapchain_event_count() noexcept
+{
+    return g_swapchain_events.load(std::memory_order_relaxed);
+}
 
 void stats_on_swapchain_event(const char* kind) noexcept
 {
@@ -445,10 +440,19 @@ namespace {
 std::atomic<uint64_t> g_real_dropped{0};
 }
 
-void stats_set_extra_line(StatsExtraLineFn fn) noexcept { g_extra_line.store(fn, std::memory_order_release); }
+void stats_set_extra_line(StatsExtraLineFn fn) noexcept
+{
+    g_extra_line.store(fn, std::memory_order_release);
+}
 
-void stats_on_real_dropped() noexcept { g_real_dropped.fetch_add(1, std::memory_order_relaxed); }
-uint64_t stats_real_dropped() noexcept { return g_real_dropped.load(std::memory_order_relaxed); }
+void stats_on_real_dropped() noexcept
+{
+    g_real_dropped.fetch_add(1, std::memory_order_relaxed);
+}
+uint64_t stats_real_dropped() noexcept
+{
+    return g_real_dropped.load(std::memory_order_relaxed);
+}
 
 uint64_t stats_stall_count() noexcept
 {

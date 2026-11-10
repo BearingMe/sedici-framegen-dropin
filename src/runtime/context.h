@@ -36,8 +36,7 @@ public:
     // Generates the pending midpoint into `output`. Returns false when the game
     // has not supplied everything a frame needs. With `hud`, the HUD layer of
     // `hud->real` is composited onto the midpoint.
-    bool generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output,
-                  D3D12_RESOURCE_STATES outputState,
+    bool generate(ID3D12GraphicsCommandList* list, ID3D12Resource* output, D3D12_RESOURCE_STATES outputState,
                   const HudSource* hud = nullptr) noexcept;
 
     // Generates `count` (1..kMaxPhases) frames between the same two real frames,

@@ -32,8 +32,8 @@ bool settings_io_poll(SettingsIoCompletion& result) noexcept;
 // stalled (once), tries to cancel its synchronous I/O, and discards the late result.
 // The worker count stays one: no new job starts until the stalled worker exits.
 inline constexpr unsigned kSettingsIoStallMs = 5000;
-uint64_t settings_io_stall_count() noexcept;   // jobs reported stalled so far
-bool settings_io_stalled() noexcept;           // a reported-stalled worker is still running
+uint64_t settings_io_stall_count() noexcept; // jobs reported stalled so far
+bool settings_io_stalled() noexcept;         // a reported-stalled worker is still running
 
 // Offline test seams; never called by the DLL. The block event stands in for a hung
 // filesystem: the worker waits on it (bounded to 30 s) before doing its I/O.

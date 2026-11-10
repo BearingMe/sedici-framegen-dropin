@@ -31,8 +31,8 @@ inline int32_t clamp_int(int32_t value, int32_t low, int32_t high) noexcept
 }
 
 // `depth` is the remapped, nearer-is-smaller value in [0, 1].
-inline uint32_t pack_reprojection(float depth, int32_t sourceX, int32_t sourceY,
-                                  int32_t targetX, int32_t targetY) noexcept
+inline uint32_t pack_reprojection(float depth, int32_t sourceX, int32_t sourceY, int32_t targetX,
+                                  int32_t targetY) noexcept
 {
     if (!(depth > 0.0f)) depth = 0.0f;
     if (depth > 1.0f) depth = 1.0f;

@@ -73,8 +73,10 @@ struct Harness {
         uintmax_t last = static_cast<uintmax_t>(-1);
         int steady = 0;
         for (int i = 0; i < 100 && steady < 3; ++i) {
-            const uintmax_t size = fs::exists(dir / L"sedici.log", ec) && fs::is_regular_file(dir / L"sedici.log", ec)
-                ? fs::file_size(dir / L"sedici.log", ec) : 0;
+            const uintmax_t size =
+                fs::exists(dir / L"sedici.log", ec) && fs::is_regular_file(dir / L"sedici.log", ec)
+                    ? fs::file_size(dir / L"sedici.log", ec)
+                    : 0;
             steady = size == last ? steady + 1 : 0;
             last = size;
             Sleep(30);
@@ -91,16 +93,16 @@ struct Harness {
 // `.orig`, and the scenario's sedici.toml. The stub is loaded first by its full
 // path, so the proxy's later LoadLibraryExW of the same file returns the same
 // module and the harness can script it before the first call.
-bool setup(Harness& h, const char* scenario, const fs::path& proxy, const fs::path& stub,
-           const std::string& toml, bool withStub, bool blockLog = false)
+bool setup(Harness& h, const char* scenario, const fs::path& proxy, const fs::path& stub, const std::string& toml,
+           bool withStub, bool blockLog = false)
 {
     wchar_t exe[MAX_PATH]{};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     SYSTEMTIME now{};
     GetLocalTime(&now);
     wchar_t unique[96]{};
-    swprintf_s(unique, L"%hs-%04u%02u%02u-%02u%02u%02u-%lu", scenario, now.wYear, now.wMonth, now.wDay,
-               now.wHour, now.wMinute, now.wSecond, GetCurrentProcessId());
+    swprintf_s(unique, L"%hs-%04u%02u%02u-%02u%02u%02u-%lu", scenario, now.wYear, now.wMonth, now.wDay, now.wHour,
+               now.wMinute, now.wSecond, GetCurrentProcessId());
     h.dir = fs::path(exe).parent_path() / L"abi" / unique;
     std::error_code error;
     if (fs::exists(h.dir, error)) return false; // never reuse or clear a directory
@@ -144,7 +146,10 @@ StubProbe make_probe(uint8_t seed)
     return probe;
 }
 
-bool same_bytes(const void* a, const void* b, size_t size) { return std::memcmp(a, b, size) == 0; }
+bool same_bytes(const void* a, const void* b, size_t size)
+{
+    return std::memcmp(a, b, size) == 0;
+}
 
 // ---------------------------------------------------------------------------
 // exports: the DLL file itself exports exactly the five FFX entry points.
@@ -165,16 +170,15 @@ int run_exports(const fs::path& proxy)
         const auto* nameRvas = reinterpret_cast<const DWORD*>(base + exports->AddressOfNames);
         for (DWORD i = 0; i < exports->NumberOfNames; ++i)
             names.insert(reinterpret_cast<const char*>(base + nameRvas[i]));
-        expect(exports->NumberOfFunctions == 5, "exactly five exported functions (" +
-               std::to_string(exports->NumberOfFunctions) + ")");
+        expect(exports->NumberOfFunctions == 5,
+               "exactly five exported functions (" + std::to_string(exports->NumberOfFunctions) + ")");
     }
-    const std::set<std::string> expected{"ffxConfigure", "ffxCreateContext", "ffxDestroyContext",
-                                         "ffxDispatch", "ffxQuery"};
+    const std::set<std::string> expected{"ffxConfigure", "ffxCreateContext", "ffxDestroyContext", "ffxDispatch",
+                                         "ffxQuery"};
     expect(names == expected, "the five exports are the FFX entry points and nothing else");
     FreeLibrary(image);
     return 0;
 }
-
 
 // ---------------------------------------------------------------------------
 // Minimal DX12 host shared by the scenarios that need a real swapchain.
@@ -215,12 +219,14 @@ struct Host {
         if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)))) return false;
         if (ComPtr<ID3D12InfoQueue1> info; SUCCEEDED(device.As(&info))) {
             DWORD cookie = 0;
-            info->RegisterMessageCallback([](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
-                                             D3D12_MESSAGE_ID, LPCSTR description, void* context) {
-                if (severity > D3D12_MESSAGE_SEVERITY_ERROR) return;
-                ++static_cast<Host*>(context)->debugErrors;
-                std::fprintf(stderr, "DX12: %s\n", description);
-            }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &cookie);
+            info->RegisterMessageCallback(
+                [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID, LPCSTR description,
+                   void* context) {
+                    if (severity > D3D12_MESSAGE_SEVERITY_ERROR) return;
+                    ++static_cast<Host*>(context)->debugErrors;
+                    std::fprintf(stderr, "DX12: %s\n", description);
+                },
+                D3D12_MESSAGE_CALLBACK_FLAG_NONE, this, &cookie);
         }
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -230,7 +236,8 @@ struct Host {
             FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator[2]))) ||
             FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator[0].Get(), nullptr,
                                              IID_PPV_ARGS(&list))) ||
-            FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) return false;
+            FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
+            return false;
         list->Close();
         event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         WNDCLASSW wc{};
@@ -243,9 +250,8 @@ struct Host {
 
     bool make_window()
     {
-        window = CreateWindowW(L"SediciAbiHost", L"Sedici export harness", WS_OVERLAPPEDWINDOW,
-                               CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, GetModuleHandleW(nullptr),
-                               nullptr);
+        window = CreateWindowW(L"SediciAbiHost", L"Sedici export harness", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                               CW_USEDEFAULT, 500, 320, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (window) ShowWindow(window, SW_SHOWNOACTIVATE);
         return window != nullptr;
     }
@@ -311,7 +317,8 @@ struct Host {
         ComPtr<IDXGISwapChain1> created;
         ComPtr<IDXGISwapChain4> result;
         if (FAILED(factory->CreateSwapChainForHwnd(queue.Get(), window, &desc, nullptr, nullptr, &created)) ||
-            FAILED(created.As(&result))) return nullptr;
+            FAILED(created.As(&result)))
+            return nullptr;
         return result;
     }
 
@@ -329,8 +336,8 @@ struct Host {
         desc.SampleDesc.Count = 1;
         desc.Flags = flags;
         ComPtr<ID3D12Resource> resource;
-        if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-                                                   D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource))))
+        if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON,
+                                                   nullptr, IID_PPV_ARGS(&resource))))
             return nullptr;
         return resource;
     }
@@ -349,11 +356,6 @@ void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12
     list->ResourceBarrier(1, &barrier);
 }
 
-
-
-
-
-
 int run_bad_config(Harness& h)
 {
     // A malformed sedici.toml must not stop the DLL: defaults apply, the log says
@@ -370,7 +372,6 @@ int run_bad_config(Harness& h)
     return 0;
 }
 
-
 // The drop-in contract with no original DLL behind it. The stub beside the proxy
 // is a tripwire: Sedici must never load it, so every call is answered locally.
 int run_contract(Harness& h)
@@ -382,7 +383,11 @@ int run_contract(Harness& h)
         return total;
     };
 
-    struct Provider { uint64_t type; uint64_t id; const char* name; };
+    struct Provider {
+        uint64_t type;
+        uint64_t id;
+        const char* name;
+    };
     const Provider providers[] = {
         {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION, 0xf600000000c01006ull, "3.1.6"},
         {FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12, 0xf65cdd1200c01007ull, "3.1.7"},
@@ -403,8 +408,8 @@ int run_contract(Harness& h)
         query.outputCount = &capacity;
         query.versionIds = ids;
         query.versionNames = names;
-        expect(h.ffx.query(nullptr, &query.header) == FFX_API_RETURN_OK && capacity == 1 &&
-                   ids[0] == provider.id && names[0] && std::string(names[0]) == provider.name,
+        expect(h.ffx.query(nullptr, &query.header) == FFX_API_RETURN_OK && capacity == 1 && ids[0] == provider.id &&
+                   names[0] && std::string(names[0]) == provider.name,
                std::string("GetVersions reports provider ") + provider.name);
     }
 
@@ -453,7 +458,6 @@ int run_contract(Harness& h)
     return g_failures ? 1 : 0;
 }
 
-
 int run_target_auto(Harness& h)
 {
     // FR-05: fg.target_fps = "auto" loads, is reported as such, and is not an error.
@@ -467,8 +471,7 @@ int run_target_auto(Harness& h)
     const std::string log = h.log();
     expect(log.find("fg.target_fps") != std::string::npos && log.find("= \"auto\" [file]") != std::string::npos,
            "the log reports fg.target_fps = \"auto\" from the file");
-    expect(log.find("effective: target fps auto") != std::string::npos,
-           "the effective line names the auto target");
+    expect(log.find("effective: target fps auto") != std::string::npos, "the effective line names the auto target");
     expect(log.find("expected a number") == std::string::npos && log.find("unknown value") == std::string::npos,
            "auto is not reported as a problem");
     return 0;
@@ -525,8 +528,8 @@ int run_session(Harness& h)
 
     // Shaped like the game's chain. The wrap desc hands the game's only
     // reference over and returns the wrapper in its place.
-    ComPtr<IDXGISwapChain4> native = host.swapchain(kWidth, kHeight,
-        DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+    ComPtr<IDXGISwapChain4> native = host.swapchain(
+        kWidth, kHeight, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
     expect(native != nullptr, "native swapchain");
     if (!native) return 1;
     native->SetMaximumFrameLatency(1);
@@ -538,8 +541,9 @@ int run_session(Harness& h)
     wrap.swapchain = &swapchain;
     wrap.gameQueue = host.queue.Get();
     ffxContext wrapContext = nullptr;
-    expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext &&
-           swapchain && swapchain != original, "swapchain wrapped through ffxCreateContext");
+    expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext && swapchain &&
+               swapchain != original,
+           "swapchain wrapped through ffxCreateContext");
     ComPtr<IDXGISwapChain4> wrapper;
     wrapper.Attach(swapchain);
     if (!wrapper) return 1;
@@ -557,7 +561,10 @@ int run_session(Harness& h)
         for (int i = 0; i < count; ++i, ++frameId) {
             host.pump();
             if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
-            if (!host.begin()) { ++failedCalls; return; }
+            if (!host.begin()) {
+                ++failedCalls;
+                return;
+            }
             ffxConfigureDescFrameGeneration configure{};
             configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
             configure.swapChain = wrapper.Get();
@@ -588,7 +595,10 @@ int run_session(Harness& h)
             host.list->CopyResource(buffer.Get(), color.Get());
             transition(host.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
             transition(host.list.Get(), color.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
-            if (!host.submit()) { ++failedCalls; return; }
+            if (!host.submit()) {
+                ++failedCalls;
+                return;
+            }
             if (FAILED(wrapper->Present(0, DXGI_PRESENT_ALLOW_TEARING))) ++failedPresents;
         }
     };
@@ -596,17 +606,19 @@ int run_session(Harness& h)
     // 30 real fps at 2x is 60 output fps, within a 75 Hz window, so nothing has
     // to be dropped; 170 frames give > 300 outputs, one overlay stats window.
     frames(170, true);
-    frames(10, false);   // frame generation off
-    frames(10, true);    // and back on
+    frames(10, false); // frame generation off
+    frames(10, true);  // and back on
     {
         // Resize through the wrapper, as the game does on a resolution change.
         // Explicit size: 0 x 0 would take the window's client area.
         const HRESULT hr = wrapper->ResizeBuffers(0, kWidth, kHeight, DXGI_FORMAT_UNKNOWN,
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+                                                  DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
+                                                      DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
         expect(SUCCEEDED(hr), "resize through the wrapper");
     }
     frames(10, true);
-    expect(failedCalls == 0, "configure/prepare/GetBuffer/submit all succeeded (" + std::to_string(failedCalls) + " failed)");
+    expect(failedCalls == 0,
+           "configure/prepare/GetBuffer/submit all succeeded (" + std::to_string(failedCalls) + " failed)");
     expect(failedPresents == 0, "every Present succeeded (" + std::to_string(failedPresents) + " failed)");
 
     expect(h.ffx.destroy(&fg, nullptr) == FFX_API_RETURN_OK, "frame generation context destroyed");
@@ -638,7 +650,7 @@ int run_session(Harness& h)
         const double output = number("output_fps="), real = number("real_fps=");
         expect(real > 27.0 && real < 33.0 && output > 1.8 * real && output < 2.2 * real,
                "overlay metrics: real " + std::to_string(real) + " fps, output " + std::to_string(output) +
-               " fps (2x of a 30 fps cap)");
+                   " fps (2x of a 30 fps cap)");
     }
     expect(has("spin=1000 us fg=off") && has("spin=1000 us fg=on"),
            "log: the limiter label follows the game's FG off/on");
@@ -666,7 +678,10 @@ struct Rig {
     int failedCalls = 0, failedPresents = 0;
 
     Rig(Harness& harness, Host& hostRef) : h(harness), host(hostRef) {}
-    ~Rig() { if (latency) CloseHandle(latency); }
+    ~Rig()
+    {
+        if (latency) CloseHandle(latency);
+    }
 
     bool create(const std::string& tag)
     {
@@ -682,8 +697,9 @@ struct Rig {
         desc.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
         expect(h.ffx.create(&fg, &desc.header, nullptr) == FFX_API_RETURN_OK && fg, "FG context created" + tag);
 
-        ComPtr<IDXGISwapChain4> native = host.swapchain(kWidth, kHeight,
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+        ComPtr<IDXGISwapChain4> native =
+            host.swapchain(kWidth, kHeight,
+                           DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
         expect(native != nullptr, "native swapchain" + tag);
         if (!native || !fg) return false;
         native->SetMaximumFrameLatency(1);
@@ -694,8 +710,9 @@ struct Rig {
         wrap.header.pNext = &backend.header;
         wrap.swapchain = &swapchain;
         wrap.gameQueue = host.queue.Get();
-        expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext &&
-               swapchain && swapchain != original, "swapchain wrapped" + tag);
+        expect(h.ffx.create(&wrapContext, &wrap.header, nullptr) == FFX_API_RETURN_OK && wrapContext && swapchain &&
+                   swapchain != original,
+               "swapchain wrapped" + tag);
         wrapper.Attach(swapchain);
         if (!wrapper) return false;
         color = host.texture(DXGI_FORMAT_R8G8B8A8_UNORM, kWidth, kHeight, D3D12_RESOURCE_FLAG_NONE);
@@ -713,7 +730,10 @@ struct Rig {
         for (int i = 0; i < count; ++i, ++frameId) {
             host.pump();
             if (latency) WaitForSingleObjectEx(latency, 1000, TRUE);
-            if (!host.begin()) { ++failedCalls; return; }
+            if (!host.begin()) {
+                ++failedCalls;
+                return;
+            }
             ffxConfigureDescFrameGeneration configure{};
             configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
             configure.swapChain = wrapper.Get();
@@ -742,7 +762,10 @@ struct Rig {
             host.list->CopyResource(buffer.Get(), color.Get());
             transition(host.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
             transition(host.list.Get(), color.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
-            if (!host.submit(wait)) { ++failedCalls; return; }
+            if (!host.submit(wait)) {
+                ++failedCalls;
+                return;
+            }
             if (FAILED(wrapper->Present(0, DXGI_PRESENT_ALLOW_TEARING))) ++failedPresents;
         }
     }
@@ -759,8 +782,8 @@ struct Rig {
 
     void check_clean(const std::string& tag)
     {
-        expect(failedCalls == 0, "no failed configure/prepare/GetBuffer/submit" + tag + " (" +
-                                     std::to_string(failedCalls) + ")");
+        expect(failedCalls == 0,
+               "no failed configure/prepare/GetBuffer/submit" + tag + " (" + std::to_string(failedCalls) + ")");
         expect(failedPresents == 0, "every Present succeeded" + tag + " (" + std::to_string(failedPresents) + ")");
     }
 };
@@ -808,21 +831,28 @@ int window_replace_impl(Harness& h, bool vrr)
     expect(host.idle(), "GPU idle at the end");
     const std::string text = h.log();
     expect(count_of(text, "fg: context created") == 3, "log: three generator contexts were created (" +
-                                                          std::to_string(count_of(text, "fg: context created")) + ")");
+                                                           std::to_string(count_of(text, "fg: context created")) +
+                                                           ")");
     if (vrr)
-        expect(count_of(text, "fg: vrr presenter ready") == 3, "log: three presenters came up (" +
-                                                                  std::to_string(count_of(text, "fg: vrr presenter ready")) + ")");
+        expect(count_of(text, "fg: vrr presenter ready") == 3,
+               "log: three presenters came up (" + std::to_string(count_of(text, "fg: vrr presenter ready")) + ")");
     else
         expect(count_of(text, "fg: vrr presenter ready") == 0, "log: no vrr presenter in vsync mode");
     expect(host.debugErrors == 0, "D3D12 debug layer: no errors (" + std::to_string(host.debugErrors) + ")");
     return 0;
 }
 
-int run_window_replace(Harness& h) { return window_replace_impl(h, true); }
+int run_window_replace(Harness& h)
+{
+    return window_replace_impl(h, true);
+}
 
 // K12: in "vsync" the game keeps its reference to the native chain; a new chain on
 // the same window and a new window must still work after the wrapper is destroyed.
-int run_window_replace_vsync(Harness& h) { return window_replace_impl(h, false); }
+int run_window_replace_vsync(Harness& h)
+{
+    return window_replace_impl(h, false);
+}
 
 // ---------------------------------------------------------------------------
 // destroy-inflight: contexts destroyed and a swapchain resized while the game's
@@ -842,8 +872,10 @@ int run_destroy_inflight(Harness& h)
         if (round == 1) {
             // Resize with the previous frames still queued, no wait of our own.
             const HRESULT hr = rig.wrapper->ResizeBuffers(0, Rig::kWidth, Rig::kHeight, DXGI_FORMAT_UNKNOWN,
-                DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
-            expect(SUCCEEDED(hr), "resize with work in flight" + tag + " hr=" + std::to_string(static_cast<long>(hr)));
+                                                          DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
+                                                              DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+            expect(SUCCEEDED(hr),
+                   "resize with work in flight" + tag + " hr=" + std::to_string(static_cast<long>(hr)));
             rig.frames(10, false);
         }
         rig.check_clean(tag);
@@ -893,7 +925,8 @@ int run_unload(Harness& h)
 
     FreeLibrary(h.proxy);
     FreeLibrary(h.proxy); // over-release must not unload it either
-    expect(GetModuleHandleW(path.c_str()) == first, "once a handle was issued, FreeLibrary no longer unloads the DLL");
+    expect(GetModuleHandleW(path.c_str()) == first,
+           "once a handle was issued, FreeLibrary no longer unloads the DLL");
     expect(reload_exports(h) && h.proxy == first, "a reload returns the same module (no second handle namespace)");
     ffxContext token = stale;
     expect(h.ffx.destroy(&token, nullptr) == FFX_API_RETURN_ERROR,
@@ -949,14 +982,15 @@ LONG readonly_descriptor_filter(EXCEPTION_POINTERS* info, uintptr_t begin, uintp
     if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
     const auto* record = info->ExceptionRecord;
     if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || record->NumberParameters < 2 ||
-        record->ExceptionInformation[0] != 1) return EXCEPTION_CONTINUE_SEARCH;
+        record->ExceptionInformation[0] != 1)
+        return EXCEPTION_CONTINUE_SEARCH;
     const uintptr_t address = static_cast<uintptr_t>(record->ExceptionInformation[1]);
     return address >= begin && address < end ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
 }
 
 bool invoke_readonly_configure(PfnFfxConfigure function, ffxContext* context,
-                               const ffxConfigureDescHeader* descriptor,
-                               uintptr_t begin, uintptr_t end, ffxReturnCode_t* result) noexcept
+                               const ffxConfigureDescHeader* descriptor, uintptr_t begin, uintptr_t end,
+                               ffxReturnCode_t* result) noexcept
 {
     __try {
         *result = function(context, descriptor);
@@ -965,7 +999,6 @@ bool invoke_readonly_configure(PfnFfxConfigure function, ffxContext* context,
         return false;
     }
 }
-
 
 int run_readonly_sedici(Harness& h)
 {
@@ -989,7 +1022,10 @@ int run_readonly_sedici(Harness& h)
     auto* descriptor = static_cast<ffxConfigureDescFrameGeneration*>(
         VirtualAlloc(nullptr, sizeof(ffxConfigureDescFrameGeneration), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     expect(descriptor != nullptr, "allocate read-only Sedici descriptor");
-    if (!descriptor) { (void)h.ffx.destroy(&owned, nullptr); return 1; }
+    if (!descriptor) {
+        (void)h.ffx.destroy(&owned, nullptr);
+        return 1;
+    }
     *descriptor = {};
     descriptor->header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
     descriptor->allowAsyncWorkloads = true;
@@ -1001,8 +1037,8 @@ int run_readonly_sedici(Harness& h)
     const uint32_t before = h.state->calls[StubConfigure];
     ffxReturnCode_t result = FFX_API_RETURN_ERROR;
     const uintptr_t begin = reinterpret_cast<uintptr_t>(descriptor);
-    const bool returned = protectedPage && invoke_readonly_configure(
-        h.ffx.configure, &owned, &descriptor->header, begin, begin + sizeof(*descriptor), &result);
+    const bool returned = protectedPage && invoke_readonly_configure(h.ffx.configure, &owned, &descriptor->header,
+                                                                     begin, begin + sizeof(*descriptor), &result);
     const bool unchanged = std::memcmp(original, descriptor, sizeof(original)) == 0;
     DWORD ignored = 0;
     if (protectedPage) (void)VirtualProtect(descriptor, sizeof(*descriptor), previous, &ignored);
@@ -1023,8 +1059,9 @@ int run_readonly_sedici(Harness& h)
         const bool legacyProtected = VirtualProtect(legacy, sizeof(*legacy), PAGE_READONLY, &legacyPrevious) != 0;
         ffxReturnCode_t legacyResult = FFX_API_RETURN_ERROR;
         const uintptr_t legacyBegin = reinterpret_cast<uintptr_t>(legacy);
-        const bool legacyReturned = legacyProtected && invoke_readonly_configure(
-            h.ffx.configure, &owned, &legacy->header, legacyBegin, legacyBegin + sizeof(*legacy), &legacyResult);
+        const bool legacyReturned =
+            legacyProtected && invoke_readonly_configure(h.ffx.configure, &owned, &legacy->header, legacyBegin,
+                                                         legacyBegin + sizeof(*legacy), &legacyResult);
         const bool legacyUnchanged = std::memcmp(legacyOriginal, legacy, sizeof(legacyOriginal)) == 0;
         if (legacyProtected) (void)VirtualProtect(legacy, sizeof(*legacy), legacyPrevious, &ignored);
         VirtualFree(legacy, 0, MEM_RELEASE);
@@ -1075,8 +1112,7 @@ int run_stale_forward(Harness& h)
     query.type = UINT64_MAX; // Not the stub's 128-byte snapshot marker.
     expect(h.ffx.query(&stale, nullptr) != FFX_API_RETURN_OK &&
                h.ffx.configure(&stale, nullptr) != FFX_API_RETURN_OK &&
-               h.ffx.dispatch(&stale, nullptr) != FFX_API_RETURN_OK &&
-               h.state->calls[StubQuery] == prior &&
+               h.ffx.dispatch(&stale, nullptr) != FFX_API_RETURN_OK && h.state->calls[StubQuery] == prior &&
                h.state->calls[StubConfigure] == beforeNullConfigure &&
                h.state->calls[StubDispatch] == beforeNullDispatch,
            "null descriptors on a stale token never enter the original");
@@ -1122,7 +1158,8 @@ int run_invalid_calls(Harness& h)
         ffxContext none = nullptr;
         const ffxReturnCode_t rc = h.ffx.create(&none, &desc.header, nullptr);
         std::printf("INFO FG create without a backend desc: rc=%u context=%p\n", rc, static_cast<void*>(none));
-        expect(rc != FFX_API_RETURN_OK || none != nullptr, "FG create without a backend desc returns without crashing");
+        expect(rc != FFX_API_RETURN_OK || none != nullptr,
+               "FG create without a backend desc returns without crashing");
         if (rc == FFX_API_RETURN_OK && none) h.ffx.destroy(&none, nullptr);
 
         desc.header.pNext = &backend.header;
@@ -1137,7 +1174,8 @@ int run_invalid_calls(Harness& h)
 
     // A refused wrap must leave the caller's swapchain untouched.
     {
-        ComPtr<IDXGISwapChain4> native = host.swapchain(Rig::kWidth, Rig::kHeight, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+        ComPtr<IDXGISwapChain4> native =
+            host.swapchain(Rig::kWidth, Rig::kHeight, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
         expect(native != nullptr, "native swapchain for the refused wraps");
         if (!native) return 1;
         IDXGISwapChain4* swapchain = native.Get();
@@ -1278,7 +1316,8 @@ int run_overlay_hotkey(Harness& h)
         host.pump();
         RECT clipOff{};
         GetClipCursor(&clipOff);
-        expect(std::memcmp(&clipOff, &clipBefore, sizeof clipOff) == 0, "cursor clip is as before after Full -> Off");
+        expect(std::memcmp(&clipOff, &clipBefore, sizeof clipOff) == 0,
+               "cursor clip is as before after Full -> Off");
         rig.check_clean(" (hotkey cycle)");
 
         // Leave the session while Full is showing.
@@ -1302,7 +1341,8 @@ int run_overlay_hotkey(Harness& h)
         alt_f10(host.window);
         rig.frames(30, true);
         rig.check_clean(" (new window)");
-        expect(count_of(h.log(), "overlay input hook installed") > count_of(before, "overlay input hook installed") - 1,
+        expect(count_of(h.log(), "overlay input hook installed") >
+                   count_of(before, "overlay input hook installed") - 1,
                "log: the hook is installed on the replacement window");
         alt_f10(host.window);
         alt_f10(host.window); // back to Off
@@ -1359,7 +1399,8 @@ int run_integrated(Harness& h)
     };
     const auto resize = [&](Rig& rig, const char* what) {
         const HRESULT hr = rig.wrapper->ResizeBuffers(0, Rig::kWidth, Rig::kHeight, DXGI_FORMAT_UNKNOWN,
-            DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+                                                      DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING |
+                                                          DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
         expect(SUCCEEDED(hr), std::string("resize ") + what);
     };
 
@@ -1367,14 +1408,14 @@ int run_integrated(Harness& h)
     {
         Rig rig(h, host);
         expect(rig.create(" (session 1)"), "session 1 up");
-        rig.frames(60, true);                        // generate
-        alt_f10(host.window);                        // Mini
+        rig.frames(60, true); // generate
+        alt_f10(host.window); // Mini
         rig.frames(30, true);
         SetForegroundWindow(host.window);
-        alt_f10(host.window);                        // Full
+        alt_f10(host.window); // Full
         rig.frames(60, true);
-        rig.frames(10, true, false);                 // FG off while the menu shows
-        rig.frames(30, true);                        // and on again
+        rig.frames(10, true, false); // FG off while the menu shows
+        rig.frames(30, true);        // and on again
         resize(rig, "while the menu shows");
         rig.frames(20, true);
         {
@@ -1383,7 +1424,8 @@ int run_integrated(Harness& h)
             ffxDispatchDescFrameGenerationPrepare prepare{};
             prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
             prepare.frameID = rig.frameId + 500;
-            expect(h.ffx.dispatch(&rig.fg, &prepare.header) != FFX_API_RETURN_OK, "prepare without a command list is refused");
+            expect(h.ffx.dispatch(&rig.fg, &prepare.header) != FFX_API_RETURN_OK,
+                   "prepare without a command list is refused");
             ffxDispatchDescHeader unknown{};
             unknown.type = 0x7F5E0000ull;
             expect(h.ffx.dispatch(&rig.fg, &unknown) != FFX_API_RETURN_OK, "an unknown dispatch type is refused");
@@ -1391,15 +1433,15 @@ int run_integrated(Harness& h)
             expect(h.ffx.destroy(&foreign, nullptr) != FFX_API_RETURN_OK, "a foreign handle is refused");
         }
         rig.frames(20, true);
-        alt_f10(host.window);                        // Off
+        alt_f10(host.window); // Off
         rig.frames(20, true);
         clip_is_restored("Full -> Off");
         rig.check_clean(" (session 1)");
 
-        alt_f10(host.window);                        // Mini
-        alt_f10(host.window);                        // Full
+        alt_f10(host.window); // Mini
+        alt_f10(host.window); // Full
         rig.frames(20, true);
-        rig.frames(25, false);                       // leave work outstanding
+        rig.frames(25, false); // leave work outstanding
         staleFg = rig.fg;
         rig.destroy(" (Full, work outstanding)");
     }
@@ -1415,10 +1457,10 @@ int run_integrated(Harness& h)
         Rig rig(h, host);
         expect(rig.create(" (session 2)"), "session 2 up on the new window");
         rig.frames(40, true);
-        alt_f10(host.window);                        // Mini
+        alt_f10(host.window); // Mini
         rig.frames(30, true);
-        alt_f10(host.window);                        // Full
-        alt_f10(host.window);                        // Off
+        alt_f10(host.window); // Full
+        alt_f10(host.window); // Off
         rig.frames(20, true);
         rig.check_clean(" (session 2)");
         rig.destroy(" (session 2)");
@@ -1427,8 +1469,8 @@ int run_integrated(Harness& h)
     clip_is_restored("end");
 
     const std::string text = h.log();
-    expect(count_of(text, "fg: context created") == 2, "log: two generator contexts (" +
-                                                          std::to_string(count_of(text, "fg: context created")) + ")");
+    expect(count_of(text, "fg: context created") == 2,
+           "log: two generator contexts (" + std::to_string(count_of(text, "fg: context created")) + ")");
     expect(text.find("overlay ImGui initialized") != std::string::npos, "log: the overlay drew");
     expect(text.find("stage 1 rejected") == std::string::npos && text.find("could not") == std::string::npos,
            "log: no generator rejections or setup failures");
@@ -1476,7 +1518,8 @@ mode = "sedici"
 present = "game"
 [ui]
 mode = "off"
-)toml", true, run_readonly_sedici},
+)toml",
+         true, run_readonly_sedici},
         {"contract", "", true, run_contract},
         {"legacy-config",
          R"toml([pacing]
@@ -1498,26 +1541,30 @@ scale = 2
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[ui]\nmode = \"mini\"\n[limiter]\nfps = 30\n",
          false, run_session},
-        {"window-replace-vsync",
-         "[fg]\npresent = \"vsync\"\n[ui]\nmode = \"off\"\n", false, run_window_replace_vsync},
+        {"window-replace-vsync", "[fg]\npresent = \"vsync\"\n[ui]\nmode = \"off\"\n", false,
+         run_window_replace_vsync},
         {"window-replace",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
-         "[ui]\nmode = \"off\"\n", false, run_window_replace},
+         "[ui]\nmode = \"off\"\n",
+         false, run_window_replace},
         {"destroy-inflight",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
-         "[ui]\nmode = \"off\"\n", false, run_destroy_inflight},
+         "[ui]\nmode = \"off\"\n",
+         false, run_destroy_inflight},
         {"log-failure",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
-         "[ui]\nmode = \"off\"\n", false, run_log_failure, true},
+         "[ui]\nmode = \"off\"\n",
+         false, run_log_failure, true},
         {"unload",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
-         "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n", false, run_unload},
-        {"stale-forward",
-         "[fg]\nmode = \"sedici\"\npresent = \"game\"\n[ui]\nmode = \"off\"\n",
-         true, run_stale_forward},
+         "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n",
+         false, run_unload},
+        {"stale-forward", "[fg]\nmode = \"sedici\"\npresent = \"game\"\n[ui]\nmode = \"off\"\n", true,
+         run_stale_forward},
         {"invalid-calls",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
-         "[ui]\nmode = \"off\"\n", false, run_invalid_calls},
+         "[ui]\nmode = \"off\"\n",
+         false, run_invalid_calls},
         {"overlay-hotkey",
          "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
          "[log]\nlevel = 1\n[ui]\nmode = \"off\"\n",

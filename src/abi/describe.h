@@ -17,5 +17,4 @@ const char* ffx_return_code_name(ffxReturnCode_t code) noexcept;
 
 // Logs the call when the level/novelty policy allows it. `context` is the
 // ffxContext value, not a pointer to the ffxContext slot.
-void describe_call(FfxExportKind kind, const ffxApiHeader* desc,
-                   ffxReturnCode_t result, void* context) noexcept;
+void describe_call(FfxExportKind kind, const ffxApiHeader* desc, ffxReturnCode_t result, void* context) noexcept;

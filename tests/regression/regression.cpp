@@ -112,14 +112,12 @@ void settings_checks(const std::filesystem::path& file)
 
     LiveValues bad = next;
     bad.target_fps = 2000.0;
-    check(settings_apply(applied.revision, bad).status == ApplyStatus::Rejected &&
-              live_limiter_fps() == 37.0,
+    check(settings_apply(applied.revision, bad).status == ApplyStatus::Rejected && live_limiter_fps() == 37.0,
           "settings: an out-of-range value is rejected, not clamped");
     LiveValues partial = next;
     partial.target_fps = 41.0;
     partial.log_level = 9;
-    check(settings_apply(applied.revision, partial).status == ApplyStatus::Rejected &&
-              live_limiter_fps() == 37.0,
+    check(settings_apply(applied.revision, partial).status == ApplyStatus::Rejected && live_limiter_fps() == 37.0,
           "settings: a candidate with one invalid field applies none of its fields");
 
     const uint64_t superseded = settings_start_edit();
@@ -137,8 +135,11 @@ void settings_checks(const std::filesystem::path& file)
 
     // Edit session: cancel returns to the acknowledged baseline.
     settings_begin_edit();
-    check(settings_change_edit([](LiveValues& v) { v.target_fps = 50.0; v.log_level = 2; }).status ==
-              ApplyStatus::Applied && live_limiter_fps() == 50.0 && live_log_level() == 2,
+    check(settings_change_edit([](LiveValues& v) {
+              v.target_fps = 50.0;
+              v.log_level = 2;
+          }).status == ApplyStatus::Applied &&
+              live_limiter_fps() == 50.0 && live_log_level() == 2,
           "settings: a control change applies live");
     check(settings_cancel_edit().status == ApplyStatus::Applied && live_limiter_fps() == 37.0 &&
               live_log_level() == settings_snapshot().values.log_level,
@@ -174,8 +175,8 @@ void settings_checks(const std::filesystem::path& file)
     check(settings_begin_edit(), "settings: capture baseline for same-metadata edit");
     const ConfigFileStamp originalStamp = config_file_stamp(file);
     HANDLE attributes = CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
-                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
     if (attributes == INVALID_HANDLE_VALUE) throw std::runtime_error("timestamp fixture open failed");
     FILETIME originalWrite{};
     const bool readTime = GetFileTime(attributes, nullptr, nullptr, &originalWrite) != 0;
@@ -184,10 +185,9 @@ void settings_checks(const std::filesystem::path& file)
     CloseHandle(attributes);
     const ConfigFileStamp changedStamp = config_file_stamp(file);
     const SaveResult sameMetadata = settings_save();
-    check(restoredTime && originalStamp.valid && changedStamp.valid &&
-              originalStamp.size == changedStamp.size && originalStamp.last_write == changedStamp.last_write &&
-              originalStamp.sha256 != changedStamp.sha256 && !sameMetadata.ok && sameMetadata.conflict &&
-              read(file) == sameSizeChanged,
+    check(restoredTime && originalStamp.valid && changedStamp.valid && originalStamp.size == changedStamp.size &&
+              originalStamp.last_write == changedStamp.last_write && originalStamp.sha256 != changedStamp.sha256 &&
+              !sameMetadata.ok && sameMetadata.conflict && read(file) == sameSizeChanged,
           "settings: same-size external edit with restored timestamp is not overwritten");
 
     // Replacing a file with an identical copy and timestamp still changes its
@@ -199,21 +199,21 @@ void settings_checks(const std::filesystem::path& file)
     if (std::filesystem::exists(replacementFile)) throw std::runtime_error("replacement fixture already exists");
     write(replacementFile, sameSizeOriginal);
     HANDLE replacementAttributes = CreateFileW(replacementFile.c_str(), FILE_WRITE_ATTRIBUTES,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL, nullptr);
+                                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (replacementAttributes == INVALID_HANDLE_VALUE) throw std::runtime_error("replacement fixture open failed");
     FILETIME replacementTime{};
     replacementTime.dwLowDateTime = static_cast<DWORD>(identityBefore.last_write);
     replacementTime.dwHighDateTime = static_cast<DWORD>(identityBefore.last_write >> 32);
     const bool timestampSet = SetFileTime(replacementAttributes, nullptr, nullptr, &replacementTime) != 0;
     CloseHandle(replacementAttributes);
-    const bool replaced = timestampSet && MoveFileExW(replacementFile.c_str(), file.c_str(),
-                                                        MOVEFILE_REPLACE_EXISTING) != 0;
+    const bool replaced =
+        timestampSet && MoveFileExW(replacementFile.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
     if (!replaced) std::filesystem::remove(replacementFile);
     const ConfigFileStamp identityAfter = config_file_stamp(file);
     const SaveResult replacedSave = settings_save();
-    check(replaced && identityBefore.valid && identityAfter.valid &&
-              identityBefore.size == identityAfter.size && identityBefore.sha256 == identityAfter.sha256 &&
+    check(replaced && identityBefore.valid && identityAfter.valid && identityBefore.size == identityAfter.size &&
+              identityBefore.sha256 == identityAfter.sha256 &&
               identityBefore.last_write == identityAfter.last_write &&
               identityBefore.file_id != identityAfter.file_id && !replacedSave.ok && replacedSave.conflict,
           "settings: replacement with identical content and timestamp invalidates the baseline");
@@ -232,7 +232,11 @@ void settings_checks(const std::filesystem::path& file)
     const bool beforeReplace = WaitForSingleObject(settingsIoArrived, 5000) == WAIT_OBJECT_0;
     bool externalWrote = false;
     if (beforeReplace) {
-        try { write(file, sameSizeChanged); externalWrote = true; } catch (...) {}
+        try {
+            write(file, sameSizeChanged);
+            externalWrote = true;
+        } catch (...) {
+        }
     }
     SetEvent(settingsIoResume);
     racingSave.join();
@@ -259,7 +263,11 @@ void settings_checks(const std::filesystem::path& file)
     const bool beforeSwap = WaitForSingleObject(settingsIoArrived, 5000) == WAIT_OBJECT_0;
     bool swapExternal = false;
     if (beforeSwap) {
-        try { write(file, sameSizeChanged); swapExternal = true; } catch (...) {}
+        try {
+            write(file, sameSizeChanged);
+            swapExternal = true;
+        } catch (...) {
+        }
     }
     SetEvent(settingsIoResume);
     swappingSave.join();
@@ -270,8 +278,8 @@ void settings_checks(const std::filesystem::path& file)
     size_t siblings = 0;
     for (const auto& entry : std::filesystem::directory_iterator(file.parent_path()))
         if (entry.path().filename().wstring().find(L".sedici-") != std::wstring::npos) ++siblings;
-    check(beforeSwap && swapExternal && !swapRace.ok && swapRace.conflict &&
-              read(file) == sameSizeChanged && siblings == 0,
+    check(beforeSwap && swapExternal && !swapRace.ok && swapRace.conflict && read(file) == sameSizeChanged &&
+              siblings == 0,
           "settings: an external edit between the final check and the swap is restored");
     (void)settings_cancel_edit();
 
@@ -289,7 +297,11 @@ void settings_checks(const std::filesystem::path& file)
     const bool afterWrite = WaitForSingleObject(settingsIoArrived, 5000) == WAIT_OBJECT_0;
     bool postWriteExternal = false;
     if (afterWrite) {
-        try { write(file, sameSizeChanged); postWriteExternal = true; } catch (...) {}
+        try {
+            write(file, sameSizeChanged);
+            postWriteExternal = true;
+        } catch (...) {
+        }
     }
     SetEvent(settingsIoResume);
     postWriteSave.join();
@@ -298,9 +310,8 @@ void settings_checks(const std::filesystem::path& file)
     CloseHandle(settingsIoResume);
     settingsIoArrived = settingsIoResume = nullptr;
     check(afterWrite && postWriteExternal && !postWriteRace.ok && postWriteRace.conflict &&
-              postWriteRace.message.find("was written") != std::string::npos &&
-              read(file) == sameSizeChanged && live_limiter_fps() == 34.0 &&
-              settings_cancel_edit().status == ApplyStatus::Rejected,
+              postWriteRace.message.find("was written") != std::string::npos && read(file) == sameSizeChanged &&
+              live_limiter_fps() == 34.0 && settings_cancel_edit().status == ApplyStatus::Rejected,
           "settings: a post-write external edit is not accepted as the saved baseline");
     check(settings_begin_edit(), "settings: reopen after post-write conflict");
     (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
@@ -392,8 +403,9 @@ void settings_checks(const std::filesystem::path& file)
     const uint64_t currentGeneration = settings_start_edit();
     SettingsIoCompletion currentBegin;
     check(settings_io_start_begin(currentGeneration, 102) && wait_settings_io(currentBegin) &&
-              currentBegin.kind == SettingsIoKind::BeginEdit && currentBegin.viewEpoch == 102 && currentBegin.beginOk &&
-              currentBegin.workerThreadId != 0 && currentBegin.workerThreadId != GetCurrentThreadId(),
+              currentBegin.kind == SettingsIoKind::BeginEdit && currentBegin.viewEpoch == 102 &&
+              currentBegin.beginOk && currentBegin.workerThreadId != 0 &&
+              currentBegin.workerThreadId != GetCurrentThreadId(),
           "settings I/O: a current edit begins on a different bounded worker thread");
     (void)settings_change_edit([](LiveValues& v) { v.target_fps = 33.0; });
     const SettingsSaveTicket asyncTicket = settings_capture_save_ticket();
@@ -461,8 +473,7 @@ void settings_checks(const std::filesystem::path& file)
     SetEvent(settingsIoResume);
     rendering.join();
     const auto ioDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (settings_io_busy() && std::chrono::steady_clock::now() < ioDeadline)
-        std::this_thread::yield();
+    while (settings_io_busy() && std::chrono::steady_clock::now() < ioDeadline) std::this_thread::yield();
     const bool workerFinished = !settings_io_busy();
     ui_on_present(nullptr); // Consume the completion for this Full-menu epoch.
     live_set_ui_mode(UiMode::Off);
@@ -496,8 +507,10 @@ void settings_checks(const std::filesystem::path& file)
     // Alternating complete candidates must never produce a mixed snapshot.
     LiveValues first = live_snapshot();
     LiveValues second = first;
-    first.target_fps = 40.0; first.ui_scale = 1.0f;
-    second.target_fps = 80.0; second.ui_scale = 2.0f;
+    first.target_fps = 40.0;
+    first.ui_scale = 1.0f;
+    second.target_fps = 80.0;
+    second.ui_scale = 2.0f;
     live_apply(first);
     std::atomic<bool> done{false};
     std::atomic<bool> mixed{false};
@@ -507,8 +520,8 @@ void settings_checks(const std::filesystem::path& file)
     });
     while (!done.load()) {
         const LiveValues v = live_snapshot();
-        if (!((v.target_fps == 40.0 && v.ui_scale == 1.0f) ||
-              (v.target_fps == 80.0 && v.ui_scale == 2.0f))) mixed = true;
+        if (!((v.target_fps == 40.0 && v.ui_scale == 1.0f) || (v.target_fps == 80.0 && v.ui_scale == 2.0f)))
+            mixed = true;
     }
     publisher.join();
     check(!mixed.load(), "settings: complete live snapshots never contain mixed candidates");
@@ -521,8 +534,7 @@ void settings_checks(const std::filesystem::path& file)
         writers.emplace_back([&, t] {
             for (int i = 0; i < 200; ++i) {
                 const double fps = 20.0 + t * 10.0 + (i % 5);
-                if (settings_change([fps](LiveValues& v) { v.target_fps = fps; }).status ==
-                    ApplyStatus::Applied)
+                if (settings_change([fps](LiveValues& v) { v.target_fps = fps; }).status == ApplyStatus::Applied)
                     appliedCount.fetch_add(1);
             }
         });
@@ -537,8 +549,8 @@ void queue_policy_checks()
 {
     sedici::fg::FixedQueue<int, 3> queue;
     int a = 1, b = 2, c = 3, d = 4;
-    check(queue.empty() && queue.push_back(int{a}) && queue.push_back(int{b}) &&
-              queue.push_back(int{c}) && queue.size() == 3 && !queue.push_back(int{d}),
+    check(queue.empty() && queue.push_back(int{a}) && queue.push_back(int{b}) && queue.push_back(int{c}) &&
+              queue.size() == 3 && !queue.push_back(int{d}),
           "present queue: bounded ring accepts capacity and refuses overflow");
     check(queue.front() == 1, "present queue: first item retains FIFO order");
     queue.pop_front();
@@ -555,12 +567,12 @@ void queue_policy_checks()
 void retirement_policy_checks()
 {
     uint32_t nextSlot = 2, selected = 99;
-    const HRESULT slotFailure = sedici::fg::acquire_frame_slot(
-        nextSlot, 3, selected, [](uint32_t) noexcept { return E_FAIL; });
+    const HRESULT slotFailure =
+        sedici::fg::acquire_frame_slot(nextSlot, 3, selected, [](uint32_t) noexcept { return E_FAIL; });
     check(slotFailure == E_FAIL && nextSlot == 2 && selected == 99,
           "retirement: failed slot wait does not advance or publish a slot");
-    const HRESULT slotNotReady = sedici::fg::acquire_frame_slot(
-        nextSlot, 3, selected, [](uint32_t) noexcept { return S_FALSE; });
+    const HRESULT slotNotReady =
+        sedici::fg::acquire_frame_slot(nextSlot, 3, selected, [](uint32_t) noexcept { return S_FALSE; });
     check(FAILED(slotNotReady) && nextSlot == 2 && selected == 99,
           "retirement: a non-ready success status does not advance a slot");
     const HRESULT slotSuccess = sedici::fg::acquire_frame_slot(
@@ -572,16 +584,21 @@ void retirement_policy_checks()
               sedici::fg::classify_fence(6, 6) == FenceProgress::Complete &&
               sedici::fg::classify_fence(UINT64_MAX, 6) == FenceProgress::DeviceRemoved,
           "retirement: removed-device sentinel is not a completed fence");
-    check(FAILED(sedici::fg::removed_device_error(S_OK)) &&
-              sedici::fg::removed_device_error(E_FAIL) == E_FAIL,
+    check(FAILED(sedici::fg::removed_device_error(S_OK)) && sedici::fg::removed_device_error(E_FAIL) == E_FAIL,
           "retirement: removed-fence sentinel never produces success");
     int waits = 0;
-    const HRESULT failedSignal = sedici::fg::signal_then_wait(
-        []() noexcept { return E_FAIL; }, [&]() noexcept { ++waits; return S_OK; });
+    const HRESULT failedSignal = sedici::fg::signal_then_wait([]() noexcept { return E_FAIL; },
+                                                              [&]() noexcept {
+                                                                  ++waits;
+                                                                  return S_OK;
+                                                              });
     check(failedSignal == E_FAIL && waits == 0,
           "retirement: failed signal is returned without waiting or reporting completion");
-    const HRESULT failedWait = sedici::fg::signal_then_wait(
-        []() noexcept { return S_OK; }, [&]() noexcept { ++waits; return E_ABORT; });
+    const HRESULT failedWait = sedici::fg::signal_then_wait([]() noexcept { return S_OK; },
+                                                            [&]() noexcept {
+                                                                ++waits;
+                                                                return E_ABORT;
+                                                            });
     check(failedWait == E_ABORT && waits == 1,
           "retirement: an accepted signal propagates the subsequent wait result");
 }
@@ -593,8 +610,7 @@ void token_namespace_checks()
     check(!tokens.contains_issued(reinterpret_cast<void*>(0x1010)),
           "reserved but unissued token is not classified as issued");
     void* const second = tokens.issue();
-    check(first && second && first != second && tokens.contains_issued(first) &&
-              tokens.contains_issued(second),
+    check(first && second && first != second && tokens.contains_issued(first) && tokens.contains_issued(second),
           "token namespace issues distinct stable identities");
     check(!tokens.issue() && tokens.contains_issued(first) && tokens.contains_issued(second),
           "token exhaustion rejects creation without recycling issued identities");
@@ -607,15 +623,17 @@ void token_namespace_checks()
     sedici::fg::TokenNamespace lazy;
     bool reserved = false;
     unsigned attempts = 0;
-    const auto failReserve = [&](size_t) noexcept -> void* { ++attempts; return nullptr; };
-    check(!sedici::fg::issue_reserved_token(lazy, reserved, 32, 16, failReserve) &&
-              !reserved && attempts == 1,
+    const auto failReserve = [&](size_t) noexcept -> void* {
+        ++attempts;
+        return nullptr;
+    };
+    check(!sedici::fg::issue_reserved_token(lazy, reserved, 32, 16, failReserve) && !reserved && attempts == 1,
           "token reservation failure issues no token and remains retryable");
     const auto succeedReserve = [&](size_t) noexcept -> void* {
-        ++attempts; return reinterpret_cast<void*>(0x3000);
+        ++attempts;
+        return reinterpret_cast<void*>(0x3000);
     };
-    check(sedici::fg::issue_reserved_token(lazy, reserved, 32, 16, succeedReserve) &&
-              reserved && attempts == 2,
+    check(sedici::fg::issue_reserved_token(lazy, reserved, 32, 16, succeedReserve) && reserved && attempts == 2,
           "token namespace can reserve after an earlier failure");
 }
 
@@ -626,8 +644,7 @@ void settings_capability_checks(bool sediciBackend, bool environment)
     if (sediciBackend) {
         LiveValues limiter = base.values;
         limiter.target_fps = 25.0;
-        check(settings_apply(base.revision, limiter).status == ApplyStatus::Applied &&
-                  live_limiter_fps() == 25.0,
+        check(settings_apply(base.revision, limiter).status == ApplyStatus::Applied && live_limiter_fps() == 25.0,
               "settings: real-frame limiter is available");
     }
     if (environment) {
@@ -640,8 +657,8 @@ void settings_capability_checks(bool sediciBackend, bool environment)
         candidate = base.values;
         candidate.log_level = candidate.log_level == 2 ? 1 : 2;
         const bool logRejected = settings_apply(base.revision, candidate).status == ApplyStatus::Rejected;
-        check(limiterRejected && logRejected &&
-                  settings_snapshot().revision == base.revision && settings_snapshot().values == base.values,
+        check(limiterRejected && logRejected && settings_snapshot().revision == base.revision &&
+                  settings_snapshot().values == base.values,
               "settings: environment-controlled fields reject live overrides without partial changes");
     }
 }
@@ -651,8 +668,8 @@ void config_checks(const std::filesystem::path& path)
     sedici::ConfigValues values;
     const auto invalid = path.parent_path() / L"invalid|config.toml";
     std::string invalidError;
-    check(!sedici::config_file_stamp(invalid).valid &&
-              !sedici::config_save(invalid, values, invalidError) && !invalidError.empty(),
+    check(!sedici::config_file_stamp(invalid).valid && !sedici::config_save(invalid, values, invalidError) &&
+              !invalidError.empty(),
           "config: an attribute-query error is not treated as a missing file");
     values.write_log = true;
     values.log_level = 2;
@@ -667,15 +684,13 @@ void config_checks(const std::filesystem::path& path)
     check(read(unrelated) == "do not overwrite", "save leaves an existing .tmp file untouched");
     std::filesystem::remove(unrelated);
     const std::string output = read(path);
-    check(output.find("level = 2\r\n") < output.find("[[profiles]]"),
-          "log value stays in its own table");
+    check(output.find("level = 2\r\n") < output.find("[[profiles]]"), "log value stays in its own table");
     check(output.find("mode = \"unrelated\" # keep too\r\n") != std::string::npos,
           "array table and comments stay unchanged");
 
     write(path, "[Log]\nlevel = 7\n");
     check(sedici::config_save(path, values, error), "case-sensitive target table can be appended");
-    check(read(path).find("[Log]\nlevel = 7") != std::string::npos,
-          "differently cased table is untouched");
+    check(read(path).find("[Log]\nlevel = 7") != std::string::npos, "differently cased table is untouched");
 
     const std::string multiline = "[log]\ntext = '''\nlevel = \"inside string\"\n'''\n";
     write(path, multiline);
@@ -699,17 +714,14 @@ void config_checks(const std::filesystem::path& path)
     values.ui_scale = 0.9999f;
     check(sedici::config_save(path, values, error), "numbers rounding upward to integers can be saved");
     const std::string rounded = read(path);
-    check(rounded.find("fps = 37\n") != std::string::npos,
-          "FPS semantic validation uses the rounded integer");
-    check(rounded.find("scale = 1\n") != std::string::npos,
-          "scale semantic validation uses the rounded integer");
+    check(rounded.find("fps = 37\n") != std::string::npos, "FPS semantic validation uses the rounded integer");
+    check(rounded.find("scale = 1\n") != std::string::npos, "scale semantic validation uses the rounded integer");
 
     sedici::ConfigValues autoValues;
     autoValues.write_target_fps = true;
     autoValues.target_auto = true;
     write(path, "[fg]\ntarget_fps = 60 # keep\n");
-    check(sedici::config_save(path, autoValues, error) &&
-              read(path) == "[fg]\ntarget_fps = \"auto\" # keep\n",
+    check(sedici::config_save(path, autoValues, error) && read(path) == "[fg]\ntarget_fps = \"auto\" # keep\n",
           "target: auto is saved as the string \"auto\" and the comment is kept");
 }
 
@@ -743,8 +755,10 @@ void gpu_checks(bool full)
     using Microsoft::WRL::ComPtr;
     ComPtr<ID3D12Debug> debug;
     const bool validation = SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));
-    if (validation) debug->EnableDebugLayer();
-    else std::puts("NOTE DX12 debug layer unavailable; no SDK/runtime will be downloaded");
+    if (validation)
+        debug->EnableDebugLayer();
+    else
+        std::puts("NOTE DX12 debug layer unavailable; no SDK/runtime will be downloaded");
     ComPtr<ID3D12Device> device;
     if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
         throw std::runtime_error("create GPU test device");
@@ -759,8 +773,8 @@ void gpu_checks(bool full)
     ComPtr<ID3D12Fence> fence;
     if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue))) ||
         FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) ||
-        FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
-                                        nullptr, IID_PPV_ARGS(&list))) ||
+        FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                         IID_PPV_ARGS(&list))) ||
         FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
         throw std::runtime_error("create GPU test command objects");
     list->Close();
@@ -776,15 +790,15 @@ void gpu_checks(bool full)
     desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     ComPtr<ID3D12Resource> output;
     if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&output))))
+                                               D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&output))))
         throw std::runtime_error("create GPU test output");
     WNDCLASSW cls{};
     cls.hInstance = GetModuleHandleW(nullptr);
     cls.lpfnWndProc = window_proc;
     cls.lpszClassName = L"SediciGpuRegression";
     RegisterClassW(&cls);
-    HWND hwnd = CreateWindowW(cls.lpszClassName, L"GPU regression", WS_OVERLAPPEDWINDOW,
-                               0, 0, 640, 360, nullptr, nullptr, cls.hInstance, nullptr);
+    HWND hwnd = CreateWindowW(cls.lpszClassName, L"GPU regression", WS_OVERLAPPEDWINDOW, 0, 0, 640, 360, nullptr,
+                              nullptr, cls.hInstance, nullptr);
     if (!hwnd) throw std::runtime_error("create GPU test window");
     sedici::ui_capture_window(hwnd);
     sedici::live_set_ui_mode(full ? sedici::UiMode::Full : sedici::UiMode::Mini);
@@ -802,21 +816,19 @@ void gpu_checks(bool full)
         // overlay must switch itself off and give input back; the frame, the
         // command list and the GPU stay valid.
         const bool injected = full && frame >= 9;
-        if (full && frame == 9)
-            sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::OverlayDraw);
+        if (full && frame == 9) sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::OverlayDraw);
         sedici::ui_on_present(&params);
         if (!injected) check(sedici::live_ui_mode() != sedici::UiMode::Off, "GPU overlay remains enabled");
         if (FAILED(list->Close())) throw std::runtime_error("close GPU test command list");
         ID3D12CommandList* lists[] = {list.Get()};
         queue->ExecuteCommandLists(1, lists);
-        if (FAILED(queue->Signal(fence.Get(), frame)) ||
-            FAILED(fence->SetEventOnCompletion(frame, event)) ||
+        if (FAILED(queue->Signal(fence.Get(), frame)) || FAILED(fence->SetEventOnCompletion(frame, event)) ||
             WaitForSingleObject(event, 5000) != WAIT_OBJECT_0)
             throw std::runtime_error("GPU test submission did not finish");
         // Exercise platform-backend rebinding as well as renderer ring reuse.
         if (frame == 6) {
-            HWND replacement = CreateWindowW(cls.lpszClassName, L"Replacement", WS_OVERLAPPEDWINDOW,
-                0, 0, 960, 540, nullptr, nullptr, cls.hInstance, nullptr);
+            HWND replacement = CreateWindowW(cls.lpszClassName, L"Replacement", WS_OVERLAPPEDWINDOW, 0, 0, 960, 540,
+                                             nullptr, nullptr, cls.hInstance, nullptr);
             if (!replacement) throw std::runtime_error("create replacement GPU test window");
             sedici::ui_capture_window(replacement);
             DestroyWindow(hwnd);
@@ -868,8 +880,8 @@ void observer_cost()
     ComPtr<ID3D12Fence> fence;
     if (FAILED(device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue))) ||
         FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator))) ||
-        FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(),
-                                        nullptr, IID_PPV_ARGS(&list))) ||
+        FAILED(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr,
+                                         IID_PPV_ARGS(&list))) ||
         FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
         throw std::runtime_error("create GPU test command objects");
     list->Close();
@@ -885,15 +897,15 @@ void observer_cost()
     desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     ComPtr<ID3D12Resource> output;
     if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&output))))
+                                               D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&output))))
         throw std::runtime_error("create GPU test output");
     WNDCLASSW cls{};
     cls.hInstance = GetModuleHandleW(nullptr);
     cls.lpfnWndProc = window_proc;
     cls.lpszClassName = L"SediciObserverCost";
     RegisterClassW(&cls);
-    HWND hwnd = CreateWindowW(cls.lpszClassName, L"Observer cost", WS_OVERLAPPEDWINDOW,
-                               0, 0, 1280, 540, nullptr, nullptr, cls.hInstance, nullptr);
+    HWND hwnd = CreateWindowW(cls.lpszClassName, L"Observer cost", WS_OVERLAPPEDWINDOW, 0, 0, 1280, 540, nullptr,
+                              nullptr, cls.hInstance, nullptr);
     if (!hwnd) throw std::runtime_error("create GPU test window");
     sedici::ui_capture_window(hwnd);
     HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -903,7 +915,9 @@ void observer_cost()
     const auto micros = [](Clock::time_point a, Clock::time_point b) {
         return std::chrono::duration<double, std::micro>(b - a).count();
     };
-    struct Cost { double cpu_avg, cpu_p99, trip_avg, trip_p99; };
+    struct Cost {
+        double cpu_avg, cpu_p99, trip_avg, trip_p99;
+    };
     const auto run = [&](sedici::UiMode mode, int frames) {
         sedici::live_set_ui_mode(mode);
         std::vector<double> cpu, trip;
@@ -923,8 +937,7 @@ void observer_cost()
             if (FAILED(list->Close())) throw std::runtime_error("close GPU test command list");
             ID3D12CommandList* lists[] = {list.Get()};
             queue->ExecuteCommandLists(1, lists);
-            if (FAILED(queue->Signal(fence.Get(), frame)) ||
-                FAILED(fence->SetEventOnCompletion(frame, event)) ||
+            if (FAILED(queue->Signal(fence.Get(), frame)) || FAILED(fence->SetEventOnCompletion(frame, event)) ||
                 WaitForSingleObject(event, 5000) != WAIT_OBJECT_0)
                 throw std::runtime_error("GPU test submission did not finish");
             trip.push_back(micros(begin, Clock::now()));
@@ -944,8 +957,10 @@ void observer_cost()
 
     (void)run(sedici::UiMode::Full, 40); // warm up: ImGui and the renderer initialise
     (void)run(sedici::UiMode::Off, 40);
-    const struct { const char* name; sedici::UiMode mode; } modes[] = {
-        {"Off", sedici::UiMode::Off}, {"Mini", sedici::UiMode::Mini}, {"Full", sedici::UiMode::Full}};
+    const struct {
+        const char* name;
+        sedici::UiMode mode;
+    } modes[] = {{"Off", sedici::UiMode::Off}, {"Mini", sedici::UiMode::Mini}, {"Full", sedici::UiMode::Full}};
     double full_cpu_avg = 0;
     for (int round = 1; round <= 3; ++round) {
         for (const auto& m : modes) {
@@ -971,8 +986,8 @@ bool take_foreground(HWND window)
     const HWND current = GetForegroundWindow();
     const DWORD currentThread = current ? GetWindowThreadProcessId(current, nullptr) : 0;
     const DWORD thisThread = GetCurrentThreadId();
-    const bool attached = currentThread && currentThread != thisThread &&
-                          AttachThreadInput(thisThread, currentThread, TRUE);
+    const bool attached =
+        currentThread && currentThread != thisThread && AttachThreadInput(thisThread, currentThread, TRUE);
     SetForegroundWindow(window);
     BringWindowToTop(window);
     if (attached) AttachThreadInput(thisThread, currentThread, FALSE);
@@ -987,10 +1002,10 @@ void window_checks()
     cls.lpfnWndProc = window_proc;
     cls.lpszClassName = L"SediciRegression";
     if (!RegisterClassW(&cls)) throw std::runtime_error("register test window");
-    HWND a = CreateWindowW(cls.lpszClassName, L"A", WS_OVERLAPPEDWINDOW,
-                           0, 0, 320, 240, nullptr, nullptr, cls.hInstance, nullptr);
-    HWND b = CreateWindowW(cls.lpszClassName, L"B", WS_OVERLAPPEDWINDOW,
-                           0, 0, 320, 240, nullptr, nullptr, cls.hInstance, nullptr);
+    HWND a = CreateWindowW(cls.lpszClassName, L"A", WS_OVERLAPPEDWINDOW, 0, 0, 320, 240, nullptr, nullptr,
+                           cls.hInstance, nullptr);
+    HWND b = CreateWindowW(cls.lpszClassName, L"B", WS_OVERLAPPEDWINDOW, 0, 0, 320, 240, nullptr, nullptr,
+                           cls.hInstance, nullptr);
     if (!a || !b) throw std::runtime_error("create test window");
     SetWindowLongPtrW(a, GWLP_USERDATA, 101);
     SetWindowLongPtrW(b, GWLP_USERDATA, 202);
@@ -998,11 +1013,10 @@ void window_checks()
     sedici::ui_capture_window(b);
     check(SendMessageW(a, marker, 0, 0) == 101, "old window retains its original procedure");
     check(SendMessageW(b, marker, 0, 0) == 202, "new window forwards its own messages");
-    above_original = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
-        b, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&above_proc)));
+    above_original =
+        reinterpret_cast<WNDPROC>(SetWindowLongPtrW(b, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&above_proc)));
     sedici::ui_capture_window(b);
-    check(SendMessageW(b, marker, 0, 0) == 202,
-          "recapture below another subclass does not form a recursive chain");
+    check(SendMessageW(b, marker, 0, 0) == 202, "recapture below another subclass does not form a recursive chain");
     DestroyWindow(a);
     check(destroyed == 1, "old window WM_NCDESTROY reaches the game procedure");
     check(SendMessageW(b, marker, 0, 0) == 202, "old destruction leaves new window intact");
@@ -1012,8 +1026,7 @@ void window_checks()
     SendMessageW(b, WM_SYSKEYDOWN, VK_F10, 0);
     check(sedici::live_ui_mode() == sedici::UiMode::Mini, "hotkey still works after replacement");
     const LRESULT pairedUp = SendMessageW(b, WM_SYSKEYUP, VK_F10, 0);
-    check(pairedUp == 0 && forwardedHotkeyUps == 0,
-          "a consumed hotkey key-down also consumes its matching key-up");
+    check(pairedUp == 0 && forwardedHotkeyUps == 0, "a consumed hotkey key-down also consumes its matching key-up");
     const LRESULT unpairedUp = SendMessageW(b, WM_SYSKEYUP, VK_F10, 0);
     check(unpairedUp == 313 && forwardedHotkeyUps == 1,
           "an unrelated unpaired key-up still reaches the game window");
@@ -1065,9 +1078,9 @@ void limiter_live_checks()
     // not wait out the old interval.
     sedici::live_set_target_fps(10); // 100 ms interval
     limiter_on_config_changed();
-    limiter_before_present(qpc());    // seeds
+    limiter_before_present(qpc()); // seeds
     const uint64_t held0 = qpc();
-    limiter_before_present(qpc());    // waits about one interval
+    limiter_before_present(qpc()); // waits about one interval
     const double heldMs = 1000.0 * static_cast<double>(qpc() - held0) / static_cast<double>(frequency.QuadPart);
     sedici::live_set_target_fps(1000);
     limiter_on_config_changed();
@@ -1144,7 +1157,10 @@ size_t occurrences(const std::string& text, const std::string& needle)
 std::string letters(int i)
 {
     std::string s = "distinct line ";
-    do { s.push_back(static_cast<char>('a' + i % 26)); i /= 26; } while (i);
+    do {
+        s.push_back(static_cast<char>('a' + i % 26));
+        i /= 26;
+    } while (i);
     return s; // digits are ignored by the rate limiter, so only letters make lines distinct
 }
 
@@ -1173,8 +1189,8 @@ void log_sink_checks()
     std::sort(costs.begin(), costs.end());
     double sum = 0;
     for (double c : costs) sum += c;
-    std::printf("INFO log overhead: %.1f us average, %.1f us p99 per accepted line\n",
-                sum / costs.size(), costs[costs.size() * 99 / 100]);
+    std::printf("INFO log overhead: %.1f us average, %.1f us p99 per accepted line\n", sum / costs.size(),
+                costs[costs.size() * 99 / 100]);
     const std::string healthy = slurp(file);
     check(occurrences(healthy, "distinct line") == 200, "log: every line reached the file");
     check(healthy.find(letters(0)) < healthy.find(letters(1)), "log: lines keep their order");
@@ -1209,9 +1225,10 @@ void log_sink_checks()
     }
     const double burstMs = micros(burstStart, Clock::now()) / 1000.0;
     const auto slowStats = sedici::log_stats();
-    std::printf("INFO log with a 150 ms sink: 3000 lines in %.1f ms, worst call %.0f us, max depth %u, dropped %llu\n",
-                burstMs, worst, slowStats.max_depth,
-                static_cast<unsigned long long>(slowStats.dropped - slowBefore.dropped));
+    std::printf(
+        "INFO log with a 150 ms sink: 3000 lines in %.1f ms, worst call %.0f us, max depth %u, dropped %llu\n",
+        burstMs, worst, slowStats.max_depth,
+        static_cast<unsigned long long>(slowStats.dropped - slowBefore.dropped));
     check(worst < 20000.0, "log: a stalled disk never holds the caller (worst call under 20 ms)");
     check(slowStats.max_depth <= 256, "log: the queue is bounded");
     check(slowStats.dropped > slowBefore.dropped, "log: lines refused by a full queue are counted");
@@ -1239,9 +1256,10 @@ void log_sink_checks()
     check(sedici::log_flush(5000), "log: the outage ends");
     const auto recovered = sedici::log_stats();
     const std::string afterOutage = slurp(file);
-    check(recovered.sink_ok && recovered.lost > failBefore.lost, "log: the sink recovers and the lost lines are counted");
+    check(recovered.sink_ok && recovered.lost > failBefore.lost,
+          "log: the sink recovers and the lost lines are counted");
     check(afterOutage.find("the file was unwritable") != std::string::npos &&
-          afterOutage.find("after the outage") != std::string::npos,
+              afterOutage.find("after the outage") != std::string::npos,
           "log: the outage and its loss are reported once the file is writable");
 
     sedici::log_test_set_directory({});
@@ -1266,10 +1284,11 @@ void settings_io_stall_checks()
         reported = sedici::settings_io_poll(done);
         if (!reported) Sleep(10);
     }
-    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - begin).count();
+    const auto waited =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
     check(reported && done.stalled && done.viewEpoch == 41 && done.kind == sedici::SettingsIoKind::BeginEdit &&
-          !done.save.message.empty(), "settings I/O: a hung job is reported as stalled with its epoch");
+              !done.save.message.empty(),
+          "settings I/O: a hung job is reported as stalled with its epoch");
     check(waited >= 250 && waited < 1500, "settings I/O: the stall is reported after the limit, not before");
     check(sedici::settings_io_busy() && sedici::settings_io_stalled(),
           "settings I/O: the worker is still running and is marked stalled");
@@ -1279,7 +1298,7 @@ void settings_io_stall_checks()
     check(sedici::settings_io_stall_count() == stallsBefore + 1, "settings I/O: the stall is counted");
     const sedici::DiagSnapshot view = sedici::diag_snapshot();
     check(view.settings_io_stalls == stallsBefore + 1 && view.settings_io_stalled_now &&
-          sedici::diag_notable_line().find("stalled_now=yes") != std::string::npos,
+              sedici::diag_notable_line().find("stalled_now=yes") != std::string::npos,
           "settings I/O: the diagnostics snapshot shows the stalled worker");
 
     // The filesystem recovers: the worker ends, its late result is discarded, and a
@@ -1289,7 +1308,8 @@ void settings_io_stall_checks()
     const auto idleStart = std::chrono::steady_clock::now();
     while (sedici::settings_io_busy() && std::chrono::steady_clock::now() - idleStart < std::chrono::seconds(5))
         Sleep(5);
-    check(!sedici::settings_io_busy() && !sedici::settings_io_stalled(), "settings I/O: the worker exits once the call returns");
+    check(!sedici::settings_io_busy() && !sedici::settings_io_stalled(),
+          "settings I/O: the worker exits once the call returns");
     check(!sedici::settings_io_poll(again), "settings I/O: the stalled job's late result is discarded");
     check(sedici::settings_io_start_begin(3, 43), "settings I/O: a new job starts after recovery");
     bool finished = false;
@@ -1322,7 +1342,7 @@ void cursor_interception_checks()
     check(sedici::ui_input_available(), "interception stays available after a module loads");
     const auto second = sedici::ui_input_interception_summary();
     check(second.setCursorPosSlots == first.setCursorPosSlots + 1 &&
-          second.clipCursorSlots == first.clipCursorSlots + 1,
+              second.clipCursorSlots == first.clipCursorSlots + 1,
           "a module loaded after the first scan has its cursor imports intercepted");
     check(second.modulesScanned >= first.modulesScanned + 1, "the rescan counts the new module");
     // Outside Full capture the hooks are inert: the probe's call reaches the real function.
@@ -1338,7 +1358,8 @@ void error_code_checks()
               classify_reason("prepare slot is still in flight") == ErrorCode::SlotBusy &&
               classify_reason("configure on a destroyed context") == ErrorCode::StaleHandle &&
               classify_reason("null descriptor on a Sedici-owned context") == ErrorCode::NullDescriptor &&
-              classify_reason("Sedici handle namespace unavailable or exhausted") == ErrorCode::NamespaceExhausted &&
+              classify_reason("Sedici handle namespace unavailable or exhausted") ==
+                  ErrorCode::NamespaceExhausted &&
               classify_reason("frame generation backend allocation failed") == ErrorCode::Allocation &&
               classify_reason("swapchain wrap failed") == ErrorCode::WrapFailed &&
               classify_reason("unsupported frame generation dispatch type") == ErrorCode::Unsupported &&
@@ -1410,14 +1431,15 @@ void target_rate_checks()
     }
     check(rose && pending.units == 100 && pending.dirty,
           "ui: a slow upward drag is never undone by the live value (K118)");
-    check(pending_apply(pending) == 50.0 && !pending.dirty, "ui: Apply returns the chosen value and clears the edit");
+    check(pending_apply(pending) == 50.0 && !pending.dirty,
+          "ui: Apply returns the chosen value and clears the edit");
     check(ui_passes_to_game(0x0104, 0x73, 1ll << 29) && ui_passes_to_game(0x0105, 0x73, 1ll << 29) &&
               !ui_passes_to_game(0x0104, 0x73, 0) && !ui_passes_to_game(0x0100, 0x73, 1ll << 29) &&
               !ui_passes_to_game(0x0104, 0x41, 1ll << 29),
           "ui: Alt+F4 passes through the Full menu to the game, other keys do not (K126)");
-    check(nearest_scale_choice(0.5f) == 0 && nearest_scale_choice(0.75f) == 0 &&
-              nearest_scale_choice(0.9f) == 1 && nearest_scale_choice(1.0f) == 2 &&
-              nearest_scale_choice(1.75f) == 2 && nearest_scale_choice(2.0f) == 2,
+    check(nearest_scale_choice(0.5f) == 0 && nearest_scale_choice(0.75f) == 0 && nearest_scale_choice(0.9f) == 1 &&
+              nearest_scale_choice(1.0f) == 2 && nearest_scale_choice(1.75f) == 2 &&
+              nearest_scale_choice(2.0f) == 2,
           "ui: scale values from older files snap to 0.8, 0.9 or 1.0 (FR-04)");
 }
 
@@ -1433,8 +1455,7 @@ int main(int argc, char** argv)
         return 1;
     }
     try {
-        for (const auto* name : {L"SEDICI_LIMIT_FPS", L"MFSRFG_LOG"})
-            SetEnvironmentVariableW(name, nullptr);
+        for (const auto* name : {L"SEDICI_LIMIT_FPS", L"MFSRFG_LOG"}) SetEnvironmentVariableW(name, nullptr);
         const std::string mode = argc > 1 ? argv[1] : "";
         if (mode == "settings-env") {
             SetEnvironmentVariableW(L"SEDICI_LIMIT_FPS", L"45");
@@ -1446,8 +1467,10 @@ int main(int argc, char** argv)
         if (mode == "settings-sedici" || mode == "settings-env") {
             settings_capability_checks(mode == "settings-sedici", mode == "settings-env");
         } else if (argc > 1) {
-            if (mode == "observer") observer_cost();
-            else gpu_checks(mode == "gpu-full");
+            if (mode == "observer")
+                observer_cost();
+            else
+                gpu_checks(mode == "gpu-full");
         } else {
             config_checks(fixture);
             cursor_interception_checks();
@@ -1457,8 +1480,11 @@ int main(int argc, char** argv)
             queue_policy_checks();
             const POINT mapped = sedici::ui_input_map_point(-10, -20, 640, 360, 1280, 720);
             check(mapped.x == 0 && mapped.y == 0, "negative client coordinates map to the near edge");
-            try { sedici::imgui_assert_failed("injected assertion"); }
-            catch (const std::runtime_error&) { check(true, "ImGui assertion throws instead of aborting game"); }
+            try {
+                sedici::imgui_assert_failed("injected assertion");
+            } catch (const std::runtime_error&) {
+                check(true, "ImGui assertion throws instead of aborting game");
+            }
             log_sink_checks();
             settings_io_stall_checks();
             error_code_checks();

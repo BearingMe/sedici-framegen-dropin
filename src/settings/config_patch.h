@@ -42,9 +42,9 @@ struct ConfigValues {
 // Patches values in place. Comments, unrelated keys, line endings and
 // formatting are preserved. Missing keys are appended to the end of their
 // section, and missing sections are appended to the file.
-bool config_save(const std::filesystem::path& path, const ConfigValues& values,
-                 std::string& error, const ConfigFileStamp* expectedStamp = nullptr,
-                 bool* conflict = nullptr, ConfigFileStamp* writtenStamp = nullptr);
+bool config_save(const std::filesystem::path& path, const ConfigValues& values, std::string& error,
+                 const ConfigFileStamp* expectedStamp = nullptr, bool* conflict = nullptr,
+                 ConfigFileStamp* writtenStamp = nullptr);
 
 // One-shot internal seam for testing an external edit before replacement. It is
 // not a DLL export and is never armed in normal runtime.

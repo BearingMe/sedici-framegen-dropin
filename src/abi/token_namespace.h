@@ -14,8 +14,8 @@ public:
     TokenNamespace() = default;
     TokenNamespace(uintptr_t base, size_t bytes, uintptr_t stride) noexcept
     {
-        if (base == 0 || stride == 0 || bytes < stride ||
-            bytes > std::numeric_limits<uintptr_t>::max() - base) return;
+        if (base == 0 || stride == 0 || bytes < stride || bytes > std::numeric_limits<uintptr_t>::max() - base)
+            return;
         m_base = base;
         m_stride = stride;
         m_capacity = bytes / stride;
@@ -47,8 +47,8 @@ private:
 // namespace uninitialized and issues no identity; the caller can retry later.
 // `reserve` must return a process-lifetime region of at least `bytes` or null.
 template <typename Reserve>
-void* issue_reserved_token(TokenNamespace& tokens, bool& reserved, size_t bytes,
-                           uintptr_t stride, Reserve&& reserve) noexcept
+void* issue_reserved_token(TokenNamespace& tokens, bool& reserved, size_t bytes, uintptr_t stride,
+                           Reserve&& reserve) noexcept
 {
     if (!reserved) {
         void* region = reserve(bytes);

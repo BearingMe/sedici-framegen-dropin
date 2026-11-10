@@ -64,8 +64,8 @@ inline int report_live_objects()
         FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&queue))))
         return 0; // no Graphics Tools on this machine: nothing to read, not a failure
     queue->ClearStoredMessages(DXGI_DEBUG_ALL);
-    debug->ReportLiveObjects(DXGI_DEBUG_ALL,
-                             static_cast<DXGI_DEBUG_RLO_FLAGS>(DXGI_DEBUG_RLO_DETAIL | DXGI_DEBUG_RLO_IGNORE_INTERNAL));
+    debug->ReportLiveObjects(
+        DXGI_DEBUG_ALL, static_cast<DXGI_DEBUG_RLO_FLAGS>(DXGI_DEBUG_RLO_DETAIL | DXGI_DEBUG_RLO_IGNORE_INTERNAL));
     int live = 0;
     const UINT64 count = queue->GetNumStoredMessages(DXGI_DEBUG_ALL);
     for (UINT64 i = 0; i < count; ++i) {
@@ -74,7 +74,8 @@ inline int report_live_objects()
         std::vector<char> buffer(size);
         auto* message = reinterpret_cast<DXGI_INFO_QUEUE_MESSAGE*>(buffer.data());
         if (FAILED(queue->GetMessage(DXGI_DEBUG_ALL, i, message, &size))) continue;
-        const std::string text(message->pDescription, message->DescriptionByteLength ? message->DescriptionByteLength - 1 : 0);
+        const std::string text(message->pDescription,
+                               message->DescriptionByteLength ? message->DescriptionByteLength - 1 : 0);
         if (text.rfind("Live ", 0) != 0 || text.find("Refcount") == std::string::npos) continue;
         bool allowed = false;
         for (const char* entry : live_object_allow_list()) allowed |= text.find(entry) != std::string::npos;

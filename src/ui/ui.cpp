@@ -24,8 +24,7 @@
 
 // The Win32 backend intentionally leaves this declaration commented out in its
 // header to avoid pulling <windows.h> into every user; copy it here.
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
-                                                             LPARAM lParam);
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 #include <windows.h>
 #include <d3d12.h>
@@ -242,9 +241,7 @@ void cycle_mode() noexcept
 {
     if (g_disabled.load(std::memory_order_acquire)) return;
     const UiMode mode = live_ui_mode();
-    const UiMode next = mode == UiMode::Off ? UiMode::Mini
-                       : mode == UiMode::Mini ? UiMode::Full
-                                              : UiMode::Off;
+    const UiMode next = mode == UiMode::Off ? UiMode::Mini : mode == UiMode::Mini ? UiMode::Full : UiMode::Off;
     live_set_ui_mode(next);
     if (HWND hwnd = g_hwnd.load()) PostMessageW(hwnd, kHotkeyMessage, static_cast<WPARAM>(next), 0);
 }
@@ -296,8 +293,7 @@ LRESULT ui_window_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
     }
 
-    if (!g_disabled.load(std::memory_order_acquire) &&
-        live_ui_mode() == UiMode::Full && ui_input_active()) {
+    if (!g_disabled.load(std::memory_order_acquire) && live_ui_mode() == UiMode::Full && ui_input_active()) {
         if (msg == WM_SETCURSOR) {
             SetCursor(LoadCursorW(nullptr, IDC_ARROW));
             return TRUE;
@@ -331,23 +327,19 @@ LRESULT CALLBACK ui_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     }
     if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && static_cast<UINT>(wparam) == g_hotkey.vk) {
         HWND expected = hwnd;
-        if (g_hotkey_down_window.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel))
-            return 0;
+        if (g_hotkey_down_window.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel)) return 0;
     }
     if (msg == WM_KILLFOCUS || msg == WM_NCDESTROY) {
         HWND expected = hwnd;
         (void)g_hotkey_down_window.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
     }
-    if (msg == WM_DESTROY || msg == WM_NCDESTROY)
-        ui_input_leave_window(hwnd, false);
+    if (msg == WM_DESTROY || msg == WM_NCDESTROY) ui_input_leave_window(hwnd, false);
     // Older windows may still have another overlay above our subclass. They
     // retain their own chain, but must not control the current window's input.
     if (hwnd == g_hwnd.load()) {
         try {
-            const bool captured = !g_disabled.load() && live_ui_mode() == UiMode::Full &&
-                                  ui_input_active();
-            const bool hotkey = !g_disabled.load() &&
-                                (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) &&
+            const bool captured = !g_disabled.load() && live_ui_mode() == UiMode::Full && ui_input_active();
+            const bool hotkey = !g_disabled.load() && (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) &&
                                 static_cast<UINT>(wparam) == g_hotkey.vk &&
                                 ((GetKeyState(VK_CONTROL) & 0x8000) != 0) == g_hotkey.ctrl &&
                                 ((GetKeyState(VK_MENU) & 0x8000) != 0) == g_hotkey.alt &&
@@ -358,13 +350,17 @@ LRESULT CALLBACK ui_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                  (msg == WM_INPUT || msg == WM_SETCURSOR || is_consumed_input(msg))))
                 return result;
         } catch (...) {
-            { std::string why = "an exception was thrown while processing input (" + current_exception_text() + ")"; ui_disable(why.c_str()); }
+            {
+                std::string why =
+                    "an exception was thrown while processing input (" + current_exception_text() + ")";
+                ui_disable(why.c_str());
+            }
             ui_input_leave(true);
         }
     }
     // WM_NCDESTROY must reach the game's original procedure before we forget it.
-    const LRESULT result = original ? CallWindowProcW(original, hwnd, msg, wparam, lparam)
-                                    : DefWindowProcW(hwnd, msg, wparam, lparam);
+    const LRESULT result =
+        original ? CallWindowProcW(original, hwnd, msg, wparam, lparam) : DefWindowProcW(hwnd, msg, wparam, lparam);
     if (msg == WM_NCDESTROY) {
         std::lock_guard<std::mutex> lock(g_window_mutex);
         g_window_procs.erase(hwnd);
@@ -377,16 +373,21 @@ LRESULT CALLBACK ui_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 DXGI_FORMAT translate_typeless(DXGI_FORMAT format) noexcept
 {
     switch (format) {
-    case DXGI_FORMAT_R8G8B8A8_TYPELESS: return DXGI_FORMAT_R8G8B8A8_UNORM;
-    case DXGI_FORMAT_B8G8R8A8_TYPELESS: return DXGI_FORMAT_B8G8R8A8_UNORM;
-    case DXGI_FORMAT_R10G10B10A2_TYPELESS: return DXGI_FORMAT_R10G10B10A2_UNORM;
-    case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    default: return format;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+        return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+        return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    default:
+        return format;
     }
 }
 
-void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
-                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) noexcept
+void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
+                D3D12_RESOURCE_STATES after) noexcept
 {
     if (!list || !resource || before == after) return;
     D3D12_RESOURCE_BARRIER barrier{};
@@ -410,8 +411,11 @@ std::string current_exception_text() noexcept
     try {
         throw;
     } catch (const std::exception& error) {
-        try { return std::string(typeid(error).name()) + ": " + error.what(); }
-        catch (...) { return "std::exception"; }
+        try {
+            return std::string(typeid(error).name()) + ": " + error.what();
+        } catch (...) {
+            return "std::exception";
+        }
     } catch (...) {
         return "unknown exception";
     }
@@ -420,8 +424,12 @@ std::string current_exception_text() noexcept
 void disable_overlay_with_exception(const char* where) noexcept
 {
     std::string reason;
-    try { reason = std::string(where) + " (" + current_exception_text() + ")"; }
-    catch (...) { disable_overlay(where); return; }
+    try {
+        reason = std::string(where) + " (" + current_exception_text() + ")";
+    } catch (...) {
+        disable_overlay(where);
+        return;
+    }
     disable_overlay(reason.c_str());
 }
 
@@ -447,8 +455,7 @@ void shutdown_imgui()
     g_ui.applied_scale = 0.0f;
 }
 
-void srv_alloc(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpu,
-               D3D12_GPU_DESCRIPTOR_HANDLE* gpu)
+void srv_alloc(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu)
 {
     *cpu = {};
     *gpu = {};
@@ -466,22 +473,17 @@ void srv_alloc(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* cpu,
         throw std::runtime_error("ImGui SRV descriptor heap exhausted");
     }
 
-    const UINT increment =
-        ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    cpu->ptr = ui.srv_heap->GetCPUDescriptorHandleForHeapStart().ptr +
-               static_cast<SIZE_T>(index) * increment;
-    gpu->ptr = ui.srv_heap->GetGPUDescriptorHandleForHeapStart().ptr +
-               static_cast<SIZE_T>(index) * increment;
+    const UINT increment = ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    cpu->ptr = ui.srv_heap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(index) * increment;
+    gpu->ptr = ui.srv_heap->GetGPUDescriptorHandleForHeapStart().ptr + static_cast<SIZE_T>(index) * increment;
 }
 
-void srv_free(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu,
-              D3D12_GPU_DESCRIPTOR_HANDLE)
+void srv_free(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE)
 {
     if (!info || !info->UserData) return;
     UiState& ui = *static_cast<UiState*>(info->UserData);
     if (!ui.srv_heap || !ui.device) return;
-    const UINT increment =
-        ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const UINT increment = ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     const SIZE_T base = ui.srv_heap->GetCPUDescriptorHandleForHeapStart().ptr;
     if (cpu.ptr < base) return;
     const UINT index = static_cast<UINT>((cpu.ptr - base) / increment);
@@ -491,8 +493,7 @@ void srv_free(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu,
 D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle(UINT index) noexcept
 {
     D3D12_CPU_DESCRIPTOR_HANDLE handle = g_ui.rtv_heap->GetCPUDescriptorHandleForHeapStart();
-    const UINT increment =
-        g_ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    const UINT increment = g_ui.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     handle.ptr += static_cast<SIZE_T>(index) * increment;
     return handle;
 }
@@ -502,23 +503,34 @@ D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle(UINT index) noexcept
 // These leaf bridges have no C++ objects requiring SEH unwinding.
 bool backend_create_objects()
 {
-    __try { return ImGui_ImplDX12_CreateDeviceObjects(); }
-    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ?
-                  EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { return false; }
+    __try {
+        return ImGui_ImplDX12_CreateDeviceObjects();
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                 : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
 }
 
 bool backend_new_frame()
 {
-    __try { ImGui_ImplDX12_NewFrame(); return true; }
-    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ?
-                  EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { return false; }
+    __try {
+        ImGui_ImplDX12_NewFrame();
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                 : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
 }
 
 bool backend_draw(ImDrawData* data, ID3D12GraphicsCommandList* list)
 {
-    __try { ImGui_ImplDX12_RenderDrawData(data, list); return true; }
-    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ?
-                  EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { return false; }
+    __try {
+        ImGui_ImplDX12_RenderDrawData(data, list);
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                 : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
 }
 
 bool ensure_imgui(ID3D12Device* device, DXGI_FORMAT format, HWND hwnd)
@@ -729,18 +741,16 @@ void drain_messages()
     if (!hwnd) return;
 
     const auto map_position = [](LPARAM lparam) {
-        const POINT point = ui_input_map_point(static_cast<short>(LOWORD(lparam)),
-                                               static_cast<short>(HIWORD(lparam)),
-                                               g_ui.client_width, g_ui.client_height,
-                                               g_ui.output_width, g_ui.output_height);
+        const POINT point =
+            ui_input_map_point(static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)),
+                               g_ui.client_width, g_ui.client_height, g_ui.output_width, g_ui.output_height);
         return MAKELPARAM(static_cast<WORD>(point.x), static_cast<WORD>(point.y));
     };
 
     for (const InputMessage& message : messages) {
         switch (message.msg) {
         case WM_MOUSEMOVE:
-            ImGui_ImplWin32_WndProcHandler(hwnd, message.msg, message.wparam,
-                                           map_position(message.lparam));
+            ImGui_ImplWin32_WndProcHandler(hwnd, message.msg, message.wparam, map_position(message.lparam));
             break;
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
@@ -757,8 +767,7 @@ void drain_messages()
             // Button messages carry a position too, but ImGui reacts with the
             // last known one. Feed the current position first so a click lands
             // where the cursor visibly is.
-            ImGui_ImplWin32_WndProcHandler(hwnd, WM_MOUSEMOVE, message.wparam,
-                                           map_position(message.lparam));
+            ImGui_ImplWin32_WndProcHandler(hwnd, WM_MOUSEMOVE, message.wparam, map_position(message.lparam));
             ImGui_ImplWin32_WndProcHandler(hwnd, message.msg, message.wparam, message.lparam);
             break;
         default:
@@ -776,12 +785,10 @@ void draw_mini()
     ImGui::SetNextWindowPos(ImVec2(12.0f, 12.0f), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.65f);
     ImGui::Begin("##sedici-mini", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                     ImGuiWindowFlags_NoInputs);
-    ImGui::Text("real %.1f  |  out %.1f  |  p99 %.1f ms", real.fps, output.fps,
-                output.p99_ms);
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs);
+    ImGui::Text("real %.1f  |  out %.1f  |  p99 %.1f ms", real.fps, output.fps, output.p99_ms);
     ImGui::End();
 }
 
@@ -827,8 +834,7 @@ void save_config()
         g_ui.save_status = "Settings changed; reopen the menu before saving";
         return;
     }
-    g_ui.save_status = settings_io_start_save(ticket, g_ui.edit_epoch)
-        ? "Saving..." : "Cannot start settings save";
+    g_ui.save_status = settings_io_start_save(ticket, g_ui.edit_epoch) ? "Saving..." : "Cannot start settings save";
 }
 
 void cancel_config()
@@ -861,16 +867,15 @@ void draw_full()
     ImGui::SeparatorText("Status");
     ImGui::Text("Frame generation: %s", sedici::fg::route_any_generation_enabled() ? "on" : "off");
     if (render_width != 0 && render_height != 0) {
-        ImGui::Text("Render %ux%u  ->  output %ux%u", render_width, render_height,
-                    output_width, output_height);
+        ImGui::Text("Render %ux%u  ->  output %ux%u", render_width, render_height, output_width, output_height);
     } else {
         ImGui::Text("Output %ux%u", output_width, output_height);
     }
     ImGui::Text("Real shown %.1f fps  |  Output %.1f fps", real.fps, output.fps);
     ImGui::Text("Real frames dropped: %llu (not the game's count; the game renders shown + dropped)",
                 static_cast<unsigned long long>(stats_real_dropped()));
-    ImGui::Text("Stalls: %llu  |  last %.1f ms",
-                static_cast<unsigned long long>(stats_stall_count()), stats_last_stall_ms());
+    ImGui::Text("Stalls: %llu  |  last %.1f ms", static_cast<unsigned long long>(stats_stall_count()),
+                stats_last_stall_ms());
 
     ImGui::SeparatorText("Frame times");
     static float output_samples[kTimingSamples];
@@ -878,11 +883,9 @@ void draw_full()
     const size_t output_count = timing_output_samples(output_samples, kTimingSamples);
     const size_t real_count = timing_real_samples(real_samples, kTimingSamples);
 
-    ImGui::Text("Output  p50 %.2f  p99 %.2f  max %.2f ms", output.p50_ms, output.p99_ms,
-                output.max_ms);
+    ImGui::Text("Output  p50 %.2f  p99 %.2f  max %.2f ms", output.p50_ms, output.p99_ms, output.max_ms);
     draw_graph("##output_graph", output_samples, output_count, scale);
-    ImGui::Text("Real    p50 %.2f  p99 %.2f  max %.2f ms", real.p50_ms, real.p99_ms,
-                real.max_ms);
+    ImGui::Text("Real    p50 %.2f  p99 %.2f  max %.2f ms", real.p50_ms, real.p99_ms, real.max_ms);
     draw_graph("##real_graph", real_samples, real_count, scale);
 
     // Do not accept edits until the worker establishes the file baseline, or
@@ -925,8 +928,10 @@ void draw_full()
     {
         const double cap = live_limiter_fps();
         const double hz = live_output_refresh_hz();
-        if (cap > 0.0) ImGui::TextDisabled("Real frames capped at %.1f fps (display %.0f Hz)", cap, hz);
-        else ImGui::TextDisabled("Uncapped");
+        if (cap > 0.0)
+            ImGui::TextDisabled("Real frames capped at %.1f fps (display %.0f Hz)", cap, hz);
+        else
+            ImGui::TextDisabled("Uncapped");
     }
 
     ImGui::SeparatorText("Logging");
@@ -955,8 +960,7 @@ void draw_full()
 }
 
 bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12Resource* output,
-                    DXGI_FORMAT format, uint32_t output_state, uint32_t width,
-                     uint32_t height)
+                    DXGI_FORMAT format, uint32_t output_state, uint32_t width, uint32_t height)
 {
     if (g_disabled.load() || !command_list || !output || width == 0 || height == 0) return false;
 
@@ -965,8 +969,8 @@ bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
     g_ui.output_width = static_cast<LONG>(width);
     g_ui.output_height = static_cast<LONG>(height);
     RECT client{};
-    if (const HWND hwnd = g_hwnd.load(); hwnd && GetClientRect(hwnd, &client) &&
-                                       client.right > 0 && client.bottom > 0) {
+    if (const HWND hwnd = g_hwnd.load();
+        hwnd && GetClientRect(hwnd, &client) && client.right > 0 && client.bottom > 0) {
         g_ui.client_width = client.right;
         g_ui.client_height = client.bottom;
     } else {
@@ -1011,8 +1015,7 @@ bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
     rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
     g_ui.device->CreateRenderTargetView(output, &rtv_desc, rtv);
 
-    const D3D12_RESOURCE_STATES before =
-        static_cast<D3D12_RESOURCE_STATES>(dx12_state_from_ffx(output_state));
+    const D3D12_RESOURCE_STATES before = static_cast<D3D12_RESOURCE_STATES>(dx12_state_from_ffx(output_state));
     if (before != D3D12_RESOURCE_STATE_RENDER_TARGET) {
         transition(command_list, output, before, D3D12_RESOURCE_STATE_RENDER_TARGET);
     }
@@ -1021,8 +1024,7 @@ bool render_overlay(UiMode mode, ID3D12GraphicsCommandList* command_list, ID3D12
         ID3D12DescriptorHeap* heaps[] = {g_ui.srv_heap.Get()};
         command_list->SetDescriptorHeaps(1, heaps);
         command_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-        D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
-                                0.0f, 1.0f};
+        D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
         D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         command_list->RSSetViewports(1, &viewport);
         command_list->RSSetScissorRects(1, &scissor);
@@ -1050,7 +1052,9 @@ UiRenderStatus ui_render_status() noexcept
     try {
         std::lock_guard lock(g_render_mutex);
         return {g_ui.ready && !g_disabled.load(), g_ui.real_draws, g_ui.generated_draws};
-    } catch (...) { return {}; }
+    } catch (...) {
+        return {};
+    }
 }
 
 void ui_disable(const char* reason) noexcept
@@ -1060,8 +1064,7 @@ void ui_disable(const char* reason) noexcept
     live_set_ui_mode(UiMode::Off);
     try {
         std::lock_guard<std::mutex> lock(g_window_mutex);
-        for (const auto& window : g_window_procs)
-            PostMessageW(window.first, kHotkeyMessage, 0, 0);
+        for (const auto& window : g_window_procs) PostMessageW(window.first, kHotkeyMessage, 0, 0);
     } catch (...) {
     }
     log_error("sedici: overlay disabled");
@@ -1138,8 +1141,10 @@ void ui_on_present(const ffxCallbackDescFrameGenerationPresent* params) noexcept
 
         if (render_overlay(mode, command_list, output, format, params->outputSwapChainBuffer.state,
                            static_cast<uint32_t>(desc.Width), desc.Height)) {
-            if (params->isGeneratedFrame) ++g_ui.generated_draws;
-            else ++g_ui.real_draws;
+            if (params->isGeneratedFrame)
+                ++g_ui.generated_draws;
+            else
+                ++g_ui.real_draws;
         }
     } catch (...) {
         disable_overlay_with_exception("an exception was thrown while drawing");

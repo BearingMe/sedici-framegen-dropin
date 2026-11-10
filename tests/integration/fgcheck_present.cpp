@@ -7,9 +7,8 @@ namespace fgcheck {
 // both outputs come from the presenter thread with the game's tearing flags.
 // Every midpoint is either shown or dropped as stale, never lost; resize keeps
 // the chain on the present queue; teardown drains the thread.
-bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier,
-                      const char* label, DWORD frameMs, bool signalFault,
-                      bool closeFault, bool resetFault, bool liveRecovery,
+bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier multiplier, const char* label,
+                      DWORD frameMs, bool signalFault, bool closeFault, bool resetFault, bool liveRecovery,
                       bool paramsFault)
 {
     // Below ~20 ms per real frame at 1.5x the plan asks for more frames than a
@@ -27,17 +26,27 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = className;
-    if (!RegisterClassW(&wc)) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-    HWND window = CreateWindowW(className, L"Sedici vrr presentation", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    if (!RegisterClassW(&wc)) {
+        std::printf("vrr: step failed at line %d\n", __LINE__);
+        return false;
+    }
+    HWND window = CreateWindowW(className, L"Sedici vrr presentation", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                                CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) {
+        UnregisterClassW(className, wc.hInstance);
+        return false;
+    }
 
     bool ok = [&] {
         ComPtr<IDXGIFactory5> factory;
-        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
         BOOL tearing = FALSE;
-        const bool canTear = SUCCEEDED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,
-            &tearing, sizeof(tearing))) && tearing;
+        const bool canTear = SUCCEEDED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &tearing,
+                                                                    sizeof(tearing))) &&
+                             tearing;
         DXGI_SWAP_CHAIN_DESC1 desc{};
         desc.Width = 320;
         desc.Height = 180;
@@ -48,13 +57,21 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         // Shaped like the game's chain: tearing allowed, latency waitable.
         desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
-            (canTear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u);
+                     (canTear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u);
         ComPtr<IDXGISwapChain1> created;
-        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
-            nullptr, nullptr, &created))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc, nullptr, nullptr, &created))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
         ComPtr<IDXGISwapChain4> native;
-        if (FAILED(created.As(&native))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-        if (FAILED(native->SetMaximumFrameLatency(1))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(created.As(&native))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
+        if (FAILED(native->SetMaximumFrameLatency(1))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
 
         sedici::fg::PresentChoice choice;
         choice.present = sedici::FrameGenerationSettings::Present::Vrr;
@@ -65,7 +82,10 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
         // Hand the only reference over, as the FFX wrap desc does for the game:
         // "vrr" destroys this chain and recreates it on the present queue.
         created.Reset();
-        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped, &choice, 1))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(sedici::fg::Swapchain::wrap(native.Get(), state.queue.Get(), &wrapped, &choice, 1))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
         native.Detach();
         if (!wrapped->async_present()) {
             std::printf("vrr: presenter did not start\n");
@@ -84,8 +104,8 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             const UINT beforeIndex = wrapped->GetCurrentBackBufferIndex();
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::PresentParametersAllocation);
             const HRESULT first = wrapped->Present1(0, presentFlags, &parameters);
-            const bool reached = !sedici::fg::consume_bookkeeping_fault(
-                sedici::fg::BookkeepingFault::PresentParametersAllocation);
+            const bool reached =
+                !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::PresentParametersAllocation);
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
             if (!reached || first != E_OUTOFMEMORY || calls != 0 ||
                 wrapped->GetCurrentBackBufferIndex() != beforeIndex) {
@@ -110,20 +130,21 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             const HRESULT again = wrapped->Present(0, presentFlags);
             const bool accepted = SUCCEEDED(again) && wrapped->GetCurrentBackBufferIndex() != indexBefore &&
                                   g_debug_errors.load() == 0;
-            std::puts(accepted ? "PASS K105: a refused presenter job leaves ownership unchanged and a retry is accepted"
-                               : "FAIL retry after a refused presenter job");
+            std::puts(accepted
+                          ? "PASS K105: a refused presenter job leaves ownership unchanged and a retry is accepted"
+                          : "FAIL retry after a refused presenter job");
             return accepted;
         }
         if (signalFault || closeFault || resetFault) {
             ComPtr<ID3D12Fence> recoveryGate;
             if (liveRecovery) {
-                if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-                                                     IID_PPV_ARGS(&recoveryGate))) ||
-                    FAILED(state.queue->Wait(recoveryGate.Get(), 1))) return false;
+                if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&recoveryGate))) ||
+                    FAILED(state.queue->Wait(recoveryGate.Get(), 1)))
+                    return false;
             }
-            const auto fault = resetFault ? sedici::fg::BookkeepingFault::GenerationReset
-                             : closeFault ? sedici::fg::BookkeepingFault::GenerationClose
-                                          : sedici::fg::BookkeepingFault::GenerationSignal;
+            const auto fault = resetFault   ? sedici::fg::BookkeepingFault::GenerationReset
+                               : closeFault ? sedici::fg::BookkeepingFault::GenerationClose
+                                            : sedici::fg::BookkeepingFault::GenerationSignal;
             sedici::fg::arm_bookkeeping_fault(fault);
             const HRESULT first = wrapped->Present(0, presentFlags);
             const bool reachedInjection = !sedici::fg::consume_bookkeeping_fault(fault);
@@ -146,8 +167,9 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
                 const auto before = std::chrono::steady_clock::now();
                 auto* finalReference = wrapped.Detach();
                 const ULONG remaining = finalReference->Release();
-                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - before).count();
+                const auto elapsed =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - before)
+                        .count();
                 sedici::fg::arm_queue_recovery_hook(nullptr);
                 recoveryTestGate = nullptr;
                 (void)recoveryGate->Signal(1); // Unblock even if recovery failed.
@@ -186,13 +208,22 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             waitableTicks += waitEnd.QuadPart - waitStart.QuadPart;
             Sleep(frameMs); // 27 ms: ~35 fps real rate, under half of a 75 Hz refresh like the game cap
             ComPtr<ID3D12Resource> buffer;
-            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
                        D3D12_RESOURCE_STATE_COPY_DEST);
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                        D3D12_RESOURCE_STATE_PRESENT);
-            if (!state.submit()) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (!state.submit()) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
             LARGE_INTEGER presentStart{}, presentEnd{};
             QueryPerformanceCounter(&presentStart);
             const HRESULT presentResult = wrapped->Present(0, presentFlags);
@@ -202,7 +233,10 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
                 std::printf("vrr: Present failed at cycle %u hr=0x%08lx\n", cycle, static_cast<unsigned long>(hr));
                 return false;
             }
-            if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) { std::printf("vrr: index\n"); return false; }
+            if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) {
+                std::printf("vrr: index\n");
+                return false;
+            }
             if (cycle == 9) skippedAtTen = wrapped->skipped_generates();
         }
         QueryPerformanceCounter(&loopEnd);
@@ -214,17 +248,21 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             return false;
         }
         UINT presented = 0;
-        if (FAILED(wrapped->GetLastPresentCount(&presented))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+        if (FAILED(wrapped->GetLastPresentCount(&presented))) {
+            std::printf("vrr: step failed at line %d\n", __LINE__);
+            return false;
+        }
         const uint64_t shown = wrapped->generated_presents();
         const uint64_t skipped = wrapped->skipped_generates();
-        std::printf("vrr presentation %s: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n", label,
-                    calls, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(skipped),
-                    presented, canTear ? "yes" : "no");
+        std::printf(
+            "vrr presentation %s: %u recordings, %llu shown, %llu skipped, %u native presents, tearing=%s\n", label,
+            calls, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(skipped), presented,
+            canTear ? "yes" : "no");
         const double toMs = 1000.0 / static_cast<double>(frequency.QuadPart) / cycles;
         std::printf("vrr: skipped in the first 10 cycles: %llu, game loop %.2f ms per frame (sleep %lu, "
                     "latency waitable %.2f ms, Present %.2f ms)\n",
-                    static_cast<unsigned long long>(skippedAtTen), perFrameMs, frameMs,
-                    waitableTicks * toMs, presentTicks * toMs);
+                    static_cast<unsigned long long>(skippedAtTen), perFrameMs, frameMs, waitableTicks * toMs,
+                    presentTicks * toMs);
         // Time the test game spent inside Sedici per frame. The loop time itself is
         // dominated by Sleep's 15.6 ms granularity (Sleep(21) and Sleep(27) both
         // take ~31 ms), so it says nothing about blocking.
@@ -236,18 +274,29 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             const UINT planned = 1 + (cycles - 1) * 3 / 2;
             DEVMODEW mode{};
             mode.dmSize = sizeof(mode);
-            const double refreshMs = EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) &&
-                mode.dmDisplayFrequency > 1 ? 1000.0 / mode.dmDisplayFrequency : 1000.0 / 60.0;
+            const double refreshMs =
+                EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1
+                    ? 1000.0 / mode.dmDisplayFrequency
+                    : 1000.0 / 60.0;
             const double panelPace = 1.5 * refreshMs; // 1.5 flips per real frame
             if (sediciMs > panelPace) {
-                std::printf("vrr: game waited %.2f ms per frame in Sedici (panel pace %.2f ms)\n",
-                            sediciMs, panelPace);
+                std::printf("vrr: game waited %.2f ms per frame in Sedici (panel pace %.2f ms)\n", sediciMs,
+                            panelPace);
                 return false;
             }
-            if (presented > planned) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (presented > planned) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
         } else if (doubled) {
-            if (calls != cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
-            if (shown + skipped != cycles - 1) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (calls != cycles) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
+            if (shown + skipped != cycles - 1) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
             // Every real frame plus every shown midpoint, less at most two outputs
             // the presenter dropped because a later one was already due (timing
             // dependent; seen once under CTest). Never more than planned.
@@ -272,12 +321,18 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
             // 1.5x: 3 outputs per 2 real frames after the first, two of them
             // generated. Allow a few start-up drops, never more than planned.
             const UINT planned = 1 + (cycles - 1) * 3 / 2;
-            if (calls < cycles) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (calls < cycles) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
             if (presented > planned || presented + 6 < planned) {
                 std::printf("vrr: step failed at line %d (presented %u of %u)\n", __LINE__, presented, planned);
                 return false;
             }
-            if (shown + 4 < (planned - 1) * 2 / 3) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (shown + 4 < (planned - 1) * 2 / 3) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
         }
         // No flip may follow the previous one within 2 ms (finding 009: the
         // scan-line guard opened before the previous flip had latched).
@@ -287,7 +342,10 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
         }
         // Presentation continues after the resize, still from the presenter.
         for (UINT cycle = 0; cycle < 3; ++cycle) {
-            if (FAILED(wrapped->Present(0, presentFlags))) { std::printf("vrr: step failed at line %d\n", __LINE__); return false; }
+            if (FAILED(wrapped->Present(0, presentFlags))) {
+                std::printf("vrr: step failed at line %d\n", __LINE__);
+                return false;
+            }
         }
         wrapped->set_generator(sedici::fg::GenerateSink{});
         return true;
@@ -296,9 +354,9 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
     std::printf("%s vrr presentation %s: %s\n", ok ? "PASS" : "FAIL", label,
-                paramsFault ? "parameter allocation failure and retry" :
-                (signalFault || closeFault || resetFault) ? "injected failure stops admission" :
-                "presenter thread, queue, resize, teardown");
+                paramsFault                                 ? "parameter allocation failure and retry"
+                : (signalFault || closeFault || resetFault) ? "injected failure stops admission"
+                                                            : "presenter thread, queue, resize, teardown");
     return ok;
 }
 
@@ -313,9 +371,12 @@ bool check_generated_window(Device& state, bool* knownSignature)
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = className;
     if (!RegisterClassW(&wc)) return false;
-    HWND window = CreateWindowW(className, L"Sedici generated presentation", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    HWND window = CreateWindowW(className, L"Sedici generated presentation", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                                CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) {
+        UnregisterClassW(className, wc.hInstance);
+        return false;
+    }
 
     bool ok = [&] {
         ComPtr<IDXGIFactory4> factory;
@@ -329,8 +390,8 @@ bool check_generated_window(Device& state, bool* knownSignature)
         desc.BufferCount = 3;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         ComPtr<IDXGISwapChain1> created;
-        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
-            nullptr, nullptr, &created))) return false;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc, nullptr, nullptr, &created)))
+            return false;
         ComPtr<IDXGISwapChain4> native;
         if (FAILED(created.As(&native))) return false;
         ComPtr<sedici::fg::Swapchain> wrapped;
@@ -355,8 +416,10 @@ bool check_generated_window(Device& state, bool* knownSignature)
                 DispatchMessageW(&msg);
             }
             ComPtr<ID3D12Resource> buffer;
-            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer)))) return false;
-            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(wrapped->GetBuffer(wrapped->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&buffer))))
+                return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
                        D3D12_RESOURCE_STATE_COPY_DEST);
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -366,8 +429,7 @@ bool check_generated_window(Device& state, bool* knownSignature)
             if (wrapped->GetCurrentBackBufferIndex() != (cycle + 1) % 3) return false;
         }
 
-        std::printf("generated presentation: %u recordings, %llu shown, %llu skipped\n",
-                    generator.calls,
+        std::printf("generated presentation: %u recordings, %llu shown, %llu skipped\n", generator.calls,
                     static_cast<unsigned long long>(wrapped->generated_presents()),
                     static_cast<unsigned long long>(wrapped->skipped_generates()));
         if (generator.calls != cycles) return false;
@@ -414,10 +476,8 @@ void pause_context_record() noexcept
     (void)WaitForSingleObject(contextRecordResume, 5000);
 }
 
-bool check_session_window(Device& state, bool loseDevice, bool signalFault,
-                          bool closeFault, bool resetFault,
-                          bool contextRace, bool sessionRecovery,
-                          bool registrationFault, bool* knownSignature)
+bool check_session_window(Device& state, bool loseDevice, bool signalFault, bool closeFault, bool resetFault,
+                          bool contextRace, bool sessionRecovery, bool registrationFault, bool* knownSignature)
 {
     if (knownSignature) *knownSignature = false;
     const wchar_t* className = L"SediciFgSession";
@@ -426,9 +486,12 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = className;
     if (!RegisterClassW(&wc)) return false;
-    HWND window = CreateWindowW(className, L"Sedici session", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    HWND window = CreateWindowW(className, L"Sedici session", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) {
+        UnregisterClassW(className, wc.hInstance);
+        return false;
+    }
 
     bool ok = [&] {
         ComPtr<IDXGIFactory4> factory;
@@ -442,8 +505,8 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         desc.BufferCount = 3;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         ComPtr<IDXGISwapChain1> created;
-        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
-            nullptr, nullptr, &created))) return false;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc, nullptr, nullptr, &created)))
+            return false;
         ComPtr<IDXGISwapChain4> native;
         if (FAILED(created.As(&native))) return false;
 
@@ -470,8 +533,9 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         create.displaySize = {kDisplayWidth, kDisplayHeight};
         create.maxRenderSize = {kRenderWidth, kRenderHeight};
         create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
-        if (session.state() != sedici::fg::SessionState::Empty ||
-            session.configure(&create.header) || session.prepare(&create.header)) return false; // refused before create
+        if (session.state() != sedici::fg::SessionState::Empty || session.configure(&create.header) ||
+            session.prepare(&create.header))
+            return false; // refused before create
         if (!session.create(&create.header)) {
             std::printf("session: create failed: %s\n", session.context().last_error());
             return false;
@@ -480,26 +544,24 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         ffxConfigureDescFrameGeneration stateProbe{};
         stateProbe.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         stateProbe.frameGenerationEnabled = true;
-        if (!session.configure(&stateProbe.header) ||
-            session.state() != sedici::fg::SessionState::Degraded) return false;
+        if (!session.configure(&stateProbe.header) || session.state() != sedici::fg::SessionState::Degraded)
+            return false;
         stateProbe.frameGenerationEnabled = false;
-        if (!session.configure(&stateProbe.header) ||
-            session.state() != sedici::fg::SessionState::Suspended) return false;
+        if (!session.configure(&stateProbe.header) || session.state() != sedici::fg::SessionState::Suspended)
+            return false;
 
         // Five consecutive moving frames, not repeating/resetting one pair.
         constexpr uint32_t cycles = 5;
         FrameTextures frames[cycles];
         for (uint32_t index = 0; index < cycles; ++index) {
-            const auto display = make_scene(kScenes[0], static_cast<float>(index),
-                                            kDisplayWidth, kDisplayHeight);
-            const auto render = make_scene(kScenes[0], static_cast<float>(index),
-                                           kRenderWidth, kRenderHeight);
-            frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM,
-                                                 kDisplayWidth, kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
-            frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT,
-                                                 kRenderWidth, kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
-            frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT,
-                                                  kRenderWidth, kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
+            const auto display = make_scene(kScenes[0], static_cast<float>(index), kDisplayWidth, kDisplayHeight);
+            const auto render = make_scene(kScenes[0], static_cast<float>(index), kRenderWidth, kRenderHeight);
+            frames[index].color = create_texture(state.device.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, kDisplayWidth,
+                                                 kDisplayHeight, D3D12_RESOURCE_FLAG_NONE);
+            frames[index].depth = create_texture(state.device.Get(), DXGI_FORMAT_R32_FLOAT, kRenderWidth,
+                                                 kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
+            frames[index].motion = create_texture(state.device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, kRenderWidth,
+                                                  kRenderHeight, D3D12_RESOURCE_FLAG_NONE);
             if (!frames[index].color || !frames[index].depth || !frames[index].motion) return false;
 
             const auto colorBytes = quantise(display.color);
@@ -516,8 +578,8 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                                                D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
             if (!colorStaging || !depthStaging || !motionStaging) return false;
 
-            if (FAILED(state.allocator->Reset()) ||
-                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
             upload(state.list.Get(), frames[index].color.Get(), colorStaging.Get(), colorBytes.data(),
                    kDisplayWidth, kDisplayHeight, 4);
             upload(state.list.Get(), frames[index].depth.Get(), depthStaging.Get(), render.depth.data(),
@@ -528,8 +590,8 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         }
 
         const uint32_t hudPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
-        auto hudUpload = create_buffer(state.device.Get(), hudPitch * 8,
-            D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+        auto hudUpload = create_buffer(state.device.Get(), hudPitch * 8, D3D12_HEAP_TYPE_UPLOAD,
+                                       D3D12_RESOURCE_STATE_GENERIC_READ);
         if (!hudUpload) return false;
         ShowWindow(window, SW_SHOWNOACTIVATE);
         for (uint32_t cycle = 0; cycle < cycles; ++cycle) {
@@ -539,15 +601,15 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                 DispatchMessageW(&msg);
             }
             const uint32_t source = cycle;
-            if (FAILED(state.allocator->Reset()) ||
-                FAILED(state.list->Reset(state.allocator.Get(), nullptr))) return false;
+            if (FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(), nullptr)))
+                return false;
 
             ffxConfigureDescFrameGeneration configure{};
             configure.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
             configure.frameGenerationEnabled = true;
             configure.swapChain = handle.swapchain();
-            configure.HUDLessColor = ffxApiGetResourceDX12(frames[source].color.Get(),
-                                                           FFX_API_RESOURCE_STATE_COMMON);
+            configure.HUDLessColor =
+                ffxApiGetResourceDX12(frames[source].color.Get(), FFX_API_RESOURCE_STATE_COMMON);
             configure.frameID = cycle;
 
             ffxDispatchDescFrameGenerationPrepare prepare{};
@@ -555,12 +617,10 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
             prepare.frameID = cycle;
             prepare.commandList = state.list.Get();
             prepare.renderSize = {kRenderWidth, kRenderHeight};
-            prepare.motionVectorScale = {static_cast<float>(kRenderWidth),
-                                         static_cast<float>(kRenderHeight)};
-            prepare.depth = ffxApiGetResourceDX12(frames[source].depth.Get(),
-                                                  FFX_API_RESOURCE_STATE_COMMON);
-            prepare.motionVectors = ffxApiGetResourceDX12(frames[source].motion.Get(),
-                                                          FFX_API_RESOURCE_STATE_COMMON);
+            prepare.motionVectorScale = {static_cast<float>(kRenderWidth), static_cast<float>(kRenderHeight)};
+            prepare.depth = ffxApiGetResourceDX12(frames[source].depth.Get(), FFX_API_RESOURCE_STATE_COMMON);
+            prepare.motionVectors =
+                ffxApiGetResourceDX12(frames[source].motion.Get(), FFX_API_RESOURCE_STATE_COMMON);
             prepare.unused_reset = source == 0;
             if (!session.configure(&configure.header)) {
                 std::printf("session: configure failed: %s\n", session.context().last_error());
@@ -575,7 +635,8 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
             // Stand in for the game's own rendering of this frame.
             ComPtr<ID3D12Resource> buffer;
             if (FAILED(handle.swapchain()->GetBuffer(handle.swapchain()->GetCurrentBackBufferIndex(),
-                                                     IID_PPV_ARGS(&buffer)))) return false;
+                                                     IID_PPV_ARGS(&buffer))))
+                return false;
             transition(state.list.Get(), frames[source].color.Get(), D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_COPY_SOURCE);
             transition(state.list.Get(), buffer.Get(), D3D12_RESOURCE_STATE_PRESENT,
@@ -674,15 +735,16 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
 
             ComPtr<ID3D12Fence> sessionRecoveryGate;
             if (sessionRecovery && cycle == 0) {
-                if (FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
-                                                     IID_PPV_ARGS(&sessionRecoveryGate))) ||
-                    FAILED(state.queue->Wait(sessionRecoveryGate.Get(), 1))) return false;
+                if (FAILED(
+                        state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&sessionRecoveryGate))) ||
+                    FAILED(state.queue->Wait(sessionRecoveryGate.Get(), 1)))
+                    return false;
             }
             const UINT firstNative = native->GetCurrentBackBufferIndex();
             const auto fault = registrationFault ? sedici::fg::BookkeepingFault::SubmissionRegistration
-                             : resetFault ? sedici::fg::BookkeepingFault::GenerationReset
-                             : closeFault ? sedici::fg::BookkeepingFault::GenerationClose
-                                          : sedici::fg::BookkeepingFault::GenerationSignal;
+                               : resetFault      ? sedici::fg::BookkeepingFault::GenerationReset
+                               : closeFault      ? sedici::fg::BookkeepingFault::GenerationClose
+                                                 : sedici::fg::BookkeepingFault::GenerationSignal;
             if ((signalFault || closeFault || resetFault || sessionRecovery) && cycle == 0)
                 sedici::fg::arm_bookkeeping_fault(fault);
             const HRESULT presentResult = handle.swapchain()->Present(1, 0);
@@ -711,13 +773,14 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                     const auto probeStart = std::chrono::steady_clock::now();
                     (void)session.ready();
                     const auto probeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - probeStart).count();
+                                             std::chrono::steady_clock::now() - probeStart)
+                                             .count();
                     destroying.join();
                     const bool lockFree = probeMs < 60;
                     std::printf("%s K104: a context call during the destroy wait is not blocked (%lld ms)%c",
                                 lockFree ? "PASS" : "FAIL", static_cast<long long>(probeMs), 10);
-                    const bool firstDestroyRefused = lockFree && destroyRefused &&
-                        session.state() == sedici::fg::SessionState::Draining;
+                    const bool firstDestroyRefused =
+                        lockFree && destroyRefused && session.state() == sedici::fg::SessionState::Draining;
                     recoveryTestGate = sessionRecoveryGate.Get();
                     recoveryTestReleased = false;
                     const unsigned retainedBefore = sedici::fg::swapchain_retention_count();
@@ -725,16 +788,18 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                     const auto before = std::chrono::steady_clock::now();
                     handle.destroy();
                     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - before).count();
+                                             std::chrono::steady_clock::now() - before)
+                                             .count();
                     sedici::fg::arm_queue_recovery_hook(nullptr);
                     recoveryTestGate = nullptr;
                     (void)sessionRecoveryGate->Signal(1);
                     const bool retired = session.retired();
                     const bool destroyed = session.destroy();
-                    const bool recovered = firstDestroyRefused && recoveryTestReleased.load() &&
-                        elapsed < 3000 && sedici::fg::swapchain_retention_count() == retainedBefore &&
-                        retired && destroyed && session.state() == sedici::fg::SessionState::Stopped &&
-                        SUCCEEDED(state.device->GetDeviceRemovedReason()) && g_debug_errors.load() == 0;
+                    const bool recovered = firstDestroyRefused && recoveryTestReleased.load() && elapsed < 3000 &&
+                                           sedici::fg::swapchain_retention_count() == retainedBefore && retired &&
+                                           destroyed && session.state() == sedici::fg::SessionState::Stopped &&
+                                           SUCCEEDED(state.device->GetDeviceRemovedReason()) &&
+                                           g_debug_errors.load() == 0;
                     std::puts(recovered ? "PASS session retires after a replacement queue fence"
                                         : "FAIL session retirement after signal failure");
                     return recovered;
@@ -755,7 +820,7 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
             std::printf("session: cycle %u generated %llu shown %llu skipped %llu\n", cycle,
                         static_cast<unsigned long long>(session.context().frames_generated()),
                         static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
-                         static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
+                        static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
 
             if (loseDevice && cycle == 1) {
                 // P2.5 device loss after generation; this does not claim that
@@ -768,7 +833,8 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                 }
                 device5->RemoveDevice();
                 if (session.state() != sedici::fg::SessionState::DeviceLost || session.ready() ||
-                    session.configure(&configure.header) || session.prepare(&prepare.header)) return false;
+                    session.configure(&configure.header) || session.prepare(&prepare.header))
+                    return false;
                 const HRESULT afterLoss = handle.swapchain()->Present(1, 0);
                 std::printf("session: present after device removal -> 0x%08lx\n",
                             static_cast<unsigned long>(afterLoss));
@@ -781,10 +847,10 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                 }
                 if (session.state() != sedici::fg::SessionState::Stopped) return false;
                 handle.destroy();
-                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - begin).count();
-                std::printf("session: teardown after device removal took %lld ms\n",
-                            static_cast<long long>(ms));
+                const auto ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin)
+                        .count();
+                std::printf("session: teardown after device removal took %lld ms\n", static_cast<long long>(ms));
                 return ms < 3000;
             }
 
@@ -793,14 +859,13 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
             // area from the scene comparison, but verify the HUD label below it.
             for (UINT image = 0; image < (cycle ? 2u : 1u); ++image) {
                 ComPtr<ID3D12Resource> presented;
-                if (FAILED(native->GetBuffer((firstNative + image) % desc.BufferCount,
-                                             IID_PPV_ARGS(&presented)))) return false;
+                if (FAILED(native->GetBuffer((firstNative + image) % desc.BufferCount, IID_PPV_ARGS(&presented))))
+                    return false;
                 const auto actual = read_presented(state, presented.Get());
                 if (actual.empty()) return false;
                 const bool midpoint = cycle && image == 0;
                 const float time = static_cast<float>(cycle) - (midpoint ? 0.5f : 0.0f);
-                const auto expected = quantise(make_scene(kScenes[0], time,
-                                                          kDisplayWidth, kDisplayHeight).color);
+                const auto expected = quantise(make_scene(kScenes[0], time, kDisplayWidth, kDisplayHeight).color);
                 std::vector<uint8_t> sceneActual, sceneExpected;
                 for (uint32_t y = 80; y < kDisplayHeight - 16; ++y) {
                     const size_t begin = (static_cast<size_t>(y) * kDisplayWidth + 160) * 4;
@@ -812,14 +877,12 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
                 const size_t label = (static_cast<size_t>(kDisplayHeight - 4) * kDisplayWidth + 4) * 4;
                 const int red = static_cast<int>(std::lround(marker[0] * 255.0f));
                 const bool matchingHud = std::abs(static_cast<int>(actual[label]) - red) <= 1 &&
-                    actual[label + 1] == 255 && actual[label + 2] == 0;
+                                         actual[label + 1] == 255 && actual[label + 2] == 0;
                 std::printf("session: frame %u %s time=%.1f psnr=%.2f HUD=%s\n", cycle,
-                    midpoint ? "midpoint" : "real", time, score, matchingHud ? "current" : "WRONG");
+                            midpoint ? "midpoint" : "real", time, score, matchingHud ? "current" : "WRONG");
                 if (!matchingHud || (midpoint ? score < 35.0 : sceneActual != sceneExpected)) {
-                    if (knownSignature && cycle == 2 && midpoint && matchingHud &&
-                        score >= 15.5 && score <= 16.5 &&
-                        handle.wrapper()->generated_presents() == 1 &&
-                        handle.wrapper()->skipped_generates() == 1)
+                    if (knownSignature && cycle == 2 && midpoint && matchingHud && score >= 15.5 && score <= 16.5 &&
+                        handle.wrapper()->generated_presents() == 1 && handle.wrapper()->skipped_generates() == 1)
                         *knownSignature = true;
                     return false;
                 }
@@ -834,8 +897,7 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         }
         if (handle.wrapper()->generated_presents() != cycles - 1) {
             std::printf("session: presented %llu of %u, skipped %llu\n",
-                        static_cast<unsigned long long>(handle.wrapper()->generated_presents()),
-                        cycles - 1,
+                        static_cast<unsigned long long>(handle.wrapper()->generated_presents()), cycles - 1,
                         static_cast<unsigned long long>(handle.wrapper()->skipped_generates()));
             return false;
         }
@@ -859,7 +921,7 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
         if (FAILED(handle.swapchain()->Present(1, 0))) return false;
         if (handle.wrapper()->generated_presents() != cycles - 1) return false;
         if (session.configure(&off.header) || session.prepare(&off.header)) return false; // refused after stop
-        if (!session.destroy()) return false; // idempotent
+        if (!session.destroy()) return false;                                             // idempotent
         handle.destroy();
         return true;
     }();
@@ -867,12 +929,12 @@ bool check_session_window(Device& state, bool loseDevice, bool signalFault,
     DestroyWindow(window);
     UnregisterClassW(className, wc.hInstance);
     std::printf("%s session: %s\n", ok ? "PASS" : "FAIL",
-                contextRace ? "context callback synchronization" :
-                sessionRecovery ? "session retirement recovery" :
-                (signalFault || closeFault || resetFault) ? "injected failure stops admission" :
-                "describe, prepare, generate and present through the wrapper");
+                contextRace       ? "context callback synchronization"
+                : sessionRecovery ? "session retirement recovery"
+                : (signalFault || closeFault || resetFault)
+                    ? "injected failure stops admission"
+                    : "describe, prepare, generate and present through the wrapper");
     return ok;
 }
-
 
 } // namespace fgcheck

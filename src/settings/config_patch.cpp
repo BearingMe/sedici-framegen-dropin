@@ -122,9 +122,7 @@ std::string section_name(std::string_view line)
 bool replace_key(Line& line, std::string_view key, std::string_view value)
 {
     const size_t comment = find_comment(line.text);
-    const std::string_view code(line.text.data(), comment == std::string::npos
-                                                    ? line.text.size()
-                                                    : comment);
+    const std::string_view code(line.text.data(), comment == std::string::npos ? line.text.size() : comment);
     const size_t equals = code.find('=');
     if (equals == std::string_view::npos) return false;
     if (trim(code.substr(0, equals)) != key) return false;
@@ -144,8 +142,7 @@ bool replace_key(Line& line, std::string_view key, std::string_view value)
     }
 
     size_t value_end = code.size();
-    while (value_end > value_start &&
-           (code[value_end - 1] == ' ' || code[value_end - 1] == '\t')) {
+    while (value_end > value_start && (code[value_end - 1] == ' ' || code[value_end - 1] == '\t')) {
         --value_end;
     }
 
@@ -158,8 +155,7 @@ bool replace_key(Line& line, std::string_view key, std::string_view value)
     return true;
 }
 
-bool find_section(const std::vector<Line>& lines, std::string_view name, size_t& begin,
-                  size_t& end)
+bool find_section(const std::vector<Line>& lines, std::string_view name, size_t& begin, size_t& end)
 {
     begin = lines.size();
     end = lines.size();
@@ -168,8 +164,8 @@ bool find_section(const std::vector<Line>& lines, std::string_view name, size_t&
             begin = i;
             end = lines.size();
             for (size_t j = i + 1; j < lines.size(); ++j) {
-                const std::string code = trim(std::string_view(lines[j].text).substr(
-                    0, find_comment(lines[j].text)));
+                const std::string code =
+                    trim(std::string_view(lines[j].text).substr(0, find_comment(lines[j].text)));
                 if (!code.empty() && code.front() == '[') {
                     end = j;
                     break;
@@ -181,8 +177,8 @@ bool find_section(const std::vector<Line>& lines, std::string_view name, size_t&
     return false;
 }
 
-void apply_value(std::vector<Line>& lines, std::string_view section, std::string_view key,
-                 std::string_view value, const std::string& eol)
+void apply_value(std::vector<Line>& lines, std::string_view section, std::string_view key, std::string_view value,
+                 const std::string& eol)
 {
     size_t begin = 0;
     size_t end = 0;
@@ -222,10 +218,12 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
     try {
         struct FileGuard {
             HANDLE value = INVALID_HANDLE_VALUE;
-            ~FileGuard() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+            ~FileGuard()
+            {
+                if (value != INVALID_HANDLE_VALUE) CloseHandle(value);
+            }
         } file;
-        file.value = CreateFileW(path.c_str(), GENERIC_READ,
-                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        file.value = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                  nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (file.value == INVALID_HANDLE_VALUE) {
             const DWORD error = GetLastError();
@@ -234,22 +232,29 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
         }
         BY_HANDLE_FILE_INFORMATION before{}, after{};
         if (!GetFileInformationByHandle(file.value, &before) ||
-            (before.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return stamp;
+            (before.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            return stamp;
 
         struct AlgorithmGuard {
             BCRYPT_ALG_HANDLE value = nullptr;
-            ~AlgorithmGuard() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+            ~AlgorithmGuard()
+            {
+                if (value) BCryptCloseAlgorithmProvider(value, 0);
+            }
         } algorithm;
-        if (BCryptOpenAlgorithmProvider(&algorithm.value, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0)
-            return stamp;
+        if (BCryptOpenAlgorithmProvider(&algorithm.value, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return stamp;
         DWORD objectBytes = 0, received = 0;
-        if (BCryptGetProperty(algorithm.value, BCRYPT_OBJECT_LENGTH,
-                              reinterpret_cast<PUCHAR>(&objectBytes), sizeof(objectBytes), &received, 0) < 0 ||
-            received != sizeof(objectBytes) || objectBytes == 0) return stamp;
+        if (BCryptGetProperty(algorithm.value, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectBytes),
+                              sizeof(objectBytes), &received, 0) < 0 ||
+            received != sizeof(objectBytes) || objectBytes == 0)
+            return stamp;
         std::vector<unsigned char> object(objectBytes);
         struct HashGuard {
             BCRYPT_HASH_HANDLE value = nullptr;
-            ~HashGuard() { if (value) BCryptDestroyHash(value); }
+            ~HashGuard()
+            {
+                if (value) BCryptDestroyHash(value);
+            }
         } hash;
         if (BCryptCreateHash(algorithm.value, &hash.value, object.data(), objectBytes, nullptr, 0, 0) < 0)
             return stamp;
@@ -262,9 +267,9 @@ ConfigFileStamp config_file_stamp(const std::filesystem::path& path) noexcept
             if (BCryptHashData(hash.value, buffer, count, 0) < 0) return stamp;
             total += count;
         }
-        if (BCryptFinishHash(hash.value, stamp.sha256.data(),
-                             static_cast<ULONG>(stamp.sha256.size()), 0) < 0 ||
-            !GetFileInformationByHandle(file.value, &after)) return ConfigFileStamp{};
+        if (BCryptFinishHash(hash.value, stamp.sha256.data(), static_cast<ULONG>(stamp.sha256.size()), 0) < 0 ||
+            !GetFileInformationByHandle(file.value, &after))
+            return ConfigFileStamp{};
         const uint64_t size = (static_cast<uint64_t>(before.nFileSizeHigh) << 32) | before.nFileSizeLow;
         if (total != size || before.nFileSizeHigh != after.nFileSizeHigh ||
             before.nFileSizeLow != after.nFileSizeLow ||
@@ -304,9 +309,8 @@ void config_arm_before_swap_hook(ConfigBeforeReplaceHook hook) noexcept
     g_before_swap_hook.store(hook, std::memory_order_release);
 }
 
-bool config_save(const std::filesystem::path& path, const ConfigValues& values,
-                 std::string& error, const ConfigFileStamp* expectedStamp, bool* conflict,
-                 ConfigFileStamp* writtenStamp)
+bool config_save(const std::filesystem::path& path, const ConfigValues& values, std::string& error,
+                 const ConfigFileStamp* expectedStamp, bool* conflict, ConfigFileStamp* writtenStamp)
 {
     if (conflict) *conflict = false;
     try {
@@ -353,7 +357,8 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
                 const std::string number = format_number(values.target_fps);
                 if (number.find('.') == std::string::npos)
                     expect("fg", "target_fps", static_cast<int64_t>(std::stoll(number)));
-                else expect("fg", "target_fps", parse_number(number));
+                else
+                    expect("fg", "target_fps", parse_number(number));
             }
         }
         if (values.write_log) {
@@ -366,14 +371,15 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
         }
         if (values.write_ui_scale) {
             apply_value(lines, "ui", "scale",
-                        values.ui_scale_auto ? quoted("auto") : format_number(values.ui_scale),
-                         eol);
-            if (values.ui_scale_auto) expect("ui", "scale", "auto");
+                        values.ui_scale_auto ? quoted("auto") : format_number(values.ui_scale), eol);
+            if (values.ui_scale_auto)
+                expect("ui", "scale", "auto");
             else {
                 const std::string number = format_number(values.ui_scale);
                 if (number.find('.') == std::string::npos)
                     expect("ui", "scale", static_cast<int64_t>(std::stoll(number)));
-                else expect("ui", "scale", parse_number(number));
+                else
+                    expect("ui", "scale", parse_number(number));
             }
         }
 
@@ -393,8 +399,8 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             temporary = path;
             temporary += L".sedici-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                          std::to_wstring(sequence.fetch_add(1, std::memory_order_relaxed)) + L".tmp";
-            file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
+            file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL,
+                               nullptr);
             if (file != INVALID_HANDLE_VALUE) break;
             if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) break;
         }
@@ -452,8 +458,8 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             displaced = temporary;
             displaced += L".prev";
             swapped = ReplaceFileW(path.c_str(), temporary.c_str(), displaced.c_str(),
-                                   REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS,
-                                   nullptr, nullptr) != 0;
+                                   REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, nullptr,
+                                   nullptr) != 0;
         }
         if (!swapped) {
             const DWORD replaceError = initial.exists ? GetLastError() : ERROR_FILE_NOT_FOUND;
@@ -464,8 +470,7 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values,
             }
             // No file to displace (created or removed meanwhile): plain move.
             displaced.clear();
-            if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
                 error = "could not replace sedici.toml (error " + std::to_string(GetLastError()) + ")";
                 DeleteFileW(temporary.c_str());
                 return false;

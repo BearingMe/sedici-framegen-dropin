@@ -73,8 +73,7 @@ int main(int argc, char** argv)
     }
 
     Device state;
-    if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0,
-                                 IID_PPV_ARGS(&state.device)))) {
+    if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&state.device)))) {
         std::fprintf(stderr, "no D3D12 device\n");
         return 1;
     }
@@ -82,15 +81,16 @@ int main(int argc, char** argv)
     DWORD callbackCookie = 0;
     if (SUCCEEDED(state.device.As(&messages))) {
         const HRESULT registered = messages->RegisterMessageCallback(
-            [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
-               D3D12_MESSAGE_ID, LPCSTR description, void*) {
+            [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity, D3D12_MESSAGE_ID, LPCSTR description,
+               void*) {
                 if (severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
                     ++g_debug_errors;
                     std::fputs("DX12 error: ", stderr);
                     std::fputs(description, stderr);
                     std::fputc(10, stderr);
                 }
-            }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &callbackCookie);
+            },
+            D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &callbackCookie);
         g_debug_callback_installed = SUCCEEDED(registered);
     }
 
@@ -98,10 +98,9 @@ int main(int argc, char** argv)
     queueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
     if (FAILED(state.device->CreateCommandQueue(&queueDescription, IID_PPV_ARGS(&state.queue))) ||
-        FAILED(state.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                    IID_PPV_ARGS(&state.allocator))) ||
-        FAILED(state.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                               state.allocator.Get(), nullptr,
+        FAILED(
+            state.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&state.allocator))) ||
+        FAILED(state.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, state.allocator.Get(), nullptr,
                                                IID_PPV_ARGS(&state.list))) ||
         FAILED(state.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&state.fence)))) {
         std::fprintf(stderr, "command objects failed\n");
@@ -109,12 +108,15 @@ int main(int argc, char** argv)
     }
     state.list->Close();
 
-    std::printf("display %ux%u, render %ux%u, alpha 0.5, %u iterations\n",
-                kDisplayWidth, kDisplayHeight, kRenderWidth, kRenderHeight, kIterations);
+    std::printf("display %ux%u, render %ux%u, alpha 0.5, %u iterations\n", kDisplayWidth, kDisplayHeight,
+                kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
-    if (retention) return (check_retention_timeout(state) && check_presenter_retention(state) &&
-                       check_consecutive_retention(state)) ? 0 : 1;
+    if (retention)
+        return (check_retention_timeout(state) && check_presenter_retention(state) &&
+                check_consecutive_retention(state))
+                   ? 0
+                   : 1;
     if (contextRace) return check_session_window(state, false, false, false, false, true) ? 0 : 1;
     if (sessionRecovery || registrationRecovery)
         return check_session_window(state, false, false, false, false, false, true, registrationRecovery) ? 0 : 1;
@@ -126,9 +128,11 @@ int main(int argc, char** argv)
             std::puts("SKIP VRR submission fault: device removal or VRR unavailable");
             return 77;
         }
-        return check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2,
-                                "submission fault", 27, signalFaultVrr || recoveryVrr,
-                                closeFaultVrr, resetFaultVrr, recoveryVrr, paramsFaultVrr) ? 0 : 1;
+        return check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "submission fault", 27,
+                                signalFaultVrr || recoveryVrr, closeFaultVrr, resetFaultVrr, recoveryVrr,
+                                paramsFaultVrr)
+                   ? 0
+                   : 1;
     }
     if (signalFault || closeFault || resetFault) {
         ComPtr<ID3D12Device5> removable;
@@ -159,14 +163,14 @@ int main(int argc, char** argv)
     if (contractFailures != 0) ok = false;
     {
         std::string why;
-        auto presenter = sedici::fg::Presenter::create(
-            state.device.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
+        auto presenter =
+            sedici::fg::Presenter::create(state.device.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
         bool rejected = false;
         if (presenter) {
             presenter->request_stop();
             sedici::fg::PresentJob job;
-            rejected = presenter->submit(std::move(job)) == DXGI_ERROR_INVALID_CALL &&
-                       presenter->outstanding() == 0;
+            rejected =
+                presenter->submit(std::move(job)) == DXGI_ERROR_INVALID_CALL && presenter->outstanding() == 0;
         }
         std::printf("%s presenter refuses a job after stop without advancing its queue\n",
                     rejected ? "PASS" : "FAIL");
@@ -182,8 +186,8 @@ int main(int argc, char** argv)
         size_t during = 0;
         if (haveFresh) {
             std::string why;
-            auto presenter = sedici::fg::Presenter::create(
-                fresh.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
+            auto presenter =
+                sedici::fg::Presenter::create(fresh.Get(), sedici::FrameGenerationSettings::TearGuard::Off, why);
             if (!presenter) std::puts("NOTE presenter unavailable; present queue release not checked");
             during = sedici::fg::shared_present_queue_count();
         }
@@ -194,7 +198,8 @@ int main(int argc, char** argv)
             std::puts("NOTE RTSS is loaded: the present queue is kept on purpose, release not checked");
         } else {
             const bool released = during == before + 1 && after == before;
-            std::printf("%s present queue released with its last presenter (queues %zu before, %zu with a presenter, %zu after)\n",
+            std::printf("%s present queue released with its last presenter (queues %zu before, %zu with a "
+                        "presenter, %zu after)\n",
                         released ? "PASS" : "FAIL", before, during, after);
             ok = released && ok;
         }
@@ -224,11 +229,14 @@ int main(int argc, char** argv)
         bool generatedKnown = false;
         const bool generatedPass = check_generated_window(state, &generatedKnown);
         ok = knownFailure(generatedPass, generatedKnown, "generated presentation",
-                          "vsync path skips 3 of 5 midpoints; finding 009") && ok;
+                          "vsync path skips 3 of 5 midpoints; finding 009") &&
+             ok;
         bool sessionKnown = false;
-        const bool sessionPass = check_session_window(state, false, false, false, false, false, false, false, &sessionKnown);
+        const bool sessionPass =
+            check_session_window(state, false, false, false, false, false, false, false, &sessionKnown);
         ok = knownFailure(sessionPass, sessionKnown, "session",
-                          "vsync path frame 2 midpoint reads back at 16 dB; finding 009") && ok;
+                          "vsync path frame 2 midpoint reads back at 16 dB; finding 009") &&
+             ok;
     }
     if (routing) ok = check_routing(state) && check_routing(state, true) && ok;
     if (routing) ok = check_routing_faults(state) && ok;
@@ -236,14 +244,17 @@ int main(int argc, char** argv)
     // recent swapchain, so the present queue would leak into later checks.
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x") && ok;
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x") && ok;
-    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x overload", 6) && ok;
-    if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::Adaptive, "adaptive at ~40 fps", 21) && ok;
+    if (present)
+        ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x overload", 6) && ok;
+    if (present)
+        ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::Adaptive, "adaptive at ~40 fps",
+                              21) &&
+             ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();
         if (count > 0) {
-            std::printf("debug layer reported %llu message(s):\n",
-                        static_cast<unsigned long long>(count));
+            std::printf("debug layer reported %llu message(s):\n", static_cast<unsigned long long>(count));
             for (UINT64 index = 0; index < count && index < 32; ++index) {
                 SIZE_T length = 0;
                 if (FAILED(info->GetMessage(index, nullptr, &length)) || length == 0) continue;

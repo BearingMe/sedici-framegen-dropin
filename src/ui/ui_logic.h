@@ -78,7 +78,7 @@ inline double pending_apply(PendingTarget& pending) noexcept
 inline bool ui_passes_to_game(unsigned msg, unsigned long long wparam, long long lparam) noexcept
 {
     constexpr unsigned kSysKeyDown = 0x0104, kSysKeyUp = 0x0105; // WM_SYSKEYDOWN, WM_SYSKEYUP
-    constexpr unsigned long long kVkF4 = 0x73;                  // VK_F4
+    constexpr unsigned long long kVkF4 = 0x73;                   // VK_F4
     return (msg == kSysKeyDown || msg == kSysKeyUp) && wparam == kVkF4 &&
            ((static_cast<unsigned long long>(lparam) >> 29) & 1ull) != 0;
 }

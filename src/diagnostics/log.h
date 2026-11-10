@@ -37,15 +37,15 @@ namespace sedici {
 
 // What the log itself did. Counters only grow; `depth` is the current queue size.
 struct LogStats {
-    uint64_t queued = 0;       // lines accepted into the ring
-    uint64_t written = 0;      // lines that reached sedici.log
-    uint64_t dropped = 0;      // refused because the ring was full
-    uint64_t suppressed = 0;   // refused by the per-message rate limit
-    uint64_t lost = 0;         // accepted but discarded because the file could not be written
-    uint64_t sink_failures = 0;// failed file writes (one per batch)
+    uint64_t queued = 0;        // lines accepted into the ring
+    uint64_t written = 0;       // lines that reached sedici.log
+    uint64_t dropped = 0;       // refused because the ring was full
+    uint64_t suppressed = 0;    // refused by the per-message rate limit
+    uint64_t lost = 0;          // accepted but discarded because the file could not be written
+    uint64_t sink_failures = 0; // failed file writes (one per batch)
     uint32_t depth = 0;
     uint32_t max_depth = 0;
-    bool sink_ok = true;       // false from a failed write until the next success
+    bool sink_ok = true; // false from a failed write until the next success
 };
 
 LogStats log_stats() noexcept;

@@ -75,7 +75,10 @@ DWORD WINAPI run_job(void* raw) noexcept
     delete job;
     {
         std::lock_guard lock(g_thread_mutex);
-        if (g_thread) { CloseHandle(g_thread); g_thread = nullptr; }
+        if (g_thread) {
+            CloseHandle(g_thread);
+            g_thread = nullptr;
+        }
     }
     g_busy.store(false, std::memory_order_release);
     // The worker is executing code in this module. FreeLibraryAndExitThread
@@ -85,8 +88,7 @@ DWORD WINAPI run_job(void* raw) noexcept
     return 0;
 }
 
-bool start(SettingsIoKind kind, uint64_t generation, SettingsSaveTicket ticket,
-           uint64_t viewEpoch) noexcept
+bool start(SettingsIoKind kind, uint64_t generation, SettingsSaveTicket ticket, uint64_t viewEpoch) noexcept
 {
     bool expected = false;
     if (!g_busy.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) return false;
@@ -104,8 +106,8 @@ bool start(SettingsIoKind kind, uint64_t generation, SettingsSaveTicket ticket,
             return false;
         }
         HMODULE module = nullptr;
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                                reinterpret_cast<LPCWSTR>(&run_job), &module)) {
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&run_job),
+                                &module)) {
             delete job;
             g_busy.store(false, std::memory_order_release);
             return false;
@@ -192,17 +194,28 @@ bool settings_io_poll(SettingsIoCompletion& result) noexcept
         result.kind = g_lost_kind.load(std::memory_order_relaxed);
         result.viewEpoch = g_lost_epoch.load(std::memory_order_relaxed);
         return true;
-    } catch (...) { return false; }
+    } catch (...) {
+        return false;
+    }
 }
 
-uint64_t settings_io_stall_count() noexcept { return g_stall_count.load(std::memory_order_relaxed); }
+uint64_t settings_io_stall_count() noexcept
+{
+    return g_stall_count.load(std::memory_order_relaxed);
+}
 
 bool settings_io_stalled() noexcept
 {
     return g_busy.load(std::memory_order_acquire) && g_stall_reported.load(std::memory_order_acquire);
 }
 
-void settings_io_test_set_stall_ms(unsigned ms) noexcept { g_stall_ms.store(ms); }
-void settings_io_test_set_block(void* event_handle) noexcept { g_test_block.store(event_handle, std::memory_order_release); }
+void settings_io_test_set_stall_ms(unsigned ms) noexcept
+{
+    g_stall_ms.store(ms);
+}
+void settings_io_test_set_block(void* event_handle) noexcept
+{
+    g_test_block.store(event_handle, std::memory_order_release);
+}
 
 } // namespace sedici

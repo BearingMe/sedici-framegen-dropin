@@ -15,9 +15,18 @@ void pause_routing_after_lookup() noexcept
 
 std::atomic<unsigned> routingHookA{0};
 std::atomic<unsigned> routingHookB{0};
-void routing_hook_a(uint64_t) { ++routingHookA; }
-void routing_hook_b(uint64_t) { ++routingHookB; }
-void routing_hook_slow(uint64_t) { Sleep(600); } // a Present that holds the swapchain lock for a while
+void routing_hook_a(uint64_t)
+{
+    ++routingHookA;
+}
+void routing_hook_b(uint64_t)
+{
+    ++routingHookB;
+}
+void routing_hook_slow(uint64_t)
+{
+    Sleep(600);
+} // a Present that holds the swapchain lock for a while
 
 bool check_routing(Device& state, bool wrapFirst)
 {
@@ -27,9 +36,12 @@ bool check_routing(Device& state, bool wrapFirst)
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = className;
     if (!RegisterClassW(&wc)) return false;
-    HWND window = CreateWindowW(className, L"Sedici routing", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    HWND window = CreateWindowW(className, L"Sedici routing", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) {
+        UnregisterClassW(className, wc.hInstance);
+        return false;
+    }
 
     bool ok = [&] {
         ComPtr<IDXGIFactory4> factory;
@@ -43,15 +55,16 @@ bool check_routing(Device& state, bool wrapFirst)
         desc.BufferCount = 3;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         ComPtr<IDXGISwapChain1> created;
-        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
-            nullptr, nullptr, &created))) return false;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc, nullptr, nullptr, &created)))
+            return false;
         ComPtr<IDXGISwapChain4> native, caller;
         if (FAILED(created.As(&native))) return false;
 
         struct Contexts {
             ffxContext session = nullptr;
             ffxContext wrap = nullptr;
-            ~Contexts() {
+            ~Contexts()
+            {
                 ffxReturnCode_t result{};
                 if (session) (void)sedici::fg::route_destroy(&session, &result);
                 if (wrap) (void)sedici::fg::route_destroy(&wrap, &result);
@@ -91,19 +104,19 @@ bool check_routing(Device& state, bool wrapFirst)
                 failedWrap.swapchain = &untouched;
                 ffxReturnCode_t failedResult = FFX_API_RETURN_OK;
                 sedici::fg::arm_bookkeeping_fault(point);
-                const bool answered = sedici::fg::route_create(&failedContext, &failedWrap.header,
-                                                                &failedResult);
+                const bool answered = sedici::fg::route_create(&failedContext, &failedWrap.header, &failedResult);
                 const bool reachedInjection = !sedici::fg::consume_bookkeeping_fault(point);
                 sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
-                if (!reachedInjection || !answered || failedResult == FFX_API_RETURN_OK ||
-                    failedContext || untouched != native.Get()) return false;
+                if (!reachedInjection || !answered || failedResult == FFX_API_RETURN_OK || failedContext ||
+                    untouched != native.Get())
+                    return false;
             }
             std::puts("PASS injected create-bookkeeping failures leave the native swapchain untouched");
             // The game hands its reference over (K12): the wrap consumes one reference,
             // so this host gives one up with the call and takes it back if refused.
             native->AddRef();
-            if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) ||
-                result != FFX_API_RETURN_OK || !contexts.wrap || replacement == native.Get()) {
+            if (!sedici::fg::route_create(&contexts.wrap, &wrap.header, &result) || result != FFX_API_RETURN_OK ||
+                !contexts.wrap || replacement == native.Get()) {
                 native->Release();
                 return false;
             }
@@ -123,8 +136,7 @@ bool check_routing(Device& state, bool wrapFirst)
             }
         });
         while (!hooksStarted.load()) std::this_thread::yield();
-        const bool creationOk = wrapFirst ? (createWrap() && createSession())
-                                         : (createSession() && createWrap());
+        const bool creationOk = wrapFirst ? (createWrap() && createSession()) : (createSession() && createWrap());
         stopHooks = true;
         hookUpdater.join();
         if (!creationOk || contexts.wrap == contexts.session) {
@@ -145,7 +157,8 @@ bool check_routing(Device& state, bool wrapFirst)
         const HRESULT waiting = caller->Present(0, 0);
         sedici::fg::route_set_present_hook(nullptr);
         if ((FAILED(nonBlocking) && nonBlocking != DXGI_ERROR_WAS_STILL_DRAWING) || !hookSkipped ||
-            FAILED(waiting) || routingHookB != 1) return false;
+            FAILED(waiting) || routingHookB != 1)
+            return false;
         std::puts("PASS K52: a DO_NOT_WAIT present skips the limiter hook and a waiting one runs it");
 
         ffxConfigureDescFrameGeneration configure{};
@@ -153,22 +166,29 @@ bool check_routing(Device& state, bool wrapFirst)
         configure.swapChain = caller.Get();
         configure.frameGenerationEnabled = false;
         if (!sedici::fg::route_configure(&contexts.session, &configure.header, &result) ||
-            result != FFX_API_RETURN_OK) return false;
+            result != FFX_API_RETURN_OK)
+            return false;
 
         // A different generator may replace this Session's sink. Destroying the
         // old Session must not clear that newer owner (K79).
         struct ExtraContext {
             ffxContext value = nullptr;
-            ~ExtraContext() {
-                if (value) { ffxReturnCode_t ignored{}; (void)sedici::fg::route_destroy(&value, &ignored); }
+            ~ExtraContext()
+            {
+                if (value) {
+                    ffxReturnCode_t ignored{};
+                    (void)sedici::fg::route_destroy(&value, &ignored);
+                }
             }
         } extra;
-        if (!sedici::fg::route_create(&extra.value, &create.header, &result) ||
-            result != FFX_API_RETURN_OK || !extra.value) return false;
+        if (!sedici::fg::route_create(&extra.value, &create.header, &result) || result != FFX_API_RETURN_OK ||
+            !extra.value)
+            return false;
         auto enabledConfigure = configure;
         enabledConfigure.frameGenerationEnabled = true;
         if (!sedici::fg::route_configure(&extra.value, &enabledConfigure.header, &result) ||
-            result != FFX_API_RETURN_OK) return false;
+            result != FFX_API_RETURN_OK)
+            return false;
         auto* wrapperObject = static_cast<sedici::fg::Swapchain*>(caller.Get());
         uint32_t replacementCalls = 0;
         const sedici::fg::GenerateSink replacementSink{&replacementCalls, &record_counted, nullptr};
@@ -176,9 +196,11 @@ bool check_routing(Device& state, bool wrapFirst)
         auto disabledConfigure = enabledConfigure;
         disabledConfigure.frameGenerationEnabled = false;
         if (!sedici::fg::route_configure(&extra.value, &disabledConfigure.header, &result) ||
-            result != FFX_API_RETURN_OK || FAILED(caller->Present(0, 0)) || replacementCalls != 1) return false;
+            result != FFX_API_RETURN_OK || FAILED(caller->Present(0, 0)) || replacementCalls != 1)
+            return false;
         if (!sedici::fg::route_configure(&extra.value, &enabledConfigure.header, &result) ||
-            result != FFX_API_RETURN_OK || !wrapperObject->set_generator(replacementSink)) return false;
+            result != FFX_API_RETURN_OK || !wrapperObject->set_generator(replacementSink))
+            return false;
         if (!sedici::fg::route_destroy(&extra.value, &result) || result != FFX_API_RETURN_OK) return false;
         extra.value = nullptr;
         if (FAILED(caller->Present(0, 0)) || replacementCalls != 2) return false;
@@ -195,35 +217,37 @@ bool check_routing(Device& state, bool wrapFirst)
             bool allCreated = true;
             for (auto& parkedContext : parkedContexts)
                 allCreated = allCreated && sedici::fg::route_create(&parkedContext, &create.header, &result) &&
-                          result == FFX_API_RETURN_OK && parkedContext;
+                             result == FFX_API_RETURN_OK && parkedContext;
             const unsigned parkedBefore = sedici::fg::route_parked_count();
             sedici::fg::set_retirement_hold(true);
             bool refused = allCreated;
             for (auto& parkedContext : parkedContexts) {
                 ffxContext token = parkedContext;
-                refused = refused && sedici::fg::route_destroy(&token, &result) &&
-                          result == FFX_API_RETURN_ERROR;
+                refused = refused && sedici::fg::route_destroy(&token, &result) && result == FFX_API_RETURN_ERROR;
             }
             const unsigned parkedHeld = sedici::fg::route_parked_count();
             const bool snapshotRouter = sedici::diag_snapshot().router_owners_parked == parkedHeld &&
-                sedici::diag_notable_line().find("router_parked=" + std::to_string(parkedHeld)) != std::string::npos;
+                                        sedici::diag_notable_line().find(
+                                            "router_parked=" + std::to_string(parkedHeld)) != std::string::npos;
             std::printf("%s P2.10(b): the diagnostics snapshot reports parked router owners%c",
                         snapshotRouter ? "PASS" : "FAIL", 10);
             if (!snapshotRouter) return false;
             // A repeated destroy and a configure of a stale token are rejected and
             // must not park the owner a second time.
             ffxContext repeated = parkedContexts[0];
-            const bool secondDestroy = sedici::fg::route_destroy(&repeated, &result) && result == FFX_API_RETURN_ERROR;
+            const bool secondDestroy =
+                sedici::fg::route_destroy(&repeated, &result) && result == FFX_API_RETURN_ERROR;
             // P2.10(b): a rejection names the call and the context it refused.
             std::error_code identityError;
             const auto identityDir = std::filesystem::temp_directory_path(identityError) /
-                ("sedici-identity-" + std::to_string(GetCurrentProcessId()));
+                                     ("sedici-identity-" + std::to_string(GetCurrentProcessId()));
             std::filesystem::create_directories(identityDir, identityError);
             sedici::log_test_set_directory(identityDir);
             const int savedLogLevel = log_level();
             sedici::live_set_log_level(1);
-            const bool staleConfigure = sedici::fg::route_configure(&repeated, &disabledConfigure.header, &result) &&
-                                        result == FFX_API_RETURN_ERROR;
+            const bool staleConfigure =
+                sedici::fg::route_configure(&repeated, &disabledConfigure.header, &result) &&
+                result == FFX_API_RETURN_ERROR;
             (void)sedici::log_flush(3000);
             std::string identityLog;
             {
@@ -252,7 +276,8 @@ bool check_routing(Device& state, bool wrapFirst)
             const bool parking = allCreated && refused && secondDestroy && staleConfigure &&
                                  parkedHeld == parkedBefore + 3 && parkedStillHeld == parkedHeld &&
                                  parkedAfter == parkedBefore;
-            std::printf("%s K41: refused destroys park their owners, a repeat does not double-park, and they are released once work retires (%u -> %u -> %u)%c",
+            std::printf("%s K41: refused destroys park their owners, a repeat does not double-park, and they are "
+                        "released once work retires (%u -> %u -> %u)%c",
                         parking ? "PASS" : "FAIL", parkedBefore, parkedHeld, parkedAfter, 10);
             if (!parking) return false;
         }
@@ -260,10 +285,10 @@ bool check_routing(Device& state, bool wrapFirst)
         ffxApiHeader unsupported{};
         unsupported.type = UINT64_MAX;
         for (auto* context : {&contexts.session, &contexts.wrap}) {
-            if (!sedici::fg::route_query(context, &unsupported, &result) ||
-                result != FFX_API_RETURN_ERROR) return false;
-            if (!sedici::fg::route_dispatch(context, &unsupported, &result) ||
-                result != FFX_API_RETURN_ERROR) return false;
+            if (!sedici::fg::route_query(context, &unsupported, &result) || result != FFX_API_RETURN_ERROR)
+                return false;
+            if (!sedici::fg::route_dispatch(context, &unsupported, &result) || result != FFX_API_RETURN_ERROR)
+                return false;
         }
         int unrelated = 0;
         ffxContext foreign = &unrelated;
@@ -287,8 +312,7 @@ bool check_routing(Device& state, bool wrapFirst)
             bool configureAnswered = false;
             sedici::fg::arm_wrapper_lookup_hook(&pause_routing_after_lookup);
             std::thread configuring([&] {
-                configureAnswered = sedici::fg::route_configure(
-                    &session, &raceConfigure.header, &configureResult);
+                configureAnswered = sedici::fg::route_configure(&session, &raceConfigure.header, &configureResult);
             });
             const bool arrived = WaitForSingleObject(routingLookupArrived, 5000) == WAIT_OBJECT_0;
             ffxReturnCode_t destroyResult = FFX_API_RETURN_ERROR;
@@ -301,8 +325,7 @@ bool check_routing(Device& state, bool wrapFirst)
             CloseHandle(routingLookupArrived);
             CloseHandle(routingLookupResume);
             routingLookupArrived = routingLookupResume = nullptr;
-            if (!arrived || !destroyed || !configureAnswered || configureResult != FFX_API_RETURN_OK)
-                return false;
+            if (!arrived || !destroyed || !configureAnswered || configureResult != FFX_API_RETURN_OK) return false;
             std::puts("PASS configure paused after lookup cannot reattach after wrapper destroy");
         }
 
@@ -322,8 +345,8 @@ bool check_routing(Device& state, bool wrapFirst)
                         ffxContext handle = racing;
                         ffxReturnCode_t local = FFX_API_RETURN_OK;
                         const bool routed = (t & 1)
-                            ? sedici::fg::route_configure(&handle, &configure.header, &local)
-                            : sedici::fg::route_dispatch(&handle, &unsupported, &local);
+                                                ? sedici::fg::route_configure(&handle, &configure.header, &local)
+                                                : sedici::fg::route_dispatch(&handle, &unsupported, &local);
                         if (routed) answered.fetch_add(1);
                     }
                 });
@@ -332,20 +355,19 @@ bool check_routing(Device& state, bool wrapFirst)
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             bool wrapDestroyed = true;
             if (wrapFirst) {
-                wrapDestroyed = sedici::fg::route_destroy(&contexts.wrap, &result) &&
-                                result == FFX_API_RETURN_OK;
+                wrapDestroyed = sedici::fg::route_destroy(&contexts.wrap, &result) && result == FFX_API_RETURN_OK;
                 if (wrapDestroyed) contexts.wrap = nullptr;
             }
-            const bool sessionDestroyed = sedici::fg::route_destroy(&contexts.session, &result) &&
-                                          result == FFX_API_RETURN_OK;
+            const bool sessionDestroyed =
+                sedici::fg::route_destroy(&contexts.session, &result) && result == FFX_API_RETURN_OK;
             // Join on every path: returning with joinable threads terminates the host.
             for (auto& thread : threads) thread.join();
             if (!wrapDestroyed || !sessionDestroyed) return false;
             ffxContext stale = racing;
-            if (!sedici::fg::route_configure(&stale, &configure.header, &result) ||
-                result == FFX_API_RETURN_OK) return false;
-            if (!sedici::fg::route_destroy(&stale, &result) ||
-                result == FFX_API_RETURN_OK) return false; // no double destroy
+            if (!sedici::fg::route_configure(&stale, &configure.header, &result) || result == FFX_API_RETURN_OK)
+                return false;
+            if (!sedici::fg::route_destroy(&stale, &result) || result == FFX_API_RETURN_OK)
+                return false; // no double destroy
             contexts.session = nullptr;
         }
         // Hold a wrapper reference before destroying its FFX context, then
@@ -363,8 +385,8 @@ bool check_routing(Device& state, bool wrapFirst)
                 attached = held->set_generator(lateSink);
             });
             while (!heldReady.load()) std::this_thread::yield();
-            const bool destroyed = sedici::fg::route_destroy(&contexts.wrap, &result) &&
-                                   result == FFX_API_RETURN_OK;
+            const bool destroyed =
+                sedici::fg::route_destroy(&contexts.wrap, &result) && result == FFX_API_RETURN_OK;
             tryAttach = true;
             late.join();
             if (!destroyed || attached.load()) return false;
@@ -405,9 +427,12 @@ bool check_routing_faults(Device& state)
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = className;
     if (!RegisterClassW(&wc)) return false;
-    HWND window = CreateWindowW(className, L"Sedici creation", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!window) { UnregisterClassW(className, wc.hInstance); return false; }
+    HWND window = CreateWindowW(className, L"Sedici creation", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+    if (!window) {
+        UnregisterClassW(className, wc.hInstance);
+        return false;
+    }
 
     bool ok = [&] {
         ComPtr<IDXGIFactory4> factory;
@@ -421,16 +446,20 @@ bool check_routing_faults(Device& state)
         desc.BufferCount = 3;
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         ComPtr<IDXGISwapChain1> created;
-        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc,
-            nullptr, nullptr, &created))) return false;
+        if (FAILED(factory->CreateSwapChainForHwnd(state.queue.Get(), window, &desc, nullptr, nullptr, &created)))
+            return false;
         ComPtr<IDXGISwapChain4> native;
         if (FAILED(created.As(&native))) return false;
         ComPtr<IDXGISwapChain4> caller;
 
         struct Release {
             ffxContext* context;
-            ~Release() {
-                if (*context) { ffxReturnCode_t ignored{}; (void)sedici::fg::route_destroy(context, &ignored); }
+            ~Release()
+            {
+                if (*context) {
+                    ffxReturnCode_t ignored{};
+                    (void)sedici::fg::route_destroy(context, &ignored);
+                }
             }
         };
         ffxReturnCode_t result = FFX_API_RETURN_ERROR;
@@ -461,8 +490,8 @@ bool check_routing_faults(Device& state)
         // generation dispatch is acknowledged; everything is destroyed by Sedici.
         {
             const auto makeWindow = [&](const wchar_t* title) {
-                return CreateWindowW(className, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                                     500, 320, nullptr, nullptr, wc.hInstance, nullptr);
+                return CreateWindowW(className, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 500, 320,
+                                     nullptr, nullptr, wc.hInstance, nullptr);
             };
             HWND newWindow = makeWindow(L"Sedici new");
             HWND hwndWindow = makeWindow(L"Sedici hwnd");
@@ -493,8 +522,9 @@ bool check_routing_faults(Device& state)
             made.dxgiFactory = factory.Get();
             made.gameQueue = state.queue.Get();
             ffxContext swapContext = nullptr;
-            if (!sedici::fg::route_create(&swapContext, &made.header, &result) ||
-                result != FFX_API_RETURN_OK || !swapContext || !out) return false;
+            if (!sedici::fg::route_create(&swapContext, &made.header, &result) || result != FFX_API_RETURN_OK ||
+                !swapContext || !out)
+                return false;
             ComPtr<IDXGISwapChain4> game;
             game.Attach(out);
             DXGI_SWAP_CHAIN_DESC1 got{};
@@ -525,7 +555,8 @@ bool check_routing_faults(Device& state)
                 const bool a1 = sedici::fg::route_query(&swapContext, &q1.header, &r1);
                 const bool a2 = sedici::fg::route_query(&swapContext, &q2.header, &r2);
                 const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - started).count();
+                                          std::chrono::steady_clock::now() - started)
+                                          .count();
                 presenter.join();
                 sedici::fg::route_set_present_hook(nullptr);
                 if (!a1 || !a2 || r1 != FFX_API_RETURN_OK || r2 != FFX_API_RETURN_OK || waitedMs > 300) {
@@ -533,7 +564,8 @@ bool check_routing_faults(Device& state)
                                 static_cast<long long>(waitedMs));
                     return false;
                 }
-                std::printf("PASS interpolation queries do not wait for a running Present (%lld ms while it slept 600 ms)\n",
+                std::printf("PASS interpolation queries do not wait for a running Present (%lld ms while it slept "
+                            "600 ms)\n",
                             static_cast<long long>(waitedMs));
             }
 
@@ -567,14 +599,16 @@ bool check_routing_faults(Device& state)
             // Anything else stays a refusal with a code in the log.
             ffxQueryDescHeader unknown{};
             unknown.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12;
-            const bool refused = sedici::fg::route_query(&swapContext, &unknown, &answer) && answer != FFX_API_RETURN_OK;
+            const bool refused =
+                sedici::fg::route_query(&swapContext, &unknown, &answer) && answer != FFX_API_RETURN_OK;
             if (!queries || !refused) return false;
             std::puts("PASS interpolation list and texture queries answered; other swapchain queries refused");
 
             // HDR-flagged 10-bit session, and the game's own dispatch is acknowledged.
             auto tenBit = create;
             tenBit.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
-            tenBit.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
+            tenBit.flags |=
+                FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT;
             ffxContext session = nullptr;
             const bool sessionOk = sedici::fg::route_create(&session, &tenBit.header, &result) &&
                                    result == FFX_API_RETURN_OK && session;
@@ -582,13 +616,16 @@ bool check_routing_faults(Device& state)
             if (sessionOk) {
                 ffxDispatchDescHeader gameDispatch{};
                 gameDispatch.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
-                dispatchOk = sedici::fg::route_dispatch(&session, &gameDispatch, &result) && result == FFX_API_RETURN_OK;
+                dispatchOk =
+                    sedici::fg::route_dispatch(&session, &gameDispatch, &result) && result == FFX_API_RETURN_OK;
             }
             ffxReturnCode_t destroyed{};
             bool destroyOk = true;
-            if (session) destroyOk = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            if (session)
+                destroyOk = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK;
             if (!sessionOk || !dispatchOk || !destroyOk) return false;
-            std::puts("PASS HDR-flagged R10G10B10A2 session accepted; the game's own generation dispatch is acknowledged");
+            std::puts("PASS HDR-flagged R10G10B10A2 session accepted; the game's own generation dispatch is "
+                      "acknowledged");
 
             // The HWND form.
             DXGI_SWAP_CHAIN_DESC1 hwndDesc{};
@@ -612,8 +649,8 @@ bool check_routing_faults(Device& state)
                                 result == FFX_API_RETURN_OK && hwndContext && hwndOut;
             ComPtr<IDXGISwapChain4> hwndGame;
             hwndGame.Attach(hwndOut);
-            const bool hwndFormat = hwndOk && SUCCEEDED(hwndGame->GetDesc1(&got)) &&
-                                    got.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
+            const bool hwndFormat =
+                hwndOk && SUCCEEDED(hwndGame->GetDesc1(&got)) && got.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
             // A null factory is a local error and consumes nothing.
             auto refusedHwnd = forHwnd;
             refusedHwnd.dxgiFactory = nullptr;
@@ -623,10 +660,15 @@ bool check_routing_faults(Device& state)
             const bool refusedOk = sedici::fg::route_create(&refusedContext, &refusedHwnd.header, &result) &&
                                    result != FFX_API_RETURN_OK && !refusedContext && !none;
             bool hwndDestroyed = true;
-            if (hwndContext) hwndDestroyed = sedici::fg::route_destroy(&hwndContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
-            const bool newDestroyed = sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
-            if (!hwndFormat || !refusedOk || !hwndDestroyed || !newDestroyed || FAILED(game->GetDesc1(&got))) return false;
-            std::puts("PASS HWND swapchain form builds a 10-bit chain; a null factory is a local error; both destroy cleanly");
+            if (hwndContext)
+                hwndDestroyed =
+                    sedici::fg::route_destroy(&hwndContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            const bool newDestroyed =
+                sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK;
+            if (!hwndFormat || !refusedOk || !hwndDestroyed || !newDestroyed || FAILED(game->GetDesc1(&got)))
+                return false;
+            std::puts("PASS HWND swapchain form builds a 10-bit chain; a null factory is a local error; both "
+                      "destroy cleanly");
         }
 
         // Memory growth over repeated lifecycles (the Alan Wake 2 shape: a New chain and a 10-bit
@@ -665,7 +707,9 @@ bool check_routing_faults(Device& state)
                 made.gameQueue = state.queue.Get();
                 ffxContext swapContext = nullptr;
                 ffxReturnCode_t code{};
-                if (!sedici::fg::route_create(&swapContext, &made.header, &code) || code != FFX_API_RETURN_OK || !out) return false;
+                if (!sedici::fg::route_create(&swapContext, &made.header, &code) || code != FFX_API_RETURN_OK ||
+                    !out)
+                    return false;
                 ID3D12GraphicsCommandList* list = nullptr;
                 ffxQueryDescFrameGenerationSwapChainInterpolationCommandListDX12 q1{};
                 q1.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12;
@@ -674,15 +718,18 @@ bool check_routing_faults(Device& state)
                 ffxQueryDescFrameGenerationSwapChainInterpolationTextureDX12 q2{};
                 q2.header.type = FFX_API_QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12;
                 q2.pOutTexture = &texture;
-                const bool queried = sedici::fg::route_query(&swapContext, &q1.header, &code) && code == FFX_API_RETURN_OK &&
-                                     sedici::fg::route_query(&swapContext, &q2.header, &code) && code == FFX_API_RETURN_OK;
+                const bool queried =
+                    sedici::fg::route_query(&swapContext, &q1.header, &code) && code == FFX_API_RETURN_OK &&
+                    sedici::fg::route_query(&swapContext, &q2.header, &code) && code == FFX_API_RETURN_OK;
                 auto tenBit = create;
                 tenBit.backBufferFormat = FFX_API_SURFACE_FORMAT_R10G10B10A2_UNORM;
                 tenBit.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
                 ffxContext session = nullptr;
-                bool ok = queried && sedici::fg::route_create(&session, &tenBit.header, &code) && code == FFX_API_RETURN_OK;
+                bool ok = queried && sedici::fg::route_create(&session, &tenBit.header, &code) &&
+                          code == FFX_API_RETURN_OK;
                 ffxReturnCode_t destroyed{};
-                if (session) ok = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK && ok;
+                if (session)
+                    ok = sedici::fg::route_destroy(&session, &destroyed) && destroyed == FFX_API_RETURN_OK && ok;
                 if (out) out->Release(); // the game's reference
                 ok = sedici::fg::route_destroy(&swapContext, &destroyed) && destroyed == FFX_API_RETURN_OK && ok;
                 return ok;
@@ -693,27 +740,33 @@ bool check_routing_faults(Device& state)
             {
                 ComPtr<IDXGIFactory4> factory4;
                 const LUID luid = state.device->GetAdapterLuid();
-                if (SUCCEEDED(factory.As(&factory4))) (void)factory4->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter));
+                if (SUCCEEDED(factory.As(&factory4)))
+                    (void)factory4->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter));
             }
             const auto videoBytes = [&]() -> long long {
                 DXGI_QUERY_VIDEO_MEMORY_INFO info{};
-                if (!adapter || FAILED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) return -1;
+                if (!adapter || FAILED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)))
+                    return -1;
                 return static_cast<long long>(info.CurrentUsage);
             };
             constexpr int warmup = 5, measured = 40;
-            for (int i = 0; i < warmup; ++i) if (!cycle()) return false;
+            for (int i = 0; i < warmup; ++i)
+                if (!cycle()) return false;
             const long long before = privateBytes();
             const long long videoBefore = videoBytes();
-            for (int i = 0; i < measured; ++i) if (!cycle()) return false;
+            for (int i = 0; i < measured; ++i)
+                if (!cycle()) return false;
             const long long growth = privateBytes() - before;
-            std::printf("%s memory over %d create/destroy cycles: private bytes grew by %lld KB (%lld KB per cycle)\n",
-                        growth < 4LL * 1024 * 1024 ? "PASS" : "FAIL", measured, growth / 1024, growth / 1024 / measured);
+            std::printf(
+                "%s memory over %d create/destroy cycles: private bytes grew by %lld KB (%lld KB per cycle)\n",
+                growth < 4LL * 1024 * 1024 ? "PASS" : "FAIL", measured, growth / 1024, growth / 1024 / measured);
             if (growth >= 4LL * 1024 * 1024) return false;
             const long long videoAfter = videoBytes();
             if (videoBefore >= 0 && videoAfter >= 0) {
                 const long long videoGrowth = videoAfter - videoBefore;
                 const bool videoOk = videoGrowth < 16LL * 1024 * 1024;
-                std::printf("%s video memory over %d cycles: grew by %lld KB\n", videoOk ? "PASS" : "FAIL", measured, videoGrowth / 1024);
+                std::printf("%s video memory over %d cycles: grew by %lld KB\n", videoOk ? "PASS" : "FAIL",
+                            measured, videoGrowth / 1024);
                 if (!videoOk) return false;
             } else {
                 std::puts("NOTE video memory query unavailable; GPU growth not checked");
@@ -725,13 +778,15 @@ bool check_routing_faults(Device& state)
             ffxContext denied = nullptr;
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::TokenReservation);
             const bool answered = sedici::fg::route_create(&denied, &create.header, &result);
-            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::TokenReservation);
+            const bool reached =
+                !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::TokenReservation);
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
             if (!answered || !reached || result == FFX_API_RETURN_OK || denied) return false;
             ffxContext session = nullptr;
             Release releaseSession{&session};
-            if (!sedici::fg::route_create(&session, &create.header, &result) ||
-                result != FFX_API_RETURN_OK || !session) return false;
+            if (!sedici::fg::route_create(&session, &create.header, &result) || result != FFX_API_RETURN_OK ||
+                !session)
+                return false;
             std::puts("PASS K29: a refused handle reservation issues no token and a retry succeeds");
         }
 
@@ -740,7 +795,8 @@ bool check_routing_faults(Device& state)
             ffxContext denied = nullptr;
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
             const bool answered = sedici::fg::route_create(&denied, &create.header, &result);
-            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            const bool reached =
+                !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
             if (!answered || !reached || result == FFX_API_RETURN_OK || denied) return false;
         }
@@ -755,10 +811,11 @@ bool check_routing_faults(Device& state)
             ffxContext denied = nullptr;
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
             const bool answered = sedici::fg::route_create(&denied, &wrap.header, &result);
-            const bool reached = !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
+            const bool reached =
+                !sedici::fg::consume_bookkeeping_fault(sedici::fg::BookkeepingFault::BackendCreation);
             sedici::fg::arm_bookkeeping_fault(sedici::fg::BookkeepingFault::None);
-            if (!answered || !reached || result == FFX_API_RETURN_OK || denied ||
-                replacement != nativePointer) return false;
+            if (!answered || !reached || result == FFX_API_RETURN_OK || denied || replacement != nativePointer)
+                return false;
         }
         std::puts("PASS K63: backend allocation failure rejects creation before the native chain is touched");
 
@@ -773,8 +830,7 @@ bool check_routing_faults(Device& state)
             wrap.gameQueue = state.queue.Get();
             ffxContext refused = nullptr;
             const bool answered = sedici::fg::route_create(&refused, &wrap.header, &result);
-            if (!answered || result == FFX_API_RETURN_OK || refused || replacement != nativePointer)
-                return false;
+            if (!answered || result == FFX_API_RETURN_OK || refused || replacement != nativePointer) return false;
             std::puts("PASS K102: a create naming both a wrap and frame generation is refused");
         }
 
@@ -800,9 +856,8 @@ bool check_routing_faults(Device& state)
             sedici::fg::route_set_present_hook(&routing_hook_a);
             sedici::fg::arm_creation_hook(&pause_creation_hook);
             native->AddRef(); // the wrap consumes the game's reference (K12)
-            std::thread creating([&] {
-                wrapAnswered = sedici::fg::route_create(&wrapContext, &wrap.header, &wrapResult);
-            });
+            std::thread creating(
+                [&] { wrapAnswered = sedici::fg::route_create(&wrapContext, &wrap.header, &wrapResult); });
             const bool arrived = WaitForSingleObject(routingCreationArrived, 5000) == WAIT_OBJECT_0;
             // Give the change 200 ms to finish while creation is paused. Correct code
             // blocks it on the paused owner's call lock, so the wait times out. If the
@@ -823,8 +878,9 @@ bool check_routing_faults(Device& state)
             CloseHandle(routingCreationResume);
             routingCreationArrived = routingCreationResume = nullptr;
             Release releaseWrap{&wrapContext};
-            if (!arrived || !heldBack || !wrapAnswered || wrapResult != FFX_API_RETURN_OK ||
-                !wrapContext || replacement == nativePointer) return false;
+            if (!arrived || !heldBack || !wrapAnswered || wrapResult != FFX_API_RETURN_OK || !wrapContext ||
+                replacement == nativePointer)
+                return false;
             caller.Attach(replacement); // adopt the reference the wrap returned
             routingHookA = 0;
             routingHookB = 0;
@@ -840,6 +896,5 @@ bool check_routing_faults(Device& state)
     std::printf("%s routing faults: K70, K29, K63 and K60\n", ok ? "PASS" : "FAIL");
     return ok;
 }
-
 
 } // namespace fgcheck

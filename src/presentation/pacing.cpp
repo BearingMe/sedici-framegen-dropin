@@ -76,8 +76,7 @@ uint32_t OutputPlan::generated() const noexcept
 
 void OutputSchedule::set_ratio(uint32_t numerator, uint32_t denominator) noexcept
 {
-    if (denominator == 0 || numerator < denominator ||
-        static_cast<uint64_t>(numerator) > 2ull * denominator) {
+    if (denominator == 0 || numerator < denominator || static_cast<uint64_t>(numerator) > 2ull * denominator) {
         numerator = 2;
         denominator = 1;
     }
@@ -132,8 +131,10 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
     } else {
         if (m_last_sample > 0.0) {
             const double recent = 0.5 * (interval + m_last_sample);
-            if (recent > kSlowEnter) m_slow = true;
-            else if (recent < kSlowExit) m_slow = false;
+            if (recent > kSlowEnter)
+                m_slow = true;
+            else if (recent < kSlowExit)
+                m_slow = false;
         } else if (interval > 1.1 * kSlowEnter) {
             m_slow = true; // a lone sample needs a 10% margin to count as slow
         }
@@ -153,8 +154,7 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
     const auto addGenerated = [&](double alpha) {
         if (plan.count >= kMaxPlannedOutputs || plan.generated() >= 2) return;
         alpha = std::clamp(alpha, 0.02, 0.98);
-        plan.outputs[plan.count++] =
-            PlannedOutput{static_cast<float>(alpha), false, previous + alpha * interval};
+        plan.outputs[plan.count++] = PlannedOutput{static_cast<float>(alpha), false, previous + alpha * interval};
     };
 
     if (!m_adaptive) {

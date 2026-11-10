@@ -97,7 +97,11 @@ struct SharedQueueEntry {
     ID3D12CommandQueue* queue;
     unsigned users;
 };
-std::mutex& shared_queue_mutex() { static std::mutex mutex; return mutex; }
+std::mutex& shared_queue_mutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
 std::vector<SharedQueueEntry>& shared_queue_entries()
 {
     static auto* entries = new std::vector<SharedQueueEntry>; // the registry itself lives for the process
@@ -125,12 +129,16 @@ void release_shared_present_queue(ID3D12Device* device, bool idle) noexcept
     if (doomed) doomed->Release();
 }
 
-HRESULT shared_present_queue(ID3D12Device* device, Microsoft::WRL::ComPtr<ID3D12CommandQueue>& out) noexcept try
-{
+HRESULT shared_present_queue(ID3D12Device* device, Microsoft::WRL::ComPtr<ID3D12CommandQueue>& out) noexcept
+try {
     std::lock_guard lock(shared_queue_mutex());
     auto& entries = shared_queue_entries();
     for (auto& entry : entries) {
-        if (entry.device == device) { ++entry.users; out = entry.queue; return S_OK; }
+        if (entry.device == device) {
+            ++entry.users;
+            out = entry.queue;
+            return S_OK;
+        }
     }
     D3D12_COMMAND_QUEUE_DESC desc{};
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -149,8 +157,9 @@ HRESULT shared_present_queue(ID3D12Device* device, Microsoft::WRL::ComPtr<ID3D12
     entries.push_back({device, queue, 1});
     out = queue;
     return S_OK;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
 } // namespace
 
@@ -160,19 +169,22 @@ size_t shared_present_queue_count() noexcept
     return shared_queue_entries().size();
 }
 
-std::unique_ptr<Presenter> Presenter::create(ID3D12Device* device, TearGuard guard,
-                                             std::string& why) noexcept try
-{
+std::unique_ptr<Presenter> Presenter::create(ID3D12Device* device, TearGuard guard, std::string& why) noexcept
+try {
     std::unique_ptr<Presenter> p(new (std::nothrow) Presenter);
-    if (!p) { why = "out of memory"; return nullptr; }
+    if (!p) {
+        why = "out of memory";
+        return nullptr;
+    }
     p->m_device = device;
     p->m_guard = guard;
 
     HRESULT hr = shared_present_queue(device, p->m_queue);
     for (int i = 0; i < 2 && SUCCEEDED(hr); ++i) {
         hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&p->m_allocator[i]));
-        if (SUCCEEDED(hr)) hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            p->m_allocator[i].Get(), nullptr, IID_PPV_ARGS(&p->m_list[i]));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, p->m_allocator[i].Get(), nullptr,
+                                           IID_PPV_ARGS(&p->m_list[i]));
         if (SUCCEEDED(hr)) hr = p->m_list[i]->Close();
     }
     if (SUCCEEDED(hr)) hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&p->m_fence));
@@ -180,7 +192,10 @@ std::unique_ptr<Presenter> Presenter::create(ID3D12Device* device, TearGuard gua
         p->m_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!p->m_event) hr = HRESULT_FROM_WIN32(GetLastError());
     }
-    if (FAILED(hr)) { why = "present queue setup failed hr=" + std::to_string(hr); return nullptr; }
+    if (FAILED(hr)) {
+        why = "present queue setup failed hr=" + std::to_string(hr);
+        return nullptr;
+    }
 
     p->m_timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!p->m_timer) p->m_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
@@ -195,12 +210,14 @@ std::unique_ptr<Presenter> Presenter::create(ID3D12Device* device, TearGuard gua
     Presenter* self = p.get();
     p->m_thread = std::thread([self] { self->run(); });
     return p;
+} catch (...) {
+    why = "exception during presenter setup";
+    return nullptr;
 }
-catch (...) { why = "exception during presenter setup"; return nullptr; }
 
 HRESULT Presenter::adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG owned,
-                         ID3D12CommandQueue* gameQueue, std::string& why) noexcept try
-{
+                         ID3D12CommandQueue* gameQueue, std::string& why) noexcept
+try {
     // Everything needed to rebuild the chain, read while it is still intact.
     DXGI_SWAP_CHAIN_DESC1 desc{};
     DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreenDesc{};
@@ -213,7 +230,10 @@ HRESULT Presenter::adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG 
     if (SUCCEEDED(hr)) hr = native->GetHwnd(&window);
     if (SUCCEEDED(hr)) hr = native->GetParent(IID_PPV_ARGS(&factory));
     if (SUCCEEDED(hr)) hr = native->GetFullscreenState(&fullscreen, &fullscreenOutput);
-    if (FAILED(hr)) { why = "could not read the chain to recreate it hr=" + std::to_string(hr); return hr; }
+    if (FAILED(hr)) {
+        why = "could not read the chain to recreate it hr=" + std::to_string(hr);
+        return hr;
+    }
     (void)native->GetRestrictToOutput(&restrictTo);
     UINT latency = 0;
     const bool waitable = (desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) != 0;
@@ -255,8 +275,8 @@ HRESULT Presenter::adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG 
     fullscreenDesc.Windowed = TRUE; // enter fullscreen after creation, as DXGI recommends
     const auto build = [&](ID3D12CommandQueue* queue, Microsoft::WRL::ComPtr<IDXGISwapChain4>& out) {
         Microsoft::WRL::ComPtr<IDXGISwapChain1> created;
-        HRESULT result = factory->CreateSwapChainForHwnd(queue, window, &desc, &fullscreenDesc,
-                                                         restrictTo.Get(), &created);
+        HRESULT result =
+            factory->CreateSwapChainForHwnd(queue, window, &desc, &fullscreenDesc, restrictTo.Get(), &created);
         if (SUCCEEDED(result)) result = created.As(&out);
         if (FAILED(result)) return result;
         if (waitable && latency) (void)out->SetMaximumFrameLatency(latency);
@@ -279,15 +299,15 @@ HRESULT Presenter::adopt(Microsoft::WRL::ComPtr<IDXGISwapChain4>& native, ULONG 
     m_native = native;
     refresh_output();
     log_event(1, std::string("fg: vrr presenter ready guard=") + tear_guard_name(m_guard) +
-        " refresh_ms=" + ms(m_period) + " active_lines=" + std::to_string(m_active_lines) +
-        " lead_lines=" + std::to_string(m_lead_lines) +
-        " scanline=" + (m_scanline_ok ? "yes" : "no") +
-        " buffers=" + std::to_string(desc.BufferCount) +
-        " max_latency=" + std::to_string(latency) +
-        " fullscreen=" + (fullscreen ? "yes" : "no"));
+                     " refresh_ms=" + ms(m_period) + " active_lines=" + std::to_string(m_active_lines) +
+                     " lead_lines=" + std::to_string(m_lead_lines) + " scanline=" + (m_scanline_ok ? "yes" : "no") +
+                     " buffers=" + std::to_string(desc.BufferCount) + " max_latency=" + std::to_string(latency) +
+                     " fullscreen=" + (fullscreen ? "yes" : "no"));
     return S_OK;
+} catch (...) {
+    why = "exception while recreating the chain";
+    return E_FAIL;
 }
-catch (...) { why = "exception while recreating the chain"; return E_FAIL; }
 
 Presenter::~Presenter()
 {
@@ -331,11 +351,11 @@ bool Presenter::wait_outstanding(size_t max, DWORD timeoutMs) noexcept
 {
     std::unique_lock lock(m_mutex);
     return m_done.wait_for(lock, std::chrono::milliseconds(timeoutMs),
-        [&] { return m_submitted - m_completed <= max; });
+                           [&] { return m_submitted - m_completed <= max; });
 }
 
-HRESULT Presenter::submit(PresentJob&& job) noexcept try
-{
+HRESULT Presenter::submit(PresentJob&& job) noexcept
+try {
     if (consume_bookkeeping_fault(BookkeepingFault::PresenterSubmit)) return E_OUTOFMEMORY;
     {
         std::lock_guard lock(m_mutex);
@@ -347,9 +367,11 @@ HRESULT Presenter::submit(PresentJob&& job) noexcept try
     }
     m_wake.notify_one();
     return S_OK;
+} catch (const std::bad_alloc&) {
+    return E_OUTOFMEMORY;
+} catch (...) {
+    return E_FAIL;
 }
-catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
-catch (...) { return E_FAIL; }
 
 void Presenter::set_output_hooks(const OutputHooks& hooks) noexcept
 {
@@ -366,8 +388,7 @@ HRESULT Presenter::last_result() const noexcept
 HRESULT Presenter::wait_fence(uint64_t value) noexcept
 {
     auto progress = classify_fence(m_fence->GetCompletedValue(), value);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     if (progress == FenceProgress::Complete) return S_OK;
     const HRESULT hr = m_fence->SetEventOnCompletion(value, m_event);
     if (FAILED(hr)) return hr;
@@ -375,8 +396,7 @@ HRESULT Presenter::wait_fence(uint64_t value) noexcept
     if (wait != WAIT_OBJECT_0)
         return wait == WAIT_TIMEOUT ? DXGI_ERROR_DEVICE_HUNG : HRESULT_FROM_WIN32(GetLastError());
     progress = classify_fence(m_fence->GetCompletedValue(), value);
-    if (progress == FenceProgress::DeviceRemoved)
-        return removed_device_error(m_device->GetDeviceRemovedReason());
+    if (progress == FenceProgress::DeviceRemoved) return removed_device_error(m_device->GetDeviceRemovedReason());
     return progress == FenceProgress::Complete ? S_OK : E_FAIL;
 }
 
@@ -384,13 +404,12 @@ HRESULT Presenter::drain_gpu() noexcept
 {
     if (!m_fence || !m_queue) return S_OK;
     // Covers the native Present work DXGI queued after the last copy, too.
-    return signal_then_wait(
-        [&]() noexcept { return m_queue->Signal(m_fence.Get(), ++m_fence_value); },
-        [&]() noexcept { return wait_fence(m_fence_value); });
+    return signal_then_wait([&]() noexcept { return m_queue->Signal(m_fence.Get(), ++m_fence_value); },
+                            [&]() noexcept { return wait_fence(m_fence_value); });
 }
 
-HRESULT Presenter::resize_native(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) noexcept try
-{
+HRESULT Presenter::resize_native(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) noexcept
+try {
     if (count == 0) {
         DXGI_SWAP_CHAIN_DESC1 desc{};
         const HRESULT hr = m_native->GetDesc1(&desc);
@@ -402,8 +421,9 @@ HRESULT Presenter::resize_native(UINT count, UINT width, UINT height, DXGI_FORMA
     const HRESULT hr = m_native->ResizeBuffers1(count, width, height, format, flags, masks.data(), queues.data());
     if (SUCCEEDED(hr)) refresh_output();
     return hr;
+} catch (...) {
+    return E_OUTOFMEMORY;
 }
-catch (...) { return E_OUTOFMEMORY; }
 
 void Presenter::close_adapter() noexcept
 {
@@ -429,7 +449,8 @@ void Presenter::refresh_output() noexcept
 
     const LONG width = desc.DesktopCoordinates.right - desc.DesktopCoordinates.left;
     const LONG height = desc.DesktopCoordinates.bottom - desc.DesktopCoordinates.top;
-    const bool rotated = desc.Rotation == DXGI_MODE_ROTATION_ROTATE90 || desc.Rotation == DXGI_MODE_ROTATION_ROTATE270;
+    const bool rotated =
+        desc.Rotation == DXGI_MODE_ROTATION_ROTATE90 || desc.Rotation == DXGI_MODE_ROTATION_ROTATE270;
     // The scan runs along the panel's native rows, which is the desktop width
     // when the output is rotated by a quarter turn.
     m_active_lines = static_cast<UINT>(std::max<LONG>(1, rotated ? width : height));
@@ -497,8 +518,10 @@ void Presenter::hold(double notBefore) noexcept
     // the scan line then decides the exact moment.
     double floor = 0.0;
     if (m_last_flip > 0.0) {
-        if (timerGuard) floor = m_last_flip + m_period + 0.0002;
-        else if (scanGuard) floor = m_last_flip + m_period - m_lead_seconds - 0.0005;
+        if (timerGuard)
+            floor = m_last_flip + m_period + 0.0002;
+        else if (scanGuard)
+            floor = m_last_flip + m_period - m_lead_seconds - 0.0005;
     }
     const double scheduled = std::max(notBefore, now_seconds());
     // On a fixed-refresh panel the scan-line guard can only flip at a blank. A
@@ -526,11 +549,16 @@ void Presenter::hold(double notBefore) noexcept
         }
         if (blank || line >= open) break;
         const double now = now_seconds();
-        if (now > giveUp) { ++m_window.guardTimeouts; break; }
+        if (now > giveUp) {
+            ++m_window.guardTimeouts;
+            break;
+        }
         // Sleep through most of the remaining scan, then poll.
         const double eta = (static_cast<double>(open - line) / m_active_lines) * m_period;
-        if (eta > 0.002) wait_until(now + eta - 0.001);
-        else YieldProcessor();
+        if (eta > 0.002)
+            wait_until(now + eta - 0.001);
+        else
+            YieldProcessor();
     }
     record(now_seconds() - holdStart);
 }
@@ -567,7 +595,8 @@ HRESULT Presenter::copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES 
     add(source, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     if (count) list->ResourceBarrier(count, barriers);
     // The overlay draws on the final image, as it does from AMD's callback.
-    if (!m_cancel.load(std::memory_order_acquire) && m_job_hooks.draw) m_job_hooks.draw(m_device.Get(), list, destination.Get(), generated);
+    if (!m_cancel.load(std::memory_order_acquire) && m_job_hooks.draw)
+        m_job_hooks.draw(m_device.Get(), list, destination.Get(), generated);
     hr = list->Close();
     if (FAILED(hr)) return hr;
     ID3D12CommandList* lists[]{list};
@@ -582,7 +611,8 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
         bool blank = false;
         UINT line = 0;
         if (read_scanline(blank, line)) {
-            const UINT quarter = std::min<UINT>(3, static_cast<UINT>((4ull * line) / std::max<UINT>(1, m_active_lines)));
+            const UINT quarter =
+                std::min<UINT>(3, static_cast<UINT>((4ull * line) / std::max<UINT>(1, m_active_lines)));
             ++m_window.scan[blank ? 0 : 1 + quarter];
         } else {
             ++m_window.scan[5];
@@ -591,7 +621,10 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
     if (m_last_flip > 0.0) {
         const double gap = before - m_last_flip;
         if (gap < m_period - 0.0001) ++m_window.shortGaps;
-        if (gap < 0.002) { ++m_window.backToBack; ++m_back_to_back; }
+        if (gap < 0.002) {
+            ++m_window.backToBack;
+            ++m_back_to_back;
+        }
         if (!m_window.flips || gap < m_window.gapMin) m_window.gapMin = gap;
     }
     ++m_window.flips;
@@ -608,7 +641,8 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
         hr = m_native->Present(job.sync, job.flags);
     }
     m_last_flip = before;
-    if (SUCCEEDED(hr) && !m_cancel.load(std::memory_order_acquire) && m_job_hooks.presented) m_job_hooks.presented(generated);
+    if (SUCCEEDED(hr) && !m_cancel.load(std::memory_order_acquire) && m_job_hooks.presented)
+        m_job_hooks.presented(generated);
     const double call = now_seconds() - before;
     m_window.callSum += call;
     m_window.callMax = std::max(m_window.callMax, call);
@@ -642,8 +676,8 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
     for (uint32_t i = 0; i < job.count; ++i) {
         const JobOutput& output = job.outputs[i];
         ID3D12Resource* source = output.real ? job.real.Get() : output.image.Get();
-        const D3D12_RESOURCE_STATES state = output.real ? D3D12_RESOURCE_STATE_PRESENT
-                                                        : D3D12_RESOURCE_STATE_COPY_SOURCE;
+        const D3D12_RESOURCE_STATES state =
+            output.real ? D3D12_RESOURCE_STATE_PRESENT : D3D12_RESOURCE_STATE_COPY_SOURCE;
         const double gpuStart = now_seconds();
         hr = copy_to_native(source, state, !output.real);
         if (SUCCEEDED(hr)) hr = wait_fence(m_fence_value);
@@ -656,8 +690,10 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
             m_window.gpuWaitMax = std::max(m_window.gpuWaitMax, gpuWait);
             // The earliest output of a frame is the one that bounds latency: it
             // can only be shown once the frame after it has been rendered.
-            if (alreadyReady) track_latency(job.entry - output.content, dequeued - job.entry, false);
-            else track_latency(job.entry - output.content, ready - job.entry, true);
+            if (alreadyReady)
+                track_latency(job.entry - output.content, dequeued - job.entry, false);
+            else
+                track_latency(job.entry - output.content, ready - job.entry, true);
         }
 
         // Each output keeps its place on the content clock, so on-screen
@@ -666,8 +702,13 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         if (later_output_due(job, i, ready)) {
             // A later output is already due: showing this one now would put the
             // whole schedule behind. Its copy is overwritten by the next one.
-            if (output.real) { ++m_window.realsDropped; stats_on_real_dropped(); }
-            else { ++m_generated_dropped; ++m_window.generatedDropped; }
+            if (output.real) {
+                ++m_window.realsDropped;
+                stats_on_real_dropped();
+            } else {
+                ++m_generated_dropped;
+                ++m_window.generatedDropped;
+            }
             continue;
         }
         hold(target);
@@ -675,8 +716,12 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         if (flip > target + 0.001) ++m_window.late;
         hr = native_present(job, !output.real);
         if (FAILED(hr)) return hr;
-        if (output.real) ++m_window.realsShown;
-        else { ++m_generated_shown; ++m_window.generatedShown; }
+        if (output.real)
+            ++m_window.realsShown;
+        else {
+            ++m_generated_shown;
+            ++m_window.generatedShown;
+        }
     }
 
     // Retirement point for drain_gpu; also covers DXGI's own present work.
@@ -724,11 +769,9 @@ void Presenter::track_latency(double structural, double gpu, bool measured) noex
 
 bool Presenter::later_output_due(const PresentJob& job, uint32_t index, double now) noexcept
 {
-    if (index + 1 < job.count)
-        return later_output_is_due(true, job.outputs[index + 1].content, m_latency, now);
+    if (index + 1 < job.count) return later_output_is_due(true, job.outputs[index + 1].content, m_latency, now);
     std::lock_guard lock(m_mutex);
-    if (m_jobs.empty() || m_jobs.front().count == 0)
-        return later_output_is_due(false, 0.0, m_latency, now);
+    if (m_jobs.empty() || m_jobs.front().count == 0) return later_output_is_due(false, 0.0, m_latency, now);
     return later_output_is_due(true, m_jobs.front().outputs[0].content, m_latency, now);
 }
 
@@ -760,7 +803,11 @@ void Presenter::run() noexcept
             m_job_hooks = m_hooks;
         }
         HRESULT hr = E_FAIL;
-        try { hr = present_job(job); } catch (...) { hr = E_FAIL; }
+        try {
+            hr = present_job(job);
+        } catch (...) {
+            hr = E_FAIL;
+        }
         // Drop the buffer references before reporting completion: resize checks
         // that nobody but the wrapper holds a backbuffer once we are idle.
         job = PresentJob{};
@@ -774,28 +821,28 @@ void Presenter::run() noexcept
     }
 }
 
-void Presenter::log_window() noexcept try
-{
+void Presenter::log_window() noexcept
+try {
     auto& w = m_window;
     const auto avg = [](double sum, uint32_t n) { return n ? sum / n : 0.0; };
-    log_event(1, "fg: vrr present jobs=" + std::to_string(w.jobs) +
-        " generated{shown=" + std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
-        " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) + "}" +
-        " late=" + std::to_string(w.late) +
-        " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
-        " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
-        " back_to_back=" + std::to_string(w.backToBack) +
-        " gap_min_ms=" + ms(w.gapMin) +
-        " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
-        " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +
-        " max_ms=" + ms(w.guardMax) + " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
-        " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
-        " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
-        " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
-        " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
-        " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
+    log_event(
+        1, "fg: vrr present jobs=" + std::to_string(w.jobs) + " generated{shown=" +
+               std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
+               " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) + "}" +
+               " late=" + std::to_string(w.late) + " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
+               " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
+               " back_to_back=" + std::to_string(w.backToBack) + " gap_min_ms=" + ms(w.gapMin) +
+               " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
+               " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +
+               " max_ms=" + ms(w.guardMax) + " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
+               " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
+               " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
+               " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
+               " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
+               " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
     w = Window{};
+} catch (...) {
+    m_window = Window{};
 }
-catch (...) { m_window = Window{}; }
 
 } // namespace sedici::fg

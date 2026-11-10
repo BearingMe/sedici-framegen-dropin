@@ -10,10 +10,10 @@ enum class BookkeepingFault {
     OwnerAllocation,
     RouteRegistryAllocation,
     WrapperRegistryAllocation,
-    GenerationSignal, // offline test: simulate queue Signal failure after Execute
-    GenerationClose,  // offline test: simulate a failed command-list Close
-    GenerationReset,  // offline test: simulate a failed allocator Reset
-    SubmissionRegistration, // offline test: reject a retirement token
+    GenerationSignal,            // offline test: simulate queue Signal failure after Execute
+    GenerationClose,             // offline test: simulate a failed command-list Close
+    GenerationReset,             // offline test: simulate a failed allocator Reset
+    SubmissionRegistration,      // offline test: reject a retirement token
     PresentParametersAllocation, // offline test: simulate dirty-rectangle allocation failure
     TokenReservation,            // offline test: simulate handle-namespace reservation failure (K29)
     BackendCreation,             // offline test: simulate backend allocation failure before creation (K63)

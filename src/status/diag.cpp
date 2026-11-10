@@ -36,8 +36,8 @@ std::string diag_notable_line() noexcept
                " released_total=" + std::to_string(s.swapchains_released_total) +
                " router_parked=" + std::to_string(s.router_owners_parked) +
                "} settings_io{stalls=" + std::to_string(s.settings_io_stalls) +
-               " stalled_now=" + (s.settings_io_stalled_now ? "yes" : "no") +
-               "} unavailable{" + DiagSnapshot::unavailable + "}";
+               " stalled_now=" + (s.settings_io_stalled_now ? "yes" : "no") + "} unavailable{" +
+               DiagSnapshot::unavailable + "}";
     } catch (...) {
         return {};
     }

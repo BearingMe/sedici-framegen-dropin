@@ -14,8 +14,8 @@ inline constexpr size_t kPresenterQueueCapacity = 3;
 template <typename T, size_t Capacity>
 class FixedQueue {
     static_assert(Capacity > 0);
-    static_assert(std::is_nothrow_move_assignable_v<T>,
-                  "queue entries must move without allocating or throwing");
+    static_assert(std::is_nothrow_move_assignable_v<T>, "queue entries must move without allocating or throwing");
+
 public:
     bool empty() const noexcept { return m_count == 0; }
     size_t size() const noexcept { return m_count; }

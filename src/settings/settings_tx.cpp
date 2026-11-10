@@ -12,7 +12,7 @@
 namespace sedici {
 namespace {
 
-std::mutex g_mutex; // protects in-memory settings and edit state only
+std::mutex g_mutex;    // protects in-memory settings and edit state only
 std::mutex g_io_mutex; // serializes persistence and path changes; never held by apply
 std::atomic<SettingsIoTestHook> g_io_test_hook{nullptr};
 std::atomic<SettingsIoTestHook> g_after_write_test_hook{nullptr};
@@ -97,7 +97,11 @@ ApplyResult apply_locked(uint64_t baseRevision, const LiveValues& candidate)
 struct SaveFlag {
     ~SaveFlag()
     {
-        try { std::lock_guard lock(g_mutex); g_saving = false; } catch (...) {}
+        try {
+            std::lock_guard lock(g_mutex);
+            g_saving = false;
+        } catch (...) {
+        }
     }
 };
 
@@ -148,7 +152,9 @@ uint64_t settings_start_edit() noexcept
         g_baseline_valid = false;
         if (++g_edit_generation == 0) ++g_edit_generation;
         return g_edit_generation;
-    } catch (...) { return 0; }
+    } catch (...) {
+        return 0;
+    }
 }
 
 void settings_invalidate_edit() noexcept
@@ -182,7 +188,9 @@ bool settings_begin_edit_for(uint64_t generation) noexcept
         g_baseline_valid = true;
         g_persistence_uncertain.store(false, std::memory_order_release);
         return true;
-    } catch (...) { return false; }
+    } catch (...) {
+        return false;
+    }
 }
 
 bool settings_begin_edit() noexcept
@@ -216,8 +224,7 @@ ApplyResult settings_cancel_edit() noexcept
         if (g_saving) return {ApplyStatus::Conflict, g_revision, "save is in progress"};
         if (g_persistence_uncertain.load(std::memory_order_acquire))
             return {ApplyStatus::Rejected, g_revision, "file state is uncertain; reopen the menu"};
-        if (!g_baseline_valid)
-            return {ApplyStatus::Rejected, g_revision, "edit baseline is unavailable"};
+        if (!g_baseline_valid) return {ApplyStatus::Rejected, g_revision, "edit baseline is unavailable"};
         if (g_edit_revision != g_revision)
             return {ApplyStatus::Conflict, g_revision, "settings changed outside this edit"};
         ApplyResult result = apply_locked(g_revision, g_baseline);
@@ -252,8 +259,10 @@ SettingsSaveTicket settings_capture_save_ticket() noexcept
         std::lock_guard lock(g_mutex);
         return {g_edit_generation, g_revision,
                 g_baseline_valid && !g_saving && g_edit_revision == g_revision &&
-                !g_persistence_uncertain.load(std::memory_order_acquire)};
-    } catch (...) { return {}; }
+                    !g_persistence_uncertain.load(std::memory_order_acquire)};
+    } catch (...) {
+        return {};
+    }
 }
 
 static SaveResult settings_save_impl(const SettingsSaveTicket* ticket) noexcept
@@ -277,15 +286,16 @@ static SaveResult settings_save_impl(const SettingsSaveTicket* ticket) noexcept
         // report a failed save after the file was already replaced.
         std::string savedMessage = "Saved";
         std::string newerMessage = "Saved an earlier revision; newer settings remain unsaved";
-        std::string postWriteConflict = "Save was written, but the file changed immediately afterward; reopen the menu";
+        std::string postWriteConflict =
+            "Save was written, but the file changed immediately afterward; reopen the menu";
         {
             std::lock_guard lock(g_mutex);
             if (!g_baseline_valid || g_persistence_uncertain.load(std::memory_order_acquire)) {
                 out.message = "Save failed: file state is unavailable";
                 return out;
             }
-            if (ticket && (!ticket->valid || ticket->generation != g_edit_generation ||
-                           ticket->revision != g_revision)) {
+            if (ticket &&
+                (!ticket->valid || ticket->generation != g_edit_generation || ticket->revision != g_revision)) {
                 out.conflict = true;
                 out.message = "settings changed since Save was requested";
                 return out;
@@ -336,7 +346,8 @@ static SaveResult settings_save_impl(const SettingsSaveTicket* ticket) noexcept
         }
         wrote = true;
         if (g_fail_after_write.exchange(false, std::memory_order_acq_rel)) throw std::bad_alloc();
-        if (const SettingsIoTestHook hook = g_after_write_test_hook.exchange(nullptr, std::memory_order_acq_rel)) hook();
+        if (const SettingsIoTestHook hook = g_after_write_test_hook.exchange(nullptr, std::memory_order_acq_rel))
+            hook();
         const ConfigFileStamp savedStamp = config_file_stamp(path);
         const bool matchesWritten = config_same_stamp(savedStamp, writtenStamp);
         bool unchanged = false;
