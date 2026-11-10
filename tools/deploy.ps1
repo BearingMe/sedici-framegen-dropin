@@ -91,9 +91,10 @@ $target = Resolve-GameBin $Game $GamePath
 Assert-GameStopped $target.Config $target.Bin
 
 $repoRoot = Split-Path -Parent $script:ToolsRoot
-$sourceDll = Join-Path $repoRoot 'build\Release\amd_fidelityfx_framegeneration_dx12.dll'
+# `cargo build --release` writes the DLL to target\release (the crate is the DLL name).
+$sourceDll = Join-Path $repoRoot 'target\release\amd_fidelityfx_framegeneration_dx12.dll'
 if (-not (Test-Path -LiteralPath $sourceDll -PathType Leaf)) {
-    throw 'Release Sedici DLL is missing; build it first.'
+    throw 'Release Sedici DLL is missing; run `cargo build --release` first (target\release\amd_fidelityfx_framegeneration_dx12.dll).'
 }
 if (-not (Test-SediciDll $sourceDll)) {
     throw 'Release DLL does not contain the Sedici marker.'

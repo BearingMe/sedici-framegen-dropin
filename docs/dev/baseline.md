@@ -1,52 +1,49 @@
-# Phase 3 baseline
+# Behaviour baseline
 
-The baseline is the behaviour of commit `e7481be`, tagged `phase2-baseline` (the commit that
-closed P2.11). Phase 3 moves files and must not change any of it.
+`docs/dev/baseline.txt` is a record of the whole offline suite for the Rust build, produced by
+`tools/baseline.ps1`. Compare against it before and after a slice: a difference is either a change
+the slice is meant to make, or a regression.
+
+The C++ equivalent (the CTest record of tag `phase2-baseline`) retired with the C++ build; the
+Phase 3 move-checks it supported (`tools/check_moves.ps1`, `tools/check_layers.ps1`) are gone too
+(the module layering is now `tests/architecture.rs`). `docs/dev/moves.md` stays as the Phase 3 move
+ledger, history only.
 
 ## What is recorded
 
-`docs/dev/baseline.txt` is the output of `tools/baseline.ps1` on the tagged tree (265 lines):
+| Section | Contents |
+| --- | --- |
+| `== exports` | the five names in the built DLL's PE export table, sorted |
+| `== marker` | `SEDICI_PROXY_V1 present` or `MISSING` (the deploy tools refuse a DLL without it) |
+| `== binaries` | per test binary, `N passed; M failed; K ignored` from `cargo test`, and the total |
+| `== verdicts` | one `binary test-name ok/FAILED/ignored` line per test |
+| `== figures` | the Stage 1 PSNR/SSIM, HUD preservation and 10-bit equivalence lines, the present-queue counts, `SKIP`/`NOTE` lines; absolute memory sizes are recorded as "measured", not compared |
 
-- the five DLL exports, in order;
-- the CTest result per test name (37 of 37 passed on an idle GPU);
-- the PASS/FAIL lines and the PSNR/SSIM lines of `sedici_fgcheck` (timings dropped);
-- the PASS/FAIL lines of `sedici_regression` and `sedici_regression observer`.
-
-Timing values are not compared; they depend on the machine and on GPU load.
+Timing is dropped (`finished in …`, `stage1 … ms`). Nothing in the file holds a host path, so two
+checkouts compare.
 
 ## Reproduce
 
 ```powershell
-cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
-cmake --build build --config Release
-.\tools\baseline.ps1 -Against docs\dev\baseline.txt     # prints "identical" or the differing lines
-.\tools\check_moves.ps1                                  # source files vs the tag (run after git add -A)
+cargo build --release                       # the image sections read target\release
+pwsh tools/baseline.ps1 -Out after.txt      # record (UTF-8, no BOM)
+pwsh tools/baseline.ps1 -Against docs\dev\baseline.txt   # "identical" or the differing lines
 ```
 
-## The two checks
+`tools/baseline.ps1` runs `cargo test -- --test-threads=1 --nocapture` itself (the GPU tests share
+one adapter and some present to it, so they are serialised) and builds the release DLL when it is
+missing. `-SkipTests` records only the image; `-SkipImage` records only the suite. Its parsing rule
+is the procedure at the end of [`docs/rust/test-parity.md`](../rust/test-parity.md): per-binary
+`test result:` lines, test verdicts, the numeric figure lines, and `SKIP` treated as "this host
+could not run it", exactly as the C++ suite's `SKIP_RETURN_CODE 77` cases were.
 
-| Check | Proves |
-| --- | --- |
-| `tools/baseline.ps1 -Against` | the built product behaves as before |
-| `tools/check_moves.ps1` | every changed source file differs from the tag only by rename, `#include` lines, or path entries in `CMakeLists.txt` (`fg_` prefix and directory ignored) |
+## When to re-record
 
-Both must pass after every slice. Added or deleted source files fail the move check.
+Re-record only after a comparison shows that every previously passing line still passes and the
+differences are the additions the change intended. Record the comparison in the commit. A change
+from `SKIP` to a verdict, or the reverse, is worth explaining: it usually means an adapter appeared
+or disappeared on the machine, not a behaviour change (K112).
 
-## Phase 4 re-records
-
-`baseline.txt` is the Phase 2 record at the tag `phase2-baseline` for Phase 3. Phase 4 changes
-behaviour on purpose, so the file is re-recorded after each milestone, and only after a comparison
-showing that every previously passing line still passes and the differences are the additions that
-the milestone made. P4.2 added the target-fps checks and `sedici_abi_target-auto` (38 CTest entries,
-154 regression checks). P4.3 added `sedici_abi_window-replace-vsync` and the error-code checks (39 CTest entries,
-156 regression checks). P4.4 added the `fast bar` scene to the fgcheck quality lines; the
-other quality lines are unchanged to the printed precision. The P4.6 to P4.9 offline work added `sedici_analyzers`, the 10-bit equivalence lines, the cursor-scan checks and the New/ForHwnd routing checks (41 CTest entries, 163 regression checks, 303 lines); the comparison before the re-record showed only additions, and the regression host's three foreground checks present (K137). `git show phase2-baseline:docs/dev/baseline.txt` is the original.
-
-## Final result (P3.6)
-
-On 2026-11-09, after the last move, a fresh configure and build in an empty directory gave
-`baseline: identical (265 lines)` against `docs/dev/baseline.txt` (exports, 37 of 37 CTest names,
-fgcheck and regression verdicts), and `tools/check_moves.ps1` reported 65 renamed files and 2
-edited only in include or source-list lines (`CMakeLists.txt`, `src/dllmain.cpp` counted
-among the edited ones). Each slice commit recorded the same result. No in-game run was needed
-(owner decision, 2026-11-09).
+The record was first taken on `experiment/rust` on 2026-11-10 after the C++ build was retired:
+523 tests across 13 test binaries and the doc-test target, all passing; exports and marker as above.
+That run had a working D3D12 adapter, so the GPU checks ran rather than skipped.

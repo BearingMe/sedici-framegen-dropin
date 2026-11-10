@@ -4,300 +4,563 @@ ffxCreateContext
 ffxDestroyContext
 ffxDispatch
 ffxQuery
-== ctest
-sedici_abi_bad-config Passed
-sedici_abi_contract Passed
-sedici_abi_destroy-inflight Passed
-sedici_abi_exports Passed
-sedici_abi_integrated Passed
-sedici_abi_invalid-calls Passed
-sedici_abi_legacy-config Passed
-sedici_abi_log-failure Passed
-sedici_abi_overlay-hotkey Passed
-sedici_abi_readonly-sedici Passed
-sedici_abi_session Passed
-sedici_abi_stale-forward Passed
-sedici_abi_target-auto Passed
-sedici_abi_unload Passed
-sedici_abi_window-replace Passed
-sedici_abi_window-replace-vsync Passed
-sedici_analyzers Passed
-sedici_deploy_tools Passed
-sedici_fgcheck Passed
-sedici_fgcheck_context_race Passed
-sedici_fgcheck_device_loss Passed
-sedici_fgcheck_params_fault_vrr Passed
-sedici_fgcheck_present Passed
-sedici_fgcheck_recording_fault Passed
-sedici_fgcheck_recording_fault_vrr Passed
-sedici_fgcheck_registration_recovery Passed
-sedici_fgcheck_reset_fault Passed
-sedici_fgcheck_reset_fault_vrr Passed
-sedici_fgcheck_retention_timeout Passed
-sedici_fgcheck_routing Passed
-sedici_fgcheck_session_recovery Passed
-sedici_fgcheck_submission_fault Passed
-sedici_fgcheck_submission_fault_vrr Passed
-sedici_fgcheck_submission_recovery_vrr Passed
-sedici_gpu_full Passed
-sedici_gpu_mini Passed
-sedici_layers Passed
-sedici_regression Passed
-sedici_settings_env_priority Passed
-sedici_settings_sedici_capability Passed
-sedici_settings_worker_lifetime Passed
-ctest-total 41
-== fgcheck
-display 480x270, render 320x180, alpha 0.5, 40 iterations
-rightward pan      psnr  42.92 dB  ssim 0.9985
-PASS rightward pan      phases in one list: 1/3 psnr  42.95 dB (nearest real  19.16), 2/3 psnr  42.92 dB (nearest real  19.12)
-rightward pan      hud preservation 100.0%
-PASS rightward pan      reset seed: the game frame with a HUD source, the HUD-less colour without
-leftward pan       psnr  40.60 dB  ssim 0.9975
-PASS leftward pan       phases in one list: 1/3 psnr  40.60 dB (nearest real  22.18), 2/3 psnr  38.63 dB (nearest real  22.19)
-leftward pan       hud preservation 100.0%
-PASS leftward pan       reset seed: the game frame with a HUD source, the HUD-less colour without
-diagonal thin bar  psnr  45.99 dB  ssim 0.9984
-PASS diagonal thin bar  phases in one list: 1/3 psnr  47.14 dB (nearest real  26.44), 2/3 psnr  47.58 dB (nearest real  26.56)
-diagonal thin bar  hud preservation 100.0%
-PASS diagonal thin bar  reset seed: the game frame with a HUD source, the HUD-less colour without
-fast bar           psnr  42.87 dB  ssim 0.9985
-PASS fast bar           phases in one list: 1/3 psnr  42.94 dB (nearest real  15.19), 2/3 psnr  42.66 dB (nearest real  15.12)
-fast bar           hud preservation 100.0%
-PASS fast bar           reset seed: the game frame with a HUD source, the HUD-less colour without
-PASS 10-bit rightward pan      psnr 8-bit 42.92 dB, 10-bit 42.92 dB, between them 76.61 dB
-PASS 10-bit diagonal thin bar  psnr 8-bit 45.99 dB, 10-bit 45.99 dB, between them 77.59 dB
-PASS create accepts Cyberpunk's create desc
-PASS configure accepts the FrameGenerationConfig desc
-PASS prepare accepts the legacy prepare desc
-PASS recorded prepare prevents premature teardown
-PASS rejected ordered generation keeps the prepare unretired
-PASS generate produces a frame
-PASS the frame command list executes and registers retirement
-PASS a second generate without a new prepare is refused
-PASS prepare samples native D32_FLOAT using an R32_FLOAT view
-PASS native depth snapshot generates a frame
-PASS native depth work retires with input states restored
-PASS prepare samples native R32_TYPELESS using an R32_FLOAT view
-PASS native depth snapshot generates a frame
-PASS native depth work retires with input states restored
-PASS prepare samples Cyberpunk's R32G8X24_TYPELESS depth plane
-PASS native depth snapshot generates a frame
-PASS native depth work retires with input states restored
-PASS prepare samples native D32_FLOAT_S8X24_UINT depth plane
-PASS native depth snapshot generates a frame
-PASS native depth work retires with input states restored
-PASS incompatible native depth format is still refused
-PASS a non-float motion resource is refused and clears pending preparation
-PASS configure accepts frame generation off
-PASS generate is refused while frame generation is off
-PASS next prepare records on a separate compute queue
-PASS FG off invalidates the recorded snapshot without freeing it
-PASS submitted prepare remains occupied behind its GPU fence
-PASS a bounded retirement timeout leaves gated GPU work unretired
-PASS in-flight snapshot refuses reuse and teardown
-PASS prepare becomes reusable after GPU retirement
-PASS FG re-enable recovers an abandoned retired snapshot
-PASS split prepare registers its completion fence
-PASS split generation without an explicit queue dependency is refused
-PASS generation queue waits for the registered compute prepare
-PASS split-queue generation consumes the recovered snapshot
-PASS generation retirement covers the cross-queue dependency
-PASS retired context destroys safely
-PASS presenter refuses a job after stop without advancing its queue
-PASS QPC counts divide by frequency to produce seconds
-PASS QPC conversion preserves a 36 fps interval after long uptime
-PASS missing QPC frequency does not divide by zero
-PASS the first cycle presents only the real seed without waiting
-PASS an on-time cycle presents the midpoint before the real frame
-PASS an on-time cycle does not wait
-PASS the real frame follows the midpoint by half an interval
-PASS an early cycle never waits before the current midpoint
-PASS a late cycle presents without waiting
-PASS a midpoint past its slot is dropped without delaying the real frame
-PASS without a midpoint the real frame is never held
-PASS an invalid interval falls back to a bounded pacing value
-PASS 20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall
-PASS ratio validation handles large denominators without overflow
-PASS ratio validation rejects a zero denominator
-PASS presenter stale-output policy uses the later deadline including equality
-PASS stale-output policy drains a hitch backlog chronologically
-PASS 2x schedule: 800 outputs per 400 real frames, 400 real, <=2 generated, even 10.417 ms grid
-PASS 1.75x schedule: 2800 outputs per 1600 real frames, 400 real, <=2 generated, even 11.905 ms grid
-PASS 1.5x schedule: 1200 outputs per 800 real frames, 400 real, <=2 generated, even 13.889 ms grid
-PASS 1.25x schedule: 2000 outputs per 1600 real frames, 400 real, <=2 generated, even 16.667 ms grid
-PASS 1.5x schedule: a 3x hitch shows only the real frame, then generation resumes
-PASS adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a tenth of a slot of the grid
-PASS adaptive schedule: a 0.25 s gap shows only the real frame
-PASS adaptive schedule: below 20 real fps shows only real frames
-PASS 2x schedule: jitter averaging 20 real fps still generates for almost every frame
-PASS 2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation
-PASS adaptive schedule: 40 real fps towards 144 caps at two generated frames
-== regression 
-PASS config: an attribute-query error is not treated as a missing file
-PASS save accepts array-of-table boundary
-PASS save leaves an existing .tmp file untouched
-PASS log value stays in its own table
-PASS array table and comments stay unchanged
-PASS case-sensitive target table can be appended
-PASS differently cased table is untouched
-PASS unsafe multiline patch is rejected
-PASS rejected save preserves every original byte
-PASS unsupported quoted key fails safely
-PASS quoted-key rejection does not overwrite file
-PASS fractional FPS saves with comments
-PASS fractional FPS survives patch
-PASS numbers rounding upward to integers can be saved
-PASS FPS semantic validation uses the rounded integer
-PASS scale semantic validation uses the rounded integer
-PASS target: auto is saved as the string "auto" and the comment is kept
-PASS cursor interception finds the executable's imports
-PASS the first scan patches both cursor imports of the executable
-PASS the cursor probe module loads
-PASS interception stays available after a module loads
-PASS a module loaded after the first scan has its cursor imports intercepted
-PASS the rescan counts the new module
-PASS the probe exports its cursor call
-PASS settings: a valid candidate is applied and acknowledged with a new revision
-PASS settings: the live value follows the acknowledged snapshot
-PASS settings: an identical candidate changes nothing and keeps the revision
-PASS settings: a stale request is a conflict and applies nothing
-PASS settings: an out-of-range value is rejected, not clamped
-PASS settings: a candidate with one invalid field applies none of its fields
-PASS settings: an invalidated edit generation cannot publish a baseline
-PASS settings: initialize a current edit baseline
-PASS settings: a stale Save ticket cannot write the file
-PASS settings: a control change applies live
-PASS settings: cancel restores the baseline as one complete change
-PASS settings: save persists the acknowledged value and keeps comments
-PASS settings: cancel after save returns to the saved value
-PASS settings: an externally edited file is not overwritten and the live value is kept
-PASS settings: capture baseline for same-metadata edit
-PASS settings: same-size external edit with restored timestamp is not overwritten
-PASS settings: capture baseline before file replacement
-PASS settings: replacement with identical content and timestamp invalidates the baseline
-PASS settings: capture baseline before replacement race
-PASS settings: an external edit before replacement is detected and preserved
-PASS settings: capture baseline before swap race
-PASS settings: an external edit between the final check and the swap is restored
-PASS settings: capture baseline before post-write race
-PASS settings: a post-write external edit is not accepted as the saved baseline
-PASS settings: reopen after post-write conflict
-PASS settings: capture baseline before post-write failure
-PASS settings: post-write failure reports the write and blocks reuse of an uncertain baseline
-PASS settings: reacquire baseline after post-write failure
-PASS settings: cancel refuses to overwrite an outside change
-PASS settings: save refuses a conflicting outside change
-PASS settings: begin edit before concurrent save
-PASS settings: live change proceeds and cancel is rejected during file I/O
-PASS settings: save reports the exact captured revision without discarding a newer live change
-PASS settings I/O: invalidated asynchronous begin cannot publish its baseline
-PASS settings I/O: a current edit begins on a different bounded worker thread
-PASS settings I/O: a ticketed snapshot saves on a different worker thread
-PASS settings I/O: begin before concurrent worker save
-PASS settings I/O: one worker saves its ticket while newer live settings remain unsaved
-PASS settings I/O: output callback returns while file inspection is paused
-PASS settings: a failed save is reported and leaves the live values alone
-PASS settings: an unavailable edit baseline rejects cancel and save
-PASS settings: complete live snapshots never contain mixed candidates
-PASS settings: concurrent changes never lose or double-count a revision
-PASS settings: concurrent changes leave a valid state
-PASS reserved but unissued token is not classified as issued
-PASS token namespace issues distinct stable identities
-PASS token exhaustion rejects creation without recycling issued identities
-PASS token namespace excludes unaligned, unissued and foreign values
-PASS invalid token namespace is unusable
-PASS token reservation failure issues no token and remains retryable
-PASS token namespace can reserve after an earlier failure
-PASS retirement: failed slot wait does not advance or publish a slot
-PASS retirement: a non-ready success status does not advance a slot
-PASS retirement: successful slot wait advances the ring once
-PASS retirement: removed-device sentinel is not a completed fence
-PASS retirement: removed-fence sentinel never produces success
-PASS retirement: failed signal is returned without waiting or reporting completion
-PASS retirement: an accepted signal propagates the subsequent wait result
-PASS present queue: bounded ring accepts capacity and refuses overflow
-PASS present queue: first item retains FIFO order
-PASS present queue: released slot can be reused without allocation
-PASS present queue: wraparound preserves FIFO order
-PASS negative client coordinates map to the near edge
-PASS ImGui assertion throws instead of aborting game
-PASS log: the queue drains
-PASS log: every line reached the file
-PASS log: lines keep their order
-PASS log: an accepted line costs the caller under 50 us on average
-PASS log: the storm drains
-PASS log: a repeated message is rate limited
-PASS log: suppressed repeats are counted
-PASS log: the follow-up drains
-PASS log: the next admitted repeat reports how many were suppressed
-PASS log: a stalled disk never holds the caller (worst call under 20 ms)
-PASS log: the queue is bounded
-PASS log: lines refused by a full queue are counted
-PASS log: the slow sink drains once it recovers
-PASS log: the report line drains
-PASS log: dropped lines are reported in the log
-PASS log: a dead file never holds the caller
-PASS log: a failed write is counted and the sink is marked unavailable
-PASS log: the outage ends
-PASS log: the sink recovers and the lost lines are counted
-PASS log: the outage and its loss are reported once the file is writable
-PASS settings I/O: a job starts
-PASS settings I/O: the job is running
-PASS settings I/O: a hung job is reported as stalled with its epoch
-PASS settings I/O: the stall is reported after the limit, not before
-PASS settings I/O: the worker is still running and is marked stalled
-PASS settings I/O: no second worker starts beside a stalled one
-PASS settings I/O: the stall is reported once
-PASS settings I/O: the stall is counted
-PASS settings I/O: the diagnostics snapshot shows the stalled worker
-PASS settings I/O: the worker exits once the call returns
-PASS settings I/O: the stalled job's late result is discarded
-PASS settings I/O: a new job starts after recovery
-PASS settings I/O: the new job completes normally
-PASS errors: each router rejection reason maps to its stable code
-PASS errors: code names are the documented strings
-PASS target: auto is floor(Hz - Hz^2/3600) (59, 73, 116, 138, 157, 224, 324)
-PASS target: auto with an unknown or implausible refresh rate is uncapped
-PASS target: 0 and auto-without-refresh are uncapped
-PASS target: the real cap is the output target divided by the output ratio (at least 1)
-PASS target: a legacy limiter.fps becomes its output rate
-PASS target: with no output context the cap is the target
-PASS target: publishing 2x reports a change and halves the cap
-PASS target: publishing the same context reports no change
-PASS target: auto on 75 Hz at 2x caps real frames at 36.5
-PASS target: moving to a 144 Hz monitor re-resolves auto (K19)
-PASS target: auto with an unknown refresh rate falls back to uncapped
-PASS target: 0 is uncapped
-PASS ui: the slider works in half-fps units and clamps
-PASS ui: an untouched slider follows the live value
-PASS ui: a slow upward drag is never undone by the live value (K118)
-PASS ui: Apply returns the chosen value and clears the edit
-PASS ui: Alt+F4 passes through the Full menu to the game, other keys do not (K126)
-PASS ui: scale values from older files snap to 0.8, 0.9 or 1.0 (FR-04)
-PASS limiter: the first frame seeds the schedule and never waits
-PASS limiter: an early game is held to exactly one interval per frame
-PASS limiter: a late frame does not wait and keeps the schedule
-PASS limiter: a stall of several intervals reseeds the schedule (no catch-up burst)
-PASS limiter: a game slower than the cap is never delayed
-PASS limiter: a zero interval never waits
-PASS limiter: a live rate change reseeds instead of waiting out the old interval
-PASS live limiter actually delays Present after silent uncapped startup
-PASS old window retains its original procedure
-PASS new window forwards its own messages
-PASS recapture below another subclass does not form a recursive chain
-PASS old window WM_NCDESTROY reaches the game procedure
-PASS old destruction leaves new window intact
-PASS hotkey still works after replacement
-PASS a consumed hotkey key-down also consumes its matching key-up
-PASS an unrelated unpaired key-up still reaches the game window
-PASS game owns mouse capture before Full entry
-PASS capture-change handler can reenter ClipCursor without deadlock
-PASS Full capture enters on the owning window thread
-PASS overlay failure immediately stops cursor suppression
-PASS disabled overlay cannot reopen Full
-PASS current window WM_NCDESTROY reaches the game procedure
-163 checks, 0 failed
-== regression observer
-PASS overlay Full costs the caller under 5 ms of CPU per frame
-1 checks, 0 failed
+== marker
+SEDICI_PROXY_V1 present
+== binaries
+abi 8 passed 0 failed 0 ignored
+architecture 5 passed 0 failed 0 ignored
+doc 0 passed 0 failed 1 ignored
+lib 406 passed 0 failed 0 ignored
+lifecycle 5 passed 0 failed 0 ignored
+overlay_egui 2 passed 0 failed 0 ignored
+overlay_host 6 passed 0 failed 0 ignored
+overlay_ui 2 passed 0 failed 0 ignored
+presentation 39 passed 0 failed 0 ignored
+refcount 2 passed 0 failed 0 ignored
+routing 42 passed 0 failed 0 ignored
+stage1 1 passed 0 failed 0 ignored
+swapchain_smoke 2 passed 0 failed 0 ignored
+tenbit 2 passed 0 failed 0 ignored
+total 523 tests
+== verdicts
+abi a_recognised_create_chain_is_a_local_error_until_the_router_is_installed ok
+abi chain_cases_never_crash_and_answer_a_documented_code::case_1_null_descriptor ok
+abi chain_cases_never_crash_and_answer_a_documented_code::case_2_cyclic_chain ok
+abi chain_cases_never_crash_and_answer_a_documented_code::case_3_unknown_type ok
+abi exports_def_names_the_same_five ok
+abi null_handles_are_parameter_errors::case_1_create_on_null ok
+abi null_handles_are_parameter_errors::case_2_query_on_null ok
+abi the_built_dll_exports_exactly_the_five_entry_points ok
+architecture crate_root_denies_unsafe ok
+architecture layer_imports::case_1 ok
+architecture layer_imports::case_2 ok
+architecture no_unsafe_outside_adapters::case_1 ok
+architecture no_unsafe_outside_adapters::case_2 ok
+doc src\adapters\driven\logging.rs - adapters::driven::logging (line 28) ignored
+lib adapters::driven::config_toml::tests::a_crlf_file_keeps_its_line_endings ok
+lib adapters::driven::config_toml::tests::an_unreadable_file_is_reported_and_defaults_apply ok
+lib adapters::driven::config_toml::tests::attribute_query_failure_is_not_a_missing_file ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_01 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_02 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_03 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_04 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_05 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_06 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_07 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_08 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_09 ok
+lib adapters::driven::config_toml::tests::bad_keys_report_the_key_and_keep_the_default::case_10 ok
+lib adapters::driven::config_toml::tests::load_combines_file_values_with_environment_precedence ok
+lib adapters::driven::config_toml::tests::missing_file_uses_defaults_and_reports_absence ok
+lib adapters::driven::config_toml::tests::numbers_that_round_to_integers_are_written_and_validated_as_integers ok
+lib adapters::driven::config_toml::tests::patch_keeps_array_tables_and_differently_cased_tables_untouched ok
+lib adapters::driven::config_toml::tests::patch_preserves_comments_and_rewrites_the_key::case_1 ok
+lib adapters::driven::config_toml::tests::patch_preserves_comments_and_rewrites_the_key::case_2 ok
+lib adapters::driven::config_toml::tests::reads_fg_keys::case_1 ok
+lib adapters::driven::config_toml::tests::reads_fg_keys::case_2 ok
+lib adapters::driven::config_toml::tests::removed_keys_are_noted::case_1 ok
+lib adapters::driven::config_toml::tests::removed_keys_are_noted::case_2 ok
+lib adapters::driven::config_toml::tests::same_size_edit_with_a_restored_timestamp_still_conflicts ok
+lib adapters::driven::config_toml::tests::save_failure_is_a_result_and_leaves_the_original_alone ok
+lib adapters::driven::config_toml::tests::save_leaves_a_preexisting_sibling_untouched ok
+lib adapters::driven::config_toml::tests::save_patches_in_place_and_keeps_a_comment ok
+lib adapters::driven::config_toml::tests::save_refuses_an_outside_edit_between_begin_and_save ok
+lib adapters::driven::config_toml::tests::saving_a_missing_file_appends_every_section ok
+lib adapters::driven::config_toml::tests::syntax_error_reports_line_and_column_and_falls_back_everywhere ok
+lib adapters::driven::config_toml::tests::unsafe_layout_is_refused_without_any_byte_changed::case_1 ok
+lib adapters::driven::config_toml::tests::unsafe_layout_is_refused_without_any_byte_changed::case_2 ok
+lib adapters::driven::config_toml::tests::wrong_typed_section_is_one_problem_and_its_keys_are_ignored ok
+lib adapters::driven::logging::tests::a_sink_that_cannot_open_counts_lost_lines ok
+lib adapters::driven::logging::tests::burst_then_refill::case_1 ok
+lib adapters::driven::logging::tests::burst_then_refill::case_2 ok
+lib adapters::driven::logging::tests::digits_do_not_distinguish_messages ok
+lib adapters::driven::logging::tests::level_filters::case_1 ok
+lib adapters::driven::logging::tests::level_filters::case_2 ok
+lib adapters::driven::logging::tests::level_filters::case_3 ok
+lib adapters::driven::logging::tests::level_parsing::case_1 ok
+lib adapters::driven::logging::tests::level_parsing::case_2 ok
+lib adapters::driven::logging::tests::level_parsing::case_3 ok
+lib adapters::driven::logging::tests::level_parsing::case_4 ok
+lib adapters::driven::logging::tests::level_parsing::case_5 ok
+lib adapters::driven::logging::tests::level_parsing::case_6 ok
+lib adapters::driven::logging::tests::line_shape::case_1 ok
+lib adapters::driven::logging::tests::line_shape::case_2 ok
+lib adapters::driven::logging::tests::line_shape::case_3 ok
+lib adapters::driven::logging::tests::long_messages_are_capped ok
+lib adapters::driven::logging::tests::suppressed_repeats_are_reported_on_the_next_admitted_line ok
+lib adapters::driven::logging::tests::writes_the_cpp_line_shape_and_counts ok
+lib adapters::driven::overlay_compose::tests::copying_a_resource_onto_itself_records_nothing ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_01 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_02 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_03 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_04 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_05 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_06 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_07 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_08 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_09 ok
+lib adapters::driven::overlay_compose::tests::ffx_states_map_to_dx12::case_10 ok
+lib adapters::driven::overlay_compose::tests::the_copy_is_bracketed_by_restoring_barriers ok
+lib adapters::driven::overlay_compose::tests::the_pixel_and_compute_union_is_one_state ok
+lib adapters::driven::overlay_ui::device::tests::a_clip_outside_the_output_is_clamped ok
+lib adapters::driven::overlay_ui::device::tests::a_vertex_stream_over_64_kib_is_refused ok
+lib adapters::driven::overlay_ui::device::tests::clip_rects_scale_to_physical_pixels::case_1 ok
+lib adapters::driven::overlay_ui::device::tests::clip_rects_scale_to_physical_pixels::case_2 ok
+lib adapters::driven::overlay_ui::device::tests::clip_rects_scale_to_physical_pixels::case_3 ok
+lib adapters::driven::overlay_ui::device::tests::packing_concatenates_primitives_with_offsets ok
+lib adapters::driven::overlay_ui::device::tests::packing_skips_empty_meshes ok
+lib adapters::driven::overlay_ui::device::tests::packing_writes_twenty_bytes_per_vertex_and_four_per_index ok
+lib adapters::driven::overlay_ui::device::tests::root_constants_carry_the_screen_size_and_its_reciprocal ok
+lib adapters::driven::overlay_ui::device::tests::staging_rows_are_aligned_to_256_bytes ok
+lib adapters::driven::overlay_ui::device::tests::the_shaders_are_embedded ok
+lib adapters::driven::overlay_ui::input::tests::a_click_feeds_the_position_first ok
+lib adapters::driven::overlay_ui::input::tests::a_mouse_move_maps_client_to_output_pixels ok
+lib adapters::driven::overlay_ui::input::tests::alt_f4_never_reaches_egui ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_1 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_2 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_3 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_4 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_5 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_6 ok
+lib adapters::driven::overlay_ui::input::tests::keys_map_to_the_menu_only::case_7 ok
+lib adapters::driven::overlay_ui::input::tests::raw_input_filters_the_passthrough_key ok
+lib adapters::driven::overlay_ui::input::tests::typing_a_character_becomes_text_but_a_control_code_does_not ok
+lib adapters::driven::overlay_ui::input::tests::wheel_units_become_points ok
+lib adapters::driven::settings_worker::tests::a_job_runs_on_another_thread ok
+lib adapters::driven::settings_worker::tests::a_reported_stall_asks_for_cancellation_of_the_worker ok
+lib adapters::driven::settings_worker::tests::begin_and_save_run_on_the_worker_and_patch_the_file ok
+lib adapters::driven::win32::iat::tests::a_rescan_never_patches_a_slot_twice ok
+lib adapters::driven::win32::iat::tests::a_slot_holding_something_else_is_skipped_not_chained ok
+lib adapters::driven::win32::iat::tests::an_ordinal_entry_is_not_patched ok
+lib adapters::driven::win32::iat::tests::capture_enters_and_leaves_on_the_owning_thread ok
+lib adapters::driven::win32::iat::tests::capture_state_needs_a_window::case_1 ok
+lib adapters::driven::win32::iat::tests::capture_state_needs_a_window::case_2 ok
+lib adapters::driven::win32::iat::tests::module_enumeration_includes_the_executable ok
+lib adapters::driven::win32::iat::tests::patches_import_and_delay_import_slots_that_hold_the_real_functions ok
+lib adapters::driven::win32::iat::tests::restore_puts_the_original_pointers_back ok
+lib adapters::driven::win32::identity::tests::the_same_adapter_rule_is_luid_equality ok
+lib adapters::driven::win32::modules::tests::enumerates_the_executable_first_and_it_is_not_system ok
+lib adapters::driven::win32::modules::tests::kernel32_is_a_system_module ok
+lib adapters::driven::win32::timer::tests::a_short_wait_takes_at_least_its_duration ok
+lib adapters::driven::win32::timer::tests::reports_a_frequency_and_monotonic_ticks ok
+lib adapters::driving::ffx_abi::desc_walk::tests::a_cycle_stops_at_the_first_repeat ok
+lib adapters::driving::ffx_abi::desc_walk::tests::a_known_chain_flattens_into_the_safe_model ok
+lib adapters::driving::ffx_abi::desc_walk::tests::a_null_chain_yields_nothing ok
+lib adapters::driving::ffx_abi::desc_walk::tests::the_chain_walk_is_bounded ok
+lib adapters::driving::ffx_abi::desc_walk::tests::unknown_types_are_collected_but_name_no_context ok
+lib adapters::driving::ffx_abi::exports::tests::a_null_chain_with_a_handle_is_a_parameter_error_on_create ok
+lib adapters::driving::ffx_abi::exports::tests::a_null_context_is_a_parameter_error_on_every_export ok
+lib adapters::driving::ffx_abi::exports::tests::a_panic_becomes_the_documented_error ok
+lib adapters::driving::ffx_abi::types::tests::desc_type_constants_match_the_header_macros ok
+lib adapters::driving::ffx_abi::types::tests::version_constant_matches_the_header_macro ok
+lib adapters::driving::window_input::tests::a_consumed_hotkey_key_down_consumes_its_key_up ok
+lib adapters::driving::window_input::tests::a_full_menu_swallows_game_input ok
+lib adapters::driving::window_input::tests::alt_f4_reaches_the_game_in_full_mode ok
+lib adapters::driving::window_input::tests::an_unpaired_key_up_is_forwarded ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_1 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_2 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_3 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_4 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_5 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_6 ok
+lib adapters::driving::window_input::tests::consumed_input_matches_the_cpp_list::case_7 ok
+lib adapters::driving::window_input::tests::destroy_leaves_capture_and_drops_the_chain ok
+lib adapters::driving::window_input::tests::set_cursor_is_consumed_and_returns_true ok
+lib adapters::driving::window_input::tests::wm_input_goes_to_the_default_procedure ok
+lib application::faults::tests::a_different_fault_is_not_consumed ok
+lib application::faults::tests::a_fault_is_consumed_once::case_1 ok
+lib application::faults::tests::a_fault_is_consumed_once::case_2 ok
+lib application::faults::tests::a_fault_is_consumed_once::case_3 ok
+lib application::faults::tests::a_fault_is_consumed_once::case_4 ok
+lib application::faults::tests::hooks_run_once ok
+lib application::faults::tests::retention_and_release_balance ok
+lib application::faults::tests::retirement_hold_is_sticky ok
+lib application::ffx_model::tests::a_rejection_keeps_the_explicit_ffx_code_and_classifies_the_reason ok
+lib application::ffx_model::tests::return_codes_match_the_c_header ok
+lib application::overlay::tests::a_cancel_action_returns_to_the_mode_full_was_opened_from ok
+lib application::overlay::tests::a_drawn_action_changes_the_live_value ok
+lib application::overlay::tests::a_frame_builds_the_view_for_its_mode::case_1 ok
+lib application::overlay::tests::a_frame_builds_the_view_for_its_mode::case_2 ok
+lib application::overlay::tests::a_frame_builds_the_view_for_its_mode::case_3 ok
+lib application::overlay::tests::a_rejected_change_says_why_and_keeps_the_live_value ok
+lib application::overlay::tests::a_save_action_hands_out_a_ticket_only_with_a_baseline ok
+lib application::overlay::tests::a_slow_upward_drag_is_never_undone_by_the_live_value ok
+lib application::overlay::tests::a_swapchain_change_restarts_the_window_and_rearms_early_reports ok
+lib application::overlay::tests::an_io_completion_for_an_older_epoch_is_discarded ok
+lib application::overlay::tests::apply_button_sets_the_live_cap::case_1 ok
+lib application::overlay::tests::apply_button_sets_the_live_cap::case_2 ok
+lib application::overlay::tests::cadence_reports_60_eight_times_then_300 ok
+lib application::overlay::tests::cancel_returns_to_the_mode_full_was_opened_from ok
+lib application::overlay::tests::cancel_without_a_baseline_does_nothing ok
+lib application::overlay::tests::choosing_a_scale_updates_the_live_value ok
+lib application::overlay::tests::edits_are_gated_on_the_baseline_and_the_worker ok
+lib application::overlay::tests::effective_scale_is_auto_or_clamped::case_1 ok
+lib application::overlay::tests::effective_scale_is_auto_or_clamped::case_2 ok
+lib application::overlay::tests::entering_full_starts_an_edit_and_remembers_the_previous_mode ok
+lib application::overlay::tests::full_view_reports_the_target_mode::case_1 ok
+lib application::overlay::tests::full_view_reports_the_target_mode::case_2 ok
+lib application::overlay::tests::full_view_reports_the_target_mode::case_3 ok
+lib application::overlay::tests::leaving_full_invalidates_the_edit ok
+lib application::overlay::tests::leaving_full_invalidates_the_edit_through_the_frame ok
+lib application::overlay::tests::mini_line_matches_the_cpp_format ok
+lib application::overlay::tests::save_without_a_valid_ticket_asks_for_a_reopen ok
+lib application::overlay::tests::the_active_line_names_the_callback_resources ok
+lib application::overlay::tests::the_cadence_line_arrives_once_and_the_active_line_on_the_first_output ok
+lib application::overlay::tests::the_hotkey_cycles_off_mini_full_off ok
+lib application::overlay::tests::the_scale_choice_snaps_an_older_value ok
+lib application::overlay::tests::the_timing_rings_feed_the_samples ok
+lib application::overlay::tests::the_untouched_slider_follows_the_live_value ok
+lib application::overlay::tests::zero_frequency_reports_a_zero_span::case_1 ok
+lib application::overlay::tests::zero_frequency_reports_a_zero_span::case_2 ok
+lib application::ports::clock::tests::conversion_uses_the_frequency ok
+lib application::ports::clock::tests::fake_wait_advances_to_the_deadline ok
+lib application::ports::generator::tests::retired_wait_counts_work_on_a_removed_device_as_retired ok
+lib application::ports::generator::tests::retired_wait_never_treats_removal_as_success ok
+lib application::ports::generator::tests::retired_wait_reports_timeout_without_failing ok
+lib application::ports::generator::tests::retired_wait_skips_a_completed_fence ok
+lib application::ports::generator::tests::stage1_pass_names_match_the_cpp_hook ok
+lib application::ports::input::tests::maps_and_clamps_points ok
+lib application::ports::input::tests::modifiers_must_match_exactly ok
+lib application::ports::input::tests::parses_hotkey_text::case_1 ok
+lib application::ports::input::tests::parses_hotkey_text::case_2 ok
+lib application::ports::input::tests::parses_hotkey_text::case_3 ok
+lib application::ports::input::tests::parses_hotkey_text::case_4 ok
+lib application::ports::input::tests::parses_hotkey_text::case_5 ok
+lib application::ports::input::tests::parses_hotkey_text::case_6 ok
+lib application::ports::input::tests::parses_hotkey_text::case_7 ok
+lib application::ports::swapchain::tests::chain_flags_are_read_from_the_raw_bits ok
+lib application::ports::swapchain::tests::empty_metadata_is_not_the_same_as_absent_metadata ok
+lib application::ports::swapchain::tests::only_the_generator_formats_are_presentable ok
+lib application::ports::swapchain::tests::present_flags_forward_unchanged ok
+lib application::presentation::limiter::tests::a_failed_wait_disables_the_limiter ok
+lib application::presentation::limiter::tests::a_fast_game_is_held_to_one_interval_per_frame ok
+lib application::presentation::limiter::tests::a_live_target_change_reseeds ok
+lib application::presentation::limiter::tests::a_slow_game_is_never_delayed ok
+lib application::presentation::limiter::tests::first_frame_seeds_and_never_waits ok
+lib application::presentation::limiter::tests::fps_text_matches_the_log::case_1 ok
+lib application::presentation::limiter::tests::fps_text_matches_the_log::case_2 ok
+lib application::presentation::limiter::tests::fps_text_matches_the_log::case_3 ok
+lib application::presentation::limiter::tests::fps_text_matches_the_log::case_4 ok
+lib application::presentation::limiter::tests::inert_when_target_is_zero ok
+lib application::presentation::limiter::tests::missing_frequency_disables ok
+lib application::presentation::limiter::tests::reports_every_300_frames_through_tracing ok
+lib application::presentation::pacing::tests::a_fresh_pacer_seeds_the_first_cycle ok
+lib application::presentation::pacing::tests::pacers_are_keyed_and_removable ok
+lib application::presentation::pacing::tests::superseded_policy::case_1 ok
+lib application::presentation::pacing::tests::superseded_policy::case_2 ok
+lib application::presentation::pacing::tests::superseded_policy::case_3 ok
+lib application::presentation::pacing::tests::the_second_cycle_generates_and_smooths ok
+lib application::presentation::presenter::tests::an_unmeasured_gpu_estimate_only_lowers_the_latency ok
+lib application::presentation::presenter::tests::display_mode_derives_the_period_and_lead_rows ok
+lib application::presentation::presenter::tests::latency_uses_the_structural_maximum_and_gpu_median ok
+lib application::presentation::presenter::tests::only_the_scanline_guard_accepts_an_early_blank::case_1 ok
+lib application::presentation::presenter::tests::only_the_scanline_guard_accepts_an_early_blank::case_2 ok
+lib application::presentation::presenter::tests::only_the_scanline_guard_accepts_an_early_blank::case_3 ok
+lib application::presentation::presenter::tests::present_errors_map_to_the_cpp_codes::case_1 ok
+lib application::presentation::presenter::tests::present_errors_map_to_the_cpp_codes::case_2 ok
+lib application::presentation::presenter::tests::present_errors_map_to_the_cpp_codes::case_3 ok
+lib application::presentation::presenter::tests::present_errors_map_to_the_cpp_codes::case_4 ok
+lib application::presentation::presenter::tests::scanline_guard_reaches_back_before_the_previous_scan_ends ok
+lib application::presentation::presenter::tests::timer_guard_keeps_a_full_refresh::case_1 ok
+lib application::presentation::presenter::tests::timer_guard_keeps_a_full_refresh::case_2 ok
+lib application::router::tests::an_armed_reservation_fault_issues_no_token_then_a_retry_succeeds ok
+lib application::router::tests::the_provider_table_matches_the_amd_binary ok
+lib application::router::tests::the_token_namespace_never_reuses_a_value ok
+lib application::settings::io::tests::a_job_runs_on_another_thread_and_reports_its_epoch ok
+lib application::settings::io::tests::a_stalled_job_is_reported_once_with_its_epoch_and_no_second_worker_starts ok
+lib application::settings::io::tests::a_zero_generation_or_invalid_ticket_starts_nothing ok
+lib application::settings::io::tests::only_one_job_runs_and_a_pending_completion_blocks_the_next ok
+lib application::settings::live::tests::initialize_copies_the_effective_settings ok
+lib application::settings::live::tests::listener_is_told_when_the_cap_changes ok
+lib application::settings::live::tests::log_level_changes_reach_the_sink ok
+lib application::settings::live::tests::output_context_resolves_the_real_cap::case_1 ok
+lib application::settings::live::tests::output_context_resolves_the_real_cap::case_2 ok
+lib application::settings::live::tests::output_context_resolves_the_real_cap::case_3 ok
+lib application::settings::live::tests::output_context_resolves_the_real_cap::case_4 ok
+lib application::settings::live::tests::publishing_the_same_context_reports_no_change_and_cap_changes_report_one ok
+lib application::settings::live::tests::setters_clamp_to_their_ranges ok
+lib application::settings::tx::tests::a_failed_write_is_a_result_and_leaves_live_values_alone ok
+lib application::settings::tx::tests::a_post_write_external_edit_is_not_accepted_as_the_saved_baseline ok
+lib application::settings::tx::tests::a_replacement_with_identical_bytes_invalidates_the_baseline ok
+lib application::settings::tx::tests::a_stale_save_ticket_cannot_write_the_file ok
+lib application::settings::tx::tests::a_valid_candidate_is_applied_with_a_new_revision ok
+lib application::settings::tx::tests::an_environment_controlled_field_rejects_live_overrides ok
+lib application::settings::tx::tests::an_invalidated_edit_generation_cannot_publish_a_baseline ok
+lib application::settings::tx::tests::an_outside_change_makes_cancel_and_save_refuse ok
+lib application::settings::tx::tests::an_outside_edit_between_begin_and_save_is_refused_and_kept ok
+lib application::settings::tx::tests::cancel_and_save_refuse_an_unavailable_baseline ok
+lib application::settings::tx::tests::cancel_restores_the_baseline_as_one_change ok
+lib application::settings::tx::tests::concurrent_changes_never_lose_or_double_count_a_revision ok
+lib application::settings::tx::tests::identical_candidate_is_unchanged_and_stale_one_conflicts ok
+lib application::settings::tx::tests::one_invalid_field_rejects_the_whole_candidate ok
+lib application::settings::tx::tests::out_of_range_values_are_rejected_without_touching_the_live_value::case_1 ok
+lib application::settings::tx::tests::out_of_range_values_are_rejected_without_touching_the_live_value::case_2 ok
+lib application::settings::tx::tests::out_of_range_values_are_rejected_without_touching_the_live_value::case_3 ok
+lib application::settings::tx::tests::save_persists_the_acknowledged_value_and_moves_the_baseline ok
+lib application::stats::tests::a_stall_needs_ten_baseline_samples ok
+lib application::stats::tests::diag_line_is_only_written_when_notable::case_1 ok
+lib application::stats::tests::diag_line_is_only_written_when_notable::case_2 ok
+lib application::stats::tests::diag_line_is_only_written_when_notable::case_3 ok
+lib application::stats::tests::diag_line_is_only_written_when_notable::case_4 ok
+lib application::stats::tests::diag_line_is_only_written_when_notable::case_5 ok
+lib application::stats::tests::diag_line_shape ok
+lib application::stats::tests::non_verbose_records_neither_presents_nor_events ok
+lib application::stats::tests::presents_are_counted_per_prepare_and_as_intervals ok
+lib application::stats::tests::real_drops_are_counted ok
+lib application::stats::tests::report_comes_every_300_prepares ok
+lib application::stats::tests::reset_is_reported_only_for_the_v2_desc ok
+lib application::stats::tests::stall_detector::case_1 ok
+lib application::stats::tests::stall_detector::case_2 ok
+lib application::stats::tests::stall_detector::case_3 ok
+lib application::stats::tests::stall_line_names_the_newest_recent_swapchain_event ok
+lib application::stats::tests::stalls_are_rate_limited_but_still_counted ok
+lib application::stats::tests::zero_frequency_records_nothing ok
+lib domain::config::tests::bad_environment_values_leave_the_file_value_alone ok
+lib domain::config::tests::environment_overrides_win_and_report_bad_values ok
+lib domain::config::tests::explicit_target_beats_a_legacy_file_cap_but_not_a_legacy_env_cap ok
+lib domain::config::tests::hotkeys::case_01 ok
+lib domain::config::tests::hotkeys::case_02 ok
+lib domain::config::tests::hotkeys::case_03 ok
+lib domain::config::tests::hotkeys::case_04 ok
+lib domain::config::tests::hotkeys::case_05 ok
+lib domain::config::tests::hotkeys::case_06 ok
+lib domain::config::tests::hotkeys::case_07 ok
+lib domain::config::tests::hotkeys::case_08 ok
+lib domain::config::tests::hotkeys::case_09 ok
+lib domain::config::tests::hotkeys::case_10 ok
+lib domain::config::tests::hotkeys::case_11 ok
+lib domain::config::tests::legacy_limiter_becomes_an_output_target_at_the_nominal_ratio ok
+lib domain::config::tests::multiplier_aliases::case_1 ok
+lib domain::config::tests::multiplier_aliases::case_2 ok
+lib domain::config::tests::multiplier_aliases::case_3 ok
+lib domain::config::tests::multiplier_aliases::case_4 ok
+lib domain::config::tests::multiplier_aliases::case_5 ok
+lib domain::config::tests::multiplier_aliases::case_6 ok
+lib domain::config::tests::numbers::case_1 ok
+lib domain::config::tests::numbers::case_2 ok
+lib domain::config::tests::numbers::case_3 ok
+lib domain::config::tests::numbers::case_4 ok
+lib domain::config::tests::numbers::case_5 ok
+lib domain::config::tests::present_aliases::case_1 ok
+lib domain::config::tests::present_aliases::case_2 ok
+lib domain::config::tests::present_aliases::case_3 ok
+lib domain::config::tests::present_aliases::case_4 ok
+lib domain::config::tests::present_aliases::case_5 ok
+lib domain::config::tests::report_names_every_key_with_its_provenance ok
+lib domain::config::tests::spin_window_longer_than_the_frame_interval_is_noted ok
+lib domain::config::tests::target_values::case_01 ok
+lib domain::config::tests::target_values::case_02 ok
+lib domain::config::tests::target_values::case_03 ok
+lib domain::config::tests::target_values::case_04 ok
+lib domain::config::tests::target_values::case_05 ok
+lib domain::config::tests::target_values::case_06 ok
+lib domain::config::tests::target_values::case_07 ok
+lib domain::config::tests::target_values::case_08 ok
+lib domain::config::tests::target_values::case_09 ok
+lib domain::config::tests::target_values::case_10 ok
+lib domain::error::tests::classifies_reasons::case_1 ok
+lib domain::error::tests::classifies_reasons::case_2 ok
+lib domain::error::tests::classifies_reasons::case_3 ok
+lib domain::error::tests::classifies_reasons::case_4 ok
+lib domain::error::tests::classifies_reasons::case_5 ok
+lib domain::error::tests::rejection_display_carries_code ok
+lib domain::frame::tests::colour_formats_map_to_ffx::case_1_r8 ok
+lib domain::frame::tests::colour_formats_map_to_ffx::case_2_r10 ok
+lib domain::frame::tests::colour_formats_map_to_ffx::case_3_unknown ok
+lib domain::frame::tests::colour_formats_map_to_ffx::case_4_srgb ok
+lib domain::frame::tests::constants_match_the_shader_layout ok
+lib domain::frame::tests::non_inverted_depth_uses_identity_remap ok
+lib domain::frame::tests::packing_round_trips ok
+lib domain::frame::tests::packing_saturates_depth_and_clamps_offsets ok
+lib domain::frame::tests::validates_like_the_cpp::case_01_valid ok
+lib domain::frame::tests::validates_like_the_cpp::case_02_zero_render ok
+lib domain::frame::tests::validates_like_the_cpp::case_03_zero_display ok
+lib domain::frame::tests::validates_like_the_cpp::case_04_alpha_zero ok
+lib domain::frame::tests::validates_like_the_cpp::case_05_alpha_one ok
+lib domain::frame::tests::validates_like_the_cpp::case_06_scale_nan ok
+lib domain::frame::tests::validates_like_the_cpp::case_07_scale_zero ok
+lib domain::frame::tests::validates_like_the_cpp::case_08_depth_zero ok
+lib domain::frame::tests::validates_like_the_cpp::case_09_colour_negative ok
+lib domain::frame::tests::validates_like_the_cpp::case_10_render_larger ok
+lib domain::gpu_policy::tests::classifies_fences::case_1 ok
+lib domain::gpu_policy::tests::classifies_fences::case_2 ok
+lib domain::gpu_policy::tests::classifies_fences::case_3 ok
+lib domain::gpu_policy::tests::fixed_queue_refuses_when_full ok
+lib domain::gpu_policy::tests::slot_ring_advances_only_when_ready ok
+lib domain::gpu_policy::tests::wait_is_skipped_when_signal_fails ok
+lib domain::pacing::tests::adaptive_schedule_aims_at_the_target_and_caps_at_two_generated ok
+lib domain::pacing::tests::closed_loop_stays_at_36_real_and_72_output ok
+lib domain::pacing::tests::fixed_ratio_keeps_an_even_grid::case_1 ok
+lib domain::pacing::tests::fixed_ratio_keeps_an_even_grid::case_2 ok
+lib domain::pacing::tests::fixed_ratio_keeps_an_even_grid::case_3 ok
+lib domain::pacing::tests::fixed_ratio_keeps_an_even_grid::case_4 ok
+lib domain::pacing::tests::hitch_shows_only_the_real_frame_then_generation_resumes ok
+lib domain::pacing::tests::invalid_interval_falls_back_to_a_bounded_wait ok
+lib domain::pacing::tests::jitter_around_20_fps_still_generates_and_recovers ok
+lib domain::pacing::tests::plan_present_cases::case_1 ok
+lib domain::pacing::tests::plan_present_cases::case_2 ok
+lib domain::pacing::tests::plan_present_cases::case_3 ok
+lib domain::pacing::tests::plan_present_cases::case_4 ok
+lib domain::pacing::tests::qpc_conversion ok
+lib domain::pacing::tests::ratio_validation::case_1 ok
+lib domain::pacing::tests::ratio_validation::case_2 ok
+lib domain::pacing::tests::ratio_validation::case_3 ok
+lib domain::pacing::tests::ratio_validation::case_4 ok
+lib domain::pacing::tests::stale_output_policy::case_1 ok
+lib domain::pacing::tests::stale_output_policy::case_2 ok
+lib domain::pacing::tests::stale_output_policy::case_3 ok
+lib domain::pacing::tests::stale_output_policy::case_4 ok
+lib domain::pacing::tests::stale_output_policy_drains_a_hitch_backlog_chronologically ok
+lib domain::schedule::tests::auto_target::case_1 ok
+lib domain::schedule::tests::auto_target::case_2 ok
+lib domain::schedule::tests::auto_target::case_3 ok
+lib domain::schedule::tests::auto_target::case_4 ok
+lib domain::schedule::tests::auto_target::case_5 ok
+lib domain::schedule::tests::auto_target::case_6 ok
+lib domain::schedule::tests::first_frame_seeds_without_waiting ok
+lib domain::schedule::tests::later_frames::case_1 ok
+lib domain::schedule::tests::later_frames::case_2 ok
+lib domain::schedule::tests::later_frames::case_3 ok
+lib domain::schedule::tests::real_cap_divides_by_ratio ok
+lib domain::timing::tests::pause_is_ignored_but_moves_the_baseline ok
+lib domain::timing::tests::ring_wraps_and_keeps_chronological_order ok
+lib domain::timing::tests::summaries::case_1 ok
+lib domain::timing::tests::summaries::case_2 ok
+lib domain::timing::tests::summaries::case_3 ok
+lib domain::timing::tests::zero_frequency_records_nothing ok
+lib domain::token::tests::invalid_reservation_issues_nothing ok
+lib domain::token::tests::issues_distinct_tokens_until_exhausted ok
+lib domain::token::tests::recognises_only_issued::case_1 ok
+lib domain::token::tests::recognises_only_issued::case_2 ok
+lib domain::token::tests::recognises_only_issued::case_3 ok
+lib domain::token::tests::recognises_only_issued::case_4 ok
+lib domain::ui_logic::tests::alt_f4_passes_through ok
+lib domain::ui_logic::tests::pending_follows_live_until_edited ok
+lib domain::ui_logic::tests::snaps_scale::case_1 ok
+lib domain::ui_logic::tests::snaps_scale::case_2 ok
+lib domain::ui_logic::tests::snaps_scale::case_3 ok
+lib domain::ui_logic::tests::target_units::case_1 ok
+lib domain::ui_logic::tests::target_units::case_2 ok
+lib domain::ui_logic::tests::target_units::case_3 ok
+lib domain::ui_logic::tests::target_units::case_4 ok
+lifecycle a_ten_bit_hdr_session_is_accepted_and_the_game_dispatch_is_acknowledged ok
+lifecycle repeated_alan_wake_2_lifecycles_do_not_grow_memory ok
+lifecycle the_hwnd_form_builds_a_ten_bit_chain_and_a_null_factory_is_a_local_error ok
+lifecycle the_new_form_builds_a_ten_bit_chain_and_answers_the_interpolation_queries ok
+lifecycle the_shared_present_queue_is_released_with_its_last_presenter ok
+overlay_egui the_full_menu_tessellates_after_the_warmup_pass ok
+overlay_egui the_mini_menu_tessellates_after_the_warmup_pass ok
+overlay_host a_disabled_host_stops_drawing_and_presenting ok
+overlay_host a_few_presents_draw_through_the_host_and_report_cadence::case_1 ok
+overlay_host a_few_presents_draw_through_the_host_and_report_cadence::case_2 ok
+overlay_host the_host_implements_the_overlay_hook ok
+overlay_host the_host_requests_full_capture_only_from_the_render_path_when_focus_arrives_late ok
+overlay_host the_hotkey_cycles_off_mini_full_off_through_the_host ok
+overlay_ui gpu_overlay_draws_a_known_frame::case_1 ok
+overlay_ui gpu_overlay_draws_a_known_frame::case_2 ok
+presentation a_do_not_wait_present_never_blocks_on_outstanding_work ok
+presentation a_failed_generation_submission_stops_later_admission::case_1 ok
+presentation a_failed_generation_submission_stops_later_admission::case_2 ok
+presentation a_failed_generation_submission_stops_later_admission::case_3 ok
+presentation a_handed_over_reference_wraps_and_presents ok
+presentation a_present1_metadata_failure_does_not_consume_the_frame ok
+presentation a_real_frame_wrapper_shows_a_midpoint_then_the_real_frame ok
+presentation a_resize_resets_the_pacing_history ok
+presentation a_second_interpolation_list_ask_closes_the_still_open_recording ok
+presentation an_unsupported_chain_is_refused::case_1 ok
+presentation an_unsupported_chain_is_refused::case_2 ok
+presentation clearing_the_sink_stops_midpoints_without_stalling_real_frames ok
+presentation counters_distinguish_shown_midpoints_from_dropped_ones ok
+presentation every_fixed_multiplier_plans_an_even_grid::case_1 ok
+presentation every_fixed_multiplier_plans_an_even_grid::case_2 ok
+presentation every_fixed_multiplier_plans_an_even_grid::case_3 ok
+presentation every_fixed_multiplier_plans_an_even_grid::case_4 ok
+presentation only_the_two_presentable_formats_resize::case_1 ok
+presentation only_the_two_presentable_formats_resize::case_2 ok
+presentation only_the_two_presentable_formats_resize::case_3 ok
+presentation present_test_presents_nothing_and_advances_nothing ok
+presentation present1_with_an_empty_metadata_set_is_still_present1 ok
+presentation resize_buffers1_validates_masks::case_1 ok
+presentation resize_buffers1_validates_masks::case_2 ok
+presentation resize_buffers1_validates_masks::case_3 ok
+presentation resize_refuses_a_taken_back_buffer_then_applies_the_new_size ok
+presentation teardown_is_bounded_when_the_fence_never_reaches_the_target ok
+presentation teardown_waits_for_retirement_and_a_removed_device_counts_as_retired ok
+presentation the_interpolation_list_is_reusable ok
+presentation the_interpolation_texture_follows_a_resize_without_reuse ok
+presentation the_pacing_interval_tracks_the_game_rate ok
+presentation the_pacing_wait_is_bounded_by_the_fake_clock ok
+presentation the_presenter_drops_only_outputs_a_later_one_supersedes::case_1 ok
+presentation the_presenter_drops_only_outputs_a_later_one_supersedes::case_2 ok
+presentation the_presenter_drops_only_outputs_a_later_one_supersedes::case_3 ok
+presentation the_scratch_queries_do_not_take_the_present_path ok
+presentation vblank_alignment_without_frame_statistics_falls_back_to_the_current_time ok
+presentation vrr_falls_back_to_vsync_when_the_caller_keeps_its_reference ok
+presentation vsync_forces_a_sync_interval_and_strips_tearing ok
+refcount borrowing_a_game_command_list_three_times_keeps_it_alive ok
+refcount borrowing_a_game_texture_three_times_keeps_it_alive ok
+routing a_create_chain_that_names_no_sedici_context_is_unknown ok
+routing a_create_naming_both_a_wrap_and_frame_generation_is_refused ok
+routing a_destroy_of_a_wrap_closes_its_generator_gate ok
+routing a_destroyed_token_is_stale_and_never_reused ok
+routing a_dispatch_of_an_unknown_type_is_refused_and_the_game_own_dispatch_is_acknowledged ok
+routing a_frame_generation_create_without_a_backend_device_is_a_local_error ok
+routing a_hwnd_swapchain_create_missing_an_input_is_a_local_error::case_1_no_slot ok
+routing a_hwnd_swapchain_create_missing_an_input_is_a_local_error::case_2_no_desc ok
+routing a_hwnd_swapchain_create_missing_an_input_is_a_local_error::case_3_no_window ok
+routing a_hwnd_swapchain_create_missing_an_input_is_a_local_error::case_4_no_factory ok
+routing a_hwnd_swapchain_create_missing_an_input_is_a_local_error::case_5_no_queue ok
+routing a_new_swapchain_create_missing_an_input_is_a_local_error::case_1_no_slot ok
+routing a_new_swapchain_create_missing_an_input_is_a_local_error::case_2_no_desc ok
+routing a_new_swapchain_create_missing_an_input_is_a_local_error::case_3_no_factory ok
+routing a_new_swapchain_create_missing_an_input_is_a_local_error::case_4_no_queue ok
+routing a_null_descriptor_on_a_live_context_is_a_local_error ok
+routing a_refused_destroy_parks_the_owner_and_a_retry_does_not_double_park ok
+routing a_session_prepares_and_the_sink_generates_through_the_context ok
+routing a_swapchain_create_issues_a_chain_handle::case_1_wrap ok
+routing a_swapchain_create_issues_a_chain_handle::case_2_new_form ok
+routing a_wrap_without_a_swapchain_or_queue_is_refused ok
+routing an_injected_create_fault_is_a_local_error_that_issues_no_handle::case_1 ok
+routing an_injected_create_fault_is_a_local_error_that_issues_no_handle::case_2 ok
+routing an_injected_create_fault_is_a_local_error_that_issues_no_handle::case_3 ok
+routing an_injected_create_fault_is_a_local_error_that_issues_no_handle::case_4 ok
+routing an_injected_wrapper_registry_fault_leaves_the_native_chain_untouched ok
+routing any_generation_enabled_follows_the_last_configure ok
+routing context_path::a_device_removed_context_reports_retired_and_refuses_destroy_never ok
+routing context_path::a_recorded_prepare_refuses_a_new_prepare_until_it_is_tracked ok
+routing context_path::a_submission_fence_from_another_device_is_refused ok
+routing context_path::a_submission_is_tracked_and_retirement_follows_the_fence ok
+routing context_path::an_abandoned_generation_forces_a_reset_seed_next_frame ok
+routing context_path::an_hdr_flagged_ten_bit_session_is_accepted ok
+routing context_path::an_unretired_context_refuses_destroy_and_reports_retired_after_the_fence ok
+routing context_path::create_rejects_a_bad_format_and_an_empty_display ok
+routing context_path::generate_records_once_and_the_prepare_slot_is_single ok
+routing context_path::the_hud_less_format_is_checked_against_the_create_format ok
+routing context_path::the_legacy_configure_is_accepted ok
+routing context_path::the_split_recording_path_requires_an_ordered_submission ok
+routing get_versions_refuses_an_unknown_effect_and_a_missing_output_count ok
+routing get_versions_reports_one_provider_for_each_recognised_type ok
+routing null_and_foreign_handles_are_parameter_errors ok
+stage1 synthetic_scenes_meet_the_ffx_quality_thresholds ok
+swapchain_smoke a_swapchain_new_create_queries_presents_and_destroys_through_the_router ok
+swapchain_smoke the_smoke_descriptors_match_the_ffx_surface_enum ok
+tenbit ten_bit_matches_eight_bit_within_the_storage_quantisation::case_1 ok
+tenbit ten_bit_matches_eight_bit_within_the_storage_quantisation::case_2 ok
+== figures
+diagonal thin bar: 10-bit psnr 8-bit 45.99 dB, 10-bit 45.99 dB, between them 77.59 dB
+diagonal thin bar: hud preservation 100.0%
+diagonal thin bar: midpoint psnr 45.99 dB, ssim 0.9984, nearest real 25.10 dB
+diagonal thin bar: phases in one list 1/3 psnr 47.14 (nearest real 26.44), 2/3 psnr 47.58 (nearest real 26.56)
+fast bar: hud preservation 100.0%
+fast bar: midpoint psnr 42.87 dB, ssim 0.9985, nearest real 13.69 dB
+fast bar: phases in one list 1/3 psnr 42.94 (nearest real 15.19), 2/3 psnr 42.66 (nearest real 15.12)
+leftward pan: hud preservation 100.0%
+leftward pan: midpoint psnr 40.60 dB, ssim 0.9975, nearest real 20.33 dB
+leftward pan: phases in one list 1/3 psnr 40.60 (nearest real 22.18), 2/3 psnr 38.63 (nearest real 22.19)
+memory over 40 create/destroy cycles: private bytes grew (size not compared)
+present queue counts: 0 before, 1 with a presenter, 0 after
+rightward pan: 10-bit psnr 8-bit 42.92 dB, 10-bit 42.92 dB, between them 76.61 dB
+rightward pan: hud preservation 100.0%
+rightward pan: midpoint psnr 42.92 dB, ssim 0.9985, nearest real 17.37 dB
+rightward pan: phases in one list 1/3 psnr 42.95 (nearest real 19.16), 2/3 psnr 42.92 (nearest real 19.12)
+video memory over 40 cycles: grew (size not compared)
