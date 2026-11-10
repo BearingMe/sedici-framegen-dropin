@@ -62,3 +62,47 @@ C++ build is retired in the last step.
 interception. 3. Application core (router, session, context, presentation, settings) against the ports
 the leaves defined. 4. Driving adapters (ffx ABI, COM wrapper, window input) and the composition root.
 5. egui overlay. 6. Tests, architecture test, baseline comparison. 7. Retire the C++ build.
+
+## GPU and Stage 1 slice (done)
+
+Landed on `experiment/rust`: `domain/frame.rs` (params, constants, packing, colour formats),
+`application/ports/{gpu,generator}.rs`, `adapters/driven/d3d12/{device,fence,queue,resources}.rs`,
+`adapters/driven/stage1/{mod,pipelines}.rs` with `shaders/*.hlsl` and `lut.bin`, and the GPU test
+`tests/stage1.rs`. The C++ build and the five exports are unaffected.
+
+**Ports other slices program against.** The later context, swapchain and presenter slices call these;
+changing one changes every caller.
+
+- `gpu::GpuDevice` — associated types `Texture`, `Buffer`, `CommandAllocator`, `CommandList`, `Fence`,
+  `Queue`; `create_texture`, `create_upload_buffer`, `create_readback_buffer`, `write_buffer`,
+  `read_buffer`, `create_command_allocator`, `create_command_list`, `create_fence`, `create_queue`,
+  `removed_reason`.
+- `gpu::GpuQueue<L, F>` — `execute(&[&L])`, `signal(&F, u64)`, `wait(&F, u64)` (a queue-side
+  dependency, never a CPU wait).
+- `gpu::GpuFence` — `completed() -> u64` and `wait(value, Duration) -> Result<(), GpuError>`; every
+  wait is bounded, `u64::MAX` is a removed device and is never success.
+- `gpu::GpuCommandList<T>` — `transition`, `uav_barrier`, `copy_resource`, `dispatch`.
+- `gpu::GpuTexture` — `info()`, `identity()` (for the aliasing checks); `GpuBuffer` — `size()`.
+- `GpuError` — `Failed { what, code }`, `Timeout`, `DeviceRemoved { reason }`, `Policy(GpuFailure)`.
+  `GpuError::code()` gives the HRESULT-shaped value the log prints.
+- `generator::FrameGenerator<D>` — `create`, `configure`, `prepare`, `discard_prepare`, `generate`,
+  `params`, `ready`, `release_targets`, `pending`; `InputFrame`, `GeneratePhase`, `HudSource`,
+  `Stage1Pass`, `PassMark`, `MAX_PHASES = 2`. `wait_retired(fence, value, timeout, device_removed)`
+  is the one bounded-retirement rule shared by the context and the swapchain.
+- The adapter's concrete types are `D3d12Device`, `D3d12Texture`, `D3d12Buffer`,
+  `D3d12CommandList`, `D3d12CommandAllocator`, `D3d12Fence`, `D3d12Queue`, and
+  `stage1::Stage1` (which implements `FrameGenerator<D3d12Device>`).
+
+**GPU test.** `tests/stage1.rs` ports the `fgcheck_quality` scenario: four synthetic scenes through
+the production `Stage1`, checking the midpoint against the scene at the midpoint, the two phases in
+one list, HUD preservation and the K53 reset seed. It skips cleanly when no D3D12 adapter exists. The
+scores reproduce the C++ baseline: 42.92 / 40.60 / 45.99 dB and the fast bar at 42.87 dB, SSIM
+0.9985 / 0.9975 / 0.9984, phases 42.95 / 42.92 dB, HUD 100%. The C++ `Context::prepare` negates the
+FFX motion scale before Stage 1 sees it; the test does the same, and that sign is load-bearing.
+
+**Build note.** `Cargo.toml` declares `crate-type = ["rlib"]` so `cargo test` links the library
+directly; with `cdylib` in the list the test binary links the DLL through `exports.def` and fails on
+the five not-yet-exported symbols (K141). The `cdylib` entry and the `exports.def` link argument come
+back with the ffx ABI slice (order step 4). `cargo build --release` today produces only an rlib, and
+that is expected until the exports exist.
+
