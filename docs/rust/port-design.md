@@ -47,12 +47,12 @@ C++ build is retired in the last step.
 | `diagnostics/error_code.h`, `abi/token_namespace.h`, `gpu/*.h`, `presentation/limiter_schedule.h`, `settings/target_rate.h`, `ui/ui_logic.h` | `domain/{error,token,gpu_policy,schedule,ui_logic}.rs` (**done**) |
 | `settings/config.*`, `config_patch.*` | `domain/config.rs`, `adapters/driven/config_toml.rs`, `application/ports/config_store.rs` |
 | `settings/live.*`, `settings_tx.*`, `settings_io.*`, `target_rate.h` | `application/settings/{live,tx,io}.rs`, `adapters/driven/settings_worker.rs` |
-| `diagnostics/{log,stats,timing,bookkeeping_faults}.*`, `status/diag.*` | `adapters/driven/logging.rs`, `application/stats.rs`, `domain/timing.rs` |
+| `diagnostics/{log,stats,timing,bookkeeping_faults}.*`, `status/diag.*`, `presentation/pacing.*` | `adapters/driven/logging.rs`, `application/{stats,faults}.rs`, `domain/{timing,pacing}.rs` (**done**) |
 | `abi/describe.*`, `dllmain.cpp` | `adapters/driving/ffx_abi/{types,desc_walk,exports}.rs`, `entry.rs` |
 | `abi/route.*`, `runtime/{integration,context}.*` | `application/{router,session,context}.rs` |
 | `generator/{params,packing,stage1,shaders,lut_data}.*` | `domain/frame.rs`, `application/ports/generator.rs`, `adapters/driven/stage1/*` (+ `.hlsl`, `lut.bin`) |
 | GPU helpers inside presenter/swapchain/stage1 | `application/ports/gpu.rs`, `adapters/driven/d3d12/*` |
-| `presentation/{swapchain,presenter,limiter,pacing}.*` | `application/presentation/*`, `adapters/driving/dxgi_wrapper.rs`, `adapters/driven/dxgi_native.rs`, `adapters/driven/win32/timer.rs` |
+| `presentation/{swapchain,presenter,limiter}.*` | `application/presentation/*`, `adapters/driving/dxgi_wrapper.rs`, `adapters/driven/dxgi_native.rs`, `adapters/driven/win32/timer.rs` |
 | `presentation/overlay_compose.*`, `ui/{overlay,ui}.*` | `adapters/driven/{overlay_compose,overlay_ui}.rs`, `application/ports/overlay.rs` |
 | `ui/ui_input.*` | `adapters/driving/window_input.rs`, `adapters/driven/win32/{iat,modules}.rs`, `application/ports/input.rs` |
 | `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings` | `tests/{abi,integration,regression,settings}.rs` with fakes in `tests/support/` |
