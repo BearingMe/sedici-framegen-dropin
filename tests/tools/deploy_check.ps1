@@ -1,6 +1,12 @@
 # Offline check of tools/deploy.ps1 and tools/restore.ps1 against the deploy-safety
 # rules in AGENTS.md. Builds a throwaway fake repository and fake game folder under
 # the system temp directory; never touches a real game, never launches one.
+#
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tests/tools/deploy_check.ps1 `
+#       -Dll target\release\amd_fidelityfx_framegeneration_dx12.dll -Repo .
+#
+# The fake repository puts the DLL at target\release, the path `cargo build --release`
+# produces and tools/deploy.ps1 reads.
 param(
     [Parameter(Mandatory = $true)][string]$Dll,
     [Parameter(Mandatory = $true)][string]$Repo
@@ -39,7 +45,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("sedici-deploy-check-" + [Guid]::N
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
     $tools = Join-Path $work 'tools'
-    $buildRelease = Join-Path $work 'build\Release'
+    $buildRelease = Join-Path $work 'target\release'
     $bin = Join-Path $work 'game\bin'
     New-Item -ItemType Directory -Path $tools, $buildRelease, $bin | Out-Null
 

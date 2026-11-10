@@ -1,4 +1,8 @@
-# Move ledger
+# Move ledger (Phase 3 history)
+
+> **Status (2026-11-10): history.** The C++ tree this ledger describes was retired on
+> `experiment/rust`; every path below is gone. The file is kept as the Phase 3 record, and
+> `tools/check_moves.ps1`, which diffed against the tag, is deleted with it.
 
 Old path to new path for every file moved in Phase 3, relative to the repository root. Old paths are
 those of tag `phase2-baseline`. `git log --follow <new path>` shows the history across the move.

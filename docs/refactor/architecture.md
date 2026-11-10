@@ -1,5 +1,11 @@
 # Target architecture
 
+> **Update: the C++ build was retired; the Rust port lives in `src/`.** On `experiment/rust`
+> every production source is Rust and the layout is the hexagon in
+> [`docs/dev/layout.md`](../dev/layout.md) (`domain` / `application` / `adapters` / `entry`,
+> enforced by `tests/architecture.rs`). The module names and `src/` paths below are the C++
+> design this document was written against; they are history, not the tree.
+
 > **Update: the AMD backend was removed.** The owner decided to drop the AMD
 > fallback entirely as long as Sedici stays a drop-in replacement. Text below that
 > proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or

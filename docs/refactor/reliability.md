@@ -1,5 +1,10 @@
 # Reliability and integrated acceptance
 
+> **Update: the C++ build was retired.** On `experiment/rust` the production code is Rust and the
+> tests are the `tests/*.rs` suite; `cargo test -- --test-threads=1` replaces the CTest runs named
+> below, and `docs/dev/baseline.md` records it. The contracts in this document still describe the
+> behaviour; the C++ file and target names are history.
+
 > **Update: the AMD backend was removed.** The owner decided to drop the AMD
 > fallback entirely as long as Sedici stays a drop-in replacement. Text below that
 > proposes or describes an AMD backend, a bundled AMD binary, `.orig` forwarding or

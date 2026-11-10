@@ -12,8 +12,12 @@ The resampling LUT is an unchanged FLOAT-weight export of their EXR asset.
 - Commit: `df7ed207ed66d53dc44518ce12572cd49015c125`.
 - Adapted source: `resources/FrameGeneration/`, `resources/Preprocessing/Dilate.comp`,
   `resources/Sample.glsl`, `resources/Packing.glsl`.
-- Exported asset: `resources/lut.exr`; SHA256 is recorded in
-  `src/fg_lut_data.h`. Regenerate with `tools/export_mobfgsr_lut.py`.
+- Exported asset: `resources/lut.exr`, re-packed byte for byte into
+  `src/adapters/driven/stage1/lut.bin` by `tools/extract_lut_bin.py` (which
+  records the digest). Regenerate the intermediate with `tools/export_mobfgsr_lut.py`.
+- Where it lives now: the HLSL port is `src/adapters/driven/stage1/shaders/*.hlsl`,
+  and the LUT is `src/adapters/driven/stage1/lut.bin` (before the Rust port they
+  were `src/generator/shaders.h` and `src/generator/lut_data.h`).
 - License: **Creative Commons Attribution-NonCommercial 4.0 International**,
   <https://creativecommons.org/licenses/by-nc/4.0/legalcode>.
   The upstream license text is in `references/sources/mobfgsr/LICENSE`.

@@ -57,10 +57,13 @@ Sedici is an independent project. It is not made, endorsed or supported by AMD.
 
 ## Third-party code in this repository
 
+The Rust port needs no C++ dependencies: `toml_edit` replaced toml++ and `egui` replaced Dear ImGui
+(`Cargo.lock` pins them, and their licences are in the crates). The two vendored C++ libraries
+were removed with the C++ build.
+
 | Component | Where | Licence | Notes |
 | --- | --- | --- | --- |
-| toml++ v3.4.0, Mark Gillard | `third_party/tomlplusplus/` | MIT | Unmodified single header |
-| Dear ImGui v1.93.0, Omar Cornut and contributors | `third_party/imgui/` (licence in `LICENSE.txt` there) | MIT | Unmodified, with its DX12 and Win32 backends |
+| AMD FidelityFX SDK headers v2.4.0 | `third_party/ffx/` | MIT-style (see above) | Unmodified; reference declarations only, nothing builds from them |
 
 ## Research and reference material
 
@@ -83,8 +86,8 @@ The goal is the most open licence that stays aligned with Mob-FGSR's terms.
 - Mob-FGSR (CC BY-NC 4.0, no ShareAlike) covers the Stage 1 shaders, the resampling
   LUT and anything derived from them, including weights trained on their outputs.
   Those parts stay CC BY-NC 4.0 with attribution (`docs/mobfgsr-attribution.md`).
-- Sedici's own original code is intended to be MIT, like the vendored Dear ImGui and
-  toml++. The `LICENSE` file (copyright Bruno Ferreira Gomes, 2026) grants MIT for the original
+- Sedici's own original code is intended to be MIT, like the crates it depends on.
+  The `LICENSE` file (copyright Bruno Ferreira Gomes, 2026) grants MIT for the original
   code and lists the Mob-derived files and `third_party/` as exclusions.
 - A built DLL contains the Mob-derived parts, so it is distributed noncommercially.
 - Not legal advice; have the split checked before publishing a release.

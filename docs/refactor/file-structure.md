@@ -1,6 +1,11 @@
 # Target file structure (version 2, the Phase 3 layout)
 
-**Status (2026-11-09):** completed in Phase 3; the tree on disk matches this layout (see `docs/dev/layout.md`). It was the target of Phase 3 (see
+**Status (2026-11-10): history.** The C++ tree this layout describes was retired with the C++
+build on `experiment/rust`; the tree on disk is the Rust hexagon in
+[`docs/dev/layout.md`](../dev/layout.md). `CMakeLists.txt`, the `imgui_config.h` row and the
+`cmake/` note below describe that retired build.
+
+Completed in Phase 3 (see
 [MILESTONES.md](../../MILESTONES.md#phase-3--organise-the-code-and-prove-nothing-changed)).
 Version 1 of this document (written in P2.1) proposed a tree that included an AMD
 backend, a bundled binary, a residual-network directory and new build presets. Phase 2

@@ -3,39 +3,40 @@
 ## Build and test
 
 ```powershell
-cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
-cmake --build build --config Release
-cd build; ctest -C Release -j4      # 37 entries; GPU tests run serially, keep the GPU idle
-dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll   # exactly five exports
+cargo build --release                                          # target\release\amd_fidelityfx_framegeneration_dx12.dll
+cargo test -- --test-threads=1                                 # the offline suite; serialise the GPU tests
+cargo clippy --all-targets                                     # no errors; warnings are noted
+pwsh tools/baseline.ps1 -Against docs\dev\baseline.txt          # behaviour record (docs/dev/baseline.md)
+pwsh tests\tools\deploy_check.ps1 -Dll target\release\amd_fidelityfx_framegeneration_dx12.dll -Repo .
+pwsh tests\tools\analyze_check.ps1 -Repo .
 ```
+
+There must be exactly five exports. `dumpbin /exports target\release\amd_fidelityfx_framegeneration_dx12.dll`
+shows them from a Visual Studio developer shell; `tests/abi.rs` reads the same PE export table and
+asserts the marker as well.
 
 Never launch the game, never download SDKs or DLLs (see `AGENTS.md`).
 
+The export check in `tests/abi.rs` builds the DLL itself when the test profile has no image, so
+`cargo test` run alone still checks it; `cargo build` first keeps that rebuild out of the test time.
+
+The two PowerShell check scripts are plain scripts, not Rust tests: they need a real `powershell.exe`
+and write throwaway folders under the system temp directory. The Rust suite does not call them (the
+parity note in `docs/rust/test-parity.md` records why).
+
 ## Adding or moving a file
 
-1. Put the file in the module that owns it ([layout.md](layout.md)). Use `git mv` when moving.
-2. Include with a path relative to `src/`: `#include "settings/config.h"`. No `../`.
-3. Add it to the source list in `CMakeLists.txt`. Tests keep their CTest names.
-4. Update the layout section of `AGENTS.md` and [moves.md](moves.md) in the same commit.
-
-## Behaviour-preserving changes (Phase 3 rules)
-
-A reorganisation commit changes only `#include` lines and `CMakeLists.txt` paths. Before it:
-
-```powershell
-git add -A
-.\tools\check_moves.ps1                                        # differences from phase2-baseline are renames and include lines only
-.\tools\baseline.ps1 -Against docs\dev\baseline.txt          # exports, CTest by name, fgcheck and regression verdicts
-```
-
-If `check_moves` fails, the named file changed beyond its includes: undo that edit, or record
-it as a finding for the next phase. If the baseline differs, the commit is wrong: revert it.
-Do not fix bugs inside a move commit.
+1. Put the file in the layer that owns it ([layout.md](layout.md)); `tests/architecture.rs` fails an
+   import that goes sideways or up.
+2. Settings, errors and other pure rules go in `src/domain/`; use cases in `src/application/`
+   behind a port; anything touching Windows, COM, the GPU, files or the ABI in `src/adapters/`.
+3. Any `unsafe` block sits in an adapter, carries a `// SAFETY:` comment, and is behind a safe type.
+4. Update the layout section of `AGENTS.md` in the same commit.
 
 ## Commit convention
 
-Conventional Commits. A move commit is `refactor(<module>): ...` with a body listing the moves,
-"Changed: #include lines and CMake paths only", the baseline result and "No behaviour change".
+Conventional Commits. A structural commit is `refactor(<module>): ...` with a body listing the
+moves and the baseline result, and states whether behaviour changed.
 
 ## Bugs
 

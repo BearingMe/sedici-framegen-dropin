@@ -24,9 +24,9 @@ Exclusions. This licence does NOT cover:
 1. Material adapted from Mob-FGSR, which stays under Creative Commons
    Attribution-NonCommercial 4.0 International
    (https://creativecommons.org/licenses/by-nc/4.0/legalcode):
-   src/fg_shaders.h, src/fg_lut_data.h, src/fg_packing.h, src/fg_params.h,
-   tools/export_mobfgsr_lut.py, and anything derived from them. See
-   docs/mobfgsr-attribution.md. A build that contains these files may be
-   distributed for noncommercial purposes only.
+   src/adapters/driven/stage1/shaders/*.hlsl,
+   src/adapters/driven/stage1/lut.bin, tools/export_mobfgsr_lut.py, and
+   anything derived from them. See docs/mobfgsr-attribution.md. A build that
+   contains these files may be distributed for noncommercial purposes only.
 2. Third-party code under third_party/, which keeps its own licence and notices
-   (AMD FidelityFX headers, toml++, Dear ImGui). See NOTICE.md.
+   (the AMD FidelityFX headers). See NOTICE.md.

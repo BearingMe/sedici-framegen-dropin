@@ -2,8 +2,35 @@
 
 Branch `experiment/rust` is never merged to `main`. Goal: every C++ source under `src/` and every
 offline test under `tests/` has a Rust equivalent, with the same behaviour and the same coverage
-(not more tests per file). The C++ tree stays until each piece is ported and verified, then the
-C++ build is retired in the last step.
+(not more tests per file). The C++ tree stayed until each piece was ported and verified; the last
+step (done, 2026-11-10) retired it.
+
+## Status (2026-11-10): every slice ported; the C++ build is retired
+
+The port order below is complete. `src/` is Rust only, `tests/` is Rust plus the two PowerShell
+check scripts, `CMakeLists.txt` and the C++ sources/tests are deleted, `third_party/imgui/` and
+`third_party/tomlplusplus/` are gone (replaced by `egui` and `toml_edit`), and `third_party/ffx/`
+stays as reference declarations. `cargo build --release` produces the DLL in `target/release`,
+`cargo test -- --test-threads=1` is green, and the release image exports exactly the five `ffx*`
+names (checked by `tests/abi.rs` against the PE export table).
+
+**Deliberate gaps that remain.** These are mechanisms the C++ had and the port does not, recorded in
+`docs/rust/test-parity.md` and as K entries; none is a missing scenario that could be tested today:
+
+- the real-frame limiter is not wired to the wrapper's present hook (K-wiring gap, parity note);
+- `Router::set_present_hook` is not propagated to wrappers (so K60 has no Rust case);
+- the wrapper's failure/retirement hooks (`Faults::run_wrapper_lookup_hook`,
+  `run_context_record_hook`, `run_queue_recovery_hook`) have no production run site;
+- swapchain parking and the reaper are not ported (the wrapper is an `Arc`);
+- a used DLL does not pin itself (no `DllMain`; K148);
+- the overlay disables itself on a non-RGBA8 back buffer, so a 10-bit chain loses it (K164);
+- the present-hook Present1 allocation fault is not injectable (parity note);
+- `Stats::on_dispatch` has no production caller, so the Full menu's prepare figures are unset (K166);
+- a fullscreen `DXGI_SWAP_CHAIN_FULLSCREEN_DESC` on an HWND create is refused (K160).
+
+The remaining `GAP` rows in `docs/rust/test-parity.md` are either these mechanisms or checks that
+need the game, a real display, RTSS or the owner's eyes (K23, K24, K36, K54, K112); they are not
+port work.
 
 ## Layers (enforced by `tests/architecture.rs`)
 
@@ -29,7 +56,7 @@ C++ build is retired in the last step.
 - Logs: `tracing` macros only (`error!/warn!/info!/debug!/trace!`). Mapping: C++ level 0 = error,
   1 = info, 2 = debug/trace. The sink is `adapters/driven/logging.rs` and writes `sedici.log` beside
   the DLL with the same line shape as the C++ log so `tools/analyze_log.ps1` keeps working.
-- Dependencies: Rust crates only. toml++ becomes `toml_edit`; the log thread becomes
+- Dependencies: Rust crates only. toml++ became `toml_edit`; the log thread became
   `tracing-subscriber` + `tracing-appender`; D3D12/DXGI/Win32 come from the `windows` crate (raw
   bindings, not a wrapper); Dear ImGui becomes `egui` with a hand-written D3D12 renderer. HLSL stays
   HLSL, compiled with the system `D3DCompile` at runtime exactly as the C++ does; keep shaders as
@@ -61,7 +88,9 @@ C++ build is retired in the last step.
 1. Domain policies (done). 2. Leaves in parallel: config, diagnostics, D3D12 helpers + Stage 1, Win32
 interception. 3. Application core (router, session, context, presentation, settings) against the ports
 the leaves defined. 4. Driving adapters (ffx ABI, COM wrapper, window input) and the composition root.
-5. egui overlay. 6. Tests, architecture test, baseline comparison. 7. Retire the C++ build.
+5. egui overlay. 6. Tests, architecture test, baseline comparison. 7. Retire the C++ build (done,
+   2026-11-10: `tools/deploy.ps1` reads `target\release`, `tools/baseline.ps1` records `cargo test`,
+   `tools/check_layers.ps1` and `tools/check_moves.ps1` deleted with the C++ tree).
 
 ## GPU and Stage 1 slice (done)
 
@@ -144,11 +173,12 @@ faults stopping admission, the Present1 metadata retry, removed-device retiremen
 while a buffer is taken, the format and mask rules, the "vrr" fallback, the scratch texture/list,
 and the pacing/schedule figures. Nothing skips.
 
-**Build note.** `Cargo.toml` declares `crate-type = ["rlib"]` so `cargo test` links the library
-directly; with `cdylib` in the list the test binary links the DLL through `exports.def` and fails on
-the five not-yet-exported symbols (K141). The `cdylib` entry and the `exports.def` link argument come
-back with the ffx ABI slice (order step 4). `cargo build --release` today produces only an rlib, and
-that is expected until the exports exist.
+**Build note (superseded: the exports exist).** The slice landed while the crate was still
+`crate-type = ["rlib"]`, because a `cdylib` in the same unit made `cargo test` link the DLL through
+`exports.def` and fail on the five then-unimplemented symbols (K141, K146). The ffx ABI slice added
+the exports, so `Cargo.toml` now declares `["cdylib", "rlib"]`, `build.rs` passes
+`/DEF:exports.def` on MSVC, and `cargo build --release` writes the DLL to `target/release`. The
+export check in `tests/abi.rs` builds the image when the test profile has none (K171).
 
 ## Application core and composition root (done)
 
@@ -291,8 +321,9 @@ instead of from the device's parent).
 
 `docs/rust/test-parity.md` maps every C++ offline scenario group (`tests/abi`, `tests/integration`,
 `tests/regression`, `tests/settings`, `tests/tools`) to the Rust test that covers it, or records a
-`GAP` with the reason. It also states the `cargo test` procedure that stands in for
-`tools/baseline.ps1` (which is unchanged and still compares the C++ CTest output).
+`GAP` with the reason. That file also holds the baseline procedure: it is now implemented by
+`tools/baseline.ps1`, which records the Rust suite (per-binary results, verdicts, figures, skips)
+and diffs it against `docs/dev/baseline.txt`; the C++ build it used to read is retired (K175).
 
 Scenarios ported by this slice, not previously covered in Rust:
 
