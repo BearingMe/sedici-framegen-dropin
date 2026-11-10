@@ -1,0 +1,52 @@
+[package]
+name = "sedici"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+description = "Drop-in replacement for amd_fidelityfx_framegeneration_dx12.dll with Sedici's own frame generation"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "amd_fidelityfx_framegeneration_dx12"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "registry"] }
+tracing-appender = "0.2"
+toml_edit = "0.22"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_System_Performance",
+    "Win32_System_SystemServices",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Security",
+]
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
