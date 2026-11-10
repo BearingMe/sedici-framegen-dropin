@@ -33,6 +33,47 @@ fn dll_path() -> PathBuf {
     profile.join("amd_fidelityfx_framegeneration_dx12.dll")
 }
 
+/// Makes sure the image the export check reads exists.
+///
+/// `cargo test` does not rebuild a `cdylib` it has already linked, and a fresh profile may only
+/// have the test targets; in both cases the image can be stale or missing, and the check must not
+/// read an older image nor silently skip. A test binary cannot build the cdylib as part of the
+/// test graph (the `windows` link needs the CRT and the profile directory is in use), so it runs
+/// `cargo build` for the same profile itself, once, under a process-wide lock so parallel test
+/// threads do not race. If the rebuild fails, the check fails with the compiler's output.
+fn ensure_dll_built(path: &Path) {
+    use std::sync::{Mutex, OnceLock};
+    static BUILD: OnceLock<Mutex<()>> = OnceLock::new();
+    // `cargo test` for a `cdylib` passes `--cfg test` to the library build, so a plain
+    // `cargo build` may have run after it without producing anything the tests can reuse; always
+    // ask for the image and let Cargo decide whether a relink is needed.
+    let lock = BUILD.get_or_init(|| Mutex::new(()));
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if path.exists() {
+        return;
+    }
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let mut command = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+    command.current_dir(manifest).arg("build");
+    if profile == "release" {
+        command.arg("--release");
+    }
+    let output = command.output().expect("run cargo build for the export check");
+    if !output.status.success() {
+        panic!(
+            "could not build {} for the export check:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert!(
+        path.exists(),
+        "`cargo build` finished but {} is still missing",
+        path.display()
+    );
+}
+
 /// Reads the names in a PE image's export directory. Safe: every offset is bounds-checked against
 /// the file bytes, and a malformed image returns an empty list rather than panicking.
 fn read_exports(bytes: &[u8]) -> Vec<String> {
@@ -121,12 +162,13 @@ fn map_rva(bytes: &[u8], sections: usize, section_table: usize, rva: u32) -> Opt
 #[test]
 fn the_built_dll_exports_exactly_the_five_entry_points() {
     let path = dll_path();
-    if !path.exists() {
-        // `cargo test` may skip the cdylib on a fresh profile; `cargo build` produces it first.
-        eprintln!("skipping: {} is not built yet", path.display());
-        return;
-    }
+    ensure_dll_built(&path);
     let bytes = std::fs::read(&path).expect("read the built DLL");
+    let marker = b"SEDICI_PROXY_V1";
+    assert!(
+        bytes.windows(marker.len()).any(|window| window == marker),
+        "the DLL must carry the SEDICI_PROXY_V1 marker tools/deploy.ps1 recognises"
+    );
     let mut exports = read_exports(&bytes);
     exports.sort();
     let mut expected: Vec<String> = EXPORTS.iter().map(|name| (*name).to_owned()).collect();

@@ -12,3 +12,11 @@ pub mod adapters;
 pub mod application;
 pub mod domain;
 pub mod entry;
+
+/// The byte string `tools/deploy.ps1` and `tools/restore.ps1` look for to recognise a Sedici build.
+///
+/// It is data in the image, never an export: the DLL must export exactly the five `ffx*` entry
+/// points (AGENTS.md). The C++ defined it in `dllmain.cpp`; the Rust build keeps it as a retained
+/// static that [`entry::ensure_started`] reads once, so the linker cannot drop it under LTO.
+#[used]
+pub static SEDICI_PROXY_MARKER: [u8; 15] = *b"SEDICI_PROXY_V1";

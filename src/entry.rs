@@ -35,6 +35,9 @@ static STARTED: OnceLock<()> = OnceLock::new();
 /// Runs the composition root on the first FFX call, once, when the process loaded this code as a
 /// DLL. Never panics and never blocks: a failed step is logged and the game keeps running.
 pub fn ensure_started() {
+    // The deploy tools recognise the image by this byte string. Reading it here keeps the
+    // retained static in the linked DLL under LTO; it has no other effect.
+    let _ = std::hint::black_box(&crate::SEDICI_PROXY_MARKER);
     if !running_as_dll() {
         return;
     }

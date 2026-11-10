@@ -10,6 +10,12 @@
 //! `QueryInterface` answers only the interfaces this object implements (and `IUnknown`): the native
 //! chain's identity is never leaked, so the game cannot bypass the wrapper by casting.
 
+// The `windows` crate's COM trait signatures are safe functions that take the caller's raw
+// pointers. The implementations below must match those signatures, so they cannot be `unsafe fn`;
+// each body states why forwarding the caller's pointers is sound. Clippy's blanket rule does not
+// fit this ABI seam.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use std::sync::Arc;
 
 use windows::core::{implement, GUID, Interface, Result as WinResult, HRESULT};
