@@ -1491,6 +1491,9 @@ int main(int argc, char** argv)
         return 2;
     }
     const std::string scenario = argv[1];
+    // K144: these scenarios draw frames, so the overlay is created and outlives the host (leak_check.h).
+    if (scenario == "session" || scenario == "overlay-hotkey" || scenario == "integrated")
+        leak_guard.allow_overlay_singleton();
     if (scenario == "readonly-async" || scenario == "readonly-overlay" || scenario == "readonly-sedici")
         SetEnvironmentVariableW(L"SEDICI_ASYNC", nullptr);
     const fs::path proxy = argv[2];

@@ -112,6 +112,9 @@ int main(int argc, char** argv)
                 kRenderWidth, kRenderHeight, kIterations);
 
     bool ok = true;
+    // K144: what is still alive at the end of these modes is kept on purpose; see tests/common/leak_check.h.
+    if (retention) leak_guard.skip("the retention checks park swapchains and contexts on purpose");
+    if (signalFaultVrr || closeFaultVrr || resetFaultVrr) leak_guard.allow_kept_present_queue();
     if (retention)
         return (check_retention_timeout(state) && check_presenter_retention(state) &&
                 check_consecutive_retention(state))
