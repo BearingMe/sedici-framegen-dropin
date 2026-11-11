@@ -5,7 +5,8 @@ never launches the game, so you run them. Deployment and launch need your explic
 authorization each time.
 
 Source of truth for the milestone: [MILESTONES.md](../../MILESTONES.md), section P2.11.
-Known issues referenced below are in [known-issues.md](../../docs/refactor/known-issues.md).
+Known issues referenced below by K number are in the archive,
+[known-issues.md](../../docs/archive/known-issues.md); the open ones are GitHub issues whose titles carry the K number.
 
 ## How to run
 
@@ -69,5 +70,5 @@ with `tools\analyze_log.ps1` and `tools\analyze_presents.ps1`; the verdict rules
 ## Reporting a failure
 
 Do not edit the build to make a test pass. Keep the evidence, mark the Result as
-fail, and tell the agent the test ID: every defect becomes a new entry in
-`docs/refactor/known-issues.md` with the evidence marked as measured.
+fail, and tell the agent the test ID: every defect becomes a new GitHub issue (Bug template) with
+the evidence marked as measured.

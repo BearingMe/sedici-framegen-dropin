@@ -79,4 +79,4 @@ names; they were left alone because Phase 3 changes only `#include` lines.
 
 - P4.5: `tests/integration/fgcheck.cpp` was split in place into `fgcheck.cpp` (main), `fgcheck_common.h`,
   `fgcheck_quality.cpp`, `fgcheck_pacing.cpp`, `fgcheck_present.cpp`, `fgcheck_routing.cpp` and
-  `fgcheck_retention.cpp`. The executable and the CTest names are unchanged.
+  `fgcheck_retention.cpp` (the 10-bit group `fgcheck_tenbit.cpp` was added next to them later). The executable and the CTest names are unchanged.

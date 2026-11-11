@@ -1,7 +1,8 @@
 # Rust test parity: the C++ offline suite against the Rust suite
 
-> **Branch note.** This document describes `experiment/rust`, which is not merged into `main`. The
-> paths, `cargo` commands and K entries it names exist only on that branch.
+> **Branch note.** This document describes `experiment/rust`, which is not merged into `main`; it is
+> published as `origin/experiment/rust` (no local branch: `git switch -c experiment/rust origin/experiment/rust`).
+> The paths, `cargo` commands and K entries it names exist only on that branch.
 
 > **Status (2026-11-10): complete; the C++ tree is retired.** Every row below is either mapped to
 > a Rust test or recorded as a `GAP`/`N/A` with its reason. The C++ sources and CTest targets named

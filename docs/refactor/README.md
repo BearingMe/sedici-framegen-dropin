@@ -8,13 +8,14 @@
 > what was learned about the binary.
 
 > **Status (2026-11-09): decision record.** The AMD rows in the decision status are
-> superseded. Phase 2 hardened the flat modules in place; Phase 3 (proposed) moves them into
-> the layout in [file-structure.md](file-structure.md) version 2 without changing behaviour.
+> superseded. Phase 2 hardened the flat modules in place; Phase 3 (done) moved them into
+> the layout in [file-structure.md](file-structure.md) version 2 without changing behaviour. The
+> current tree is in [docs/dev/layout.md](../dev/layout.md).
 > [audit.md](audit.md) is historical.
 
 This directory records the refactor discussion and proposed implementation
-contracts. It describes a **target**, not the current source layout or shipped
-configuration. Creating these documents does not implement or authorize runtime,
+contracts. It describes a **target**, not the shipped configuration (the source layout part of
+the target was built in Phase 3). Creating these documents does not implement or authorize runtime,
 deployment, binary redistribution, or default-setting changes.
 
 ## Objective
@@ -44,8 +45,8 @@ and model/LUT export remain offline, outside the shipped runtime.
 | [reliability.md](reliability.md) | Errors, watchdog behavior, diagnostics, and integrated acceptance |
 | [stage2-contract.md](stage2-contract.md) | Draft interface a residual network must meet: tensor layout, phase, colour, reset, padding, provenance, scratch and retirement |
 | [audit.md](audit.md) | Historical static review (f95b54d) and the P2.2 handoff |
-| [known-issues.md](known-issues.md) | Defects found and deliberately deferred until after the refactor, with evidence and owning milestone |
-| [feature-requests.md](feature-requests.md) | Owner and agent requests from the in-game QA runs; not scheduled |
+| [known-issues.md](../archive/known-issues.md) | Archived: the K1-K147 defect list (open ones moved to GitHub issues on 2026-11-11) |
+| [feature-requests.md](../archive/feature-requests.md) | Archived: the FR-01 to FR-05 requests (FR-03 moved to a GitHub issue) |
 
 ## Decision status
 

@@ -5,7 +5,7 @@
 ```powershell
 cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
 cmake --build build --config Release
-cd build; ctest -C Release -j4      # 37 entries; GPU tests run serially, keep the GPU idle
+cd build; ctest -C Release -j4      # 41 entries; GPU tests run serially, keep the GPU idle
 dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll   # exactly five exports
 ```
 
@@ -39,8 +39,9 @@ Conventional Commits. A move commit is `refactor(<module>): ...` with a body lis
 
 ## Bugs
 
-Every defect found gets a `K` entry in `docs/refactor/known-issues.md` in the same commit or
-before moving on, and the counts in `MILESTONES.md` are updated (see `AGENTS.md`).
+Every defect found gets a GitHub issue (Bug template, `.github/ISSUE_TEMPLATE/bug.yml`) before
+moving on, or is closed with the fixing commit hash (see `AGENTS.md`). There are no new `K`
+numbers; `docs/archive/known-issues.md` is the read-only record of K1-K147.
 
 ## Developer checks
 
@@ -70,6 +71,6 @@ Logs are in `build-check-logs/`.
 | leaks | `tests/common/leak_check.h` (`-DSEDICI_CRTDBG=ON`) | CPU heap blocks and DXGI/D3D12 objects still alive at exit (the K169-style reference leak) |
 
 How to read a failure: open the log named in the table. A `/analyze` or clang-tidy finding is either a real
-defect (fix it and add a `K` entry) or a false positive (suppress that one line with a comment saying why;
+defect (fix it and open or close a GitHub issue) or a false positive (suppress that one line with a comment saying why;
 never turn a check off for the whole tree). The sanitizer builds use the dynamic runtime (`/MD`) and cover
 the test hosts only, never the shipped DLL. `leaks` builds the tests in Debug itself, which the CPU heap part needs.

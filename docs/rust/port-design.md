@@ -1,7 +1,9 @@
 # Rust port (experiment/rust): design and conventions
 
-> **Branch note.** This document describes `experiment/rust`, which is not merged into `main`. The
-> paths, `cargo` commands and K entries it names exist only on that branch.
+> **Branch note.** This document describes `experiment/rust`, which is not merged into `main`; it is
+> published as `origin/experiment/rust` (no local branch: `git switch -c experiment/rust origin/experiment/rust`).
+> The paths, `cargo` commands and K entries it names exist only on that branch, and statements such as
+> "the C++ sources are deleted" are true on that branch, not on `main`, which is the C++ build.
 
 Branch `experiment/rust` is never merged to `main`. Goal: every C++ source under `src/` and every
 offline test under `tests/` has a Rust equivalent, with the same behaviour and the same coverage
