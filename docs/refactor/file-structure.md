@@ -2,6 +2,10 @@
 
 **Status (2026-11-09):** completed in Phase 3; the tree on disk matches this layout (see `docs/dev/layout.md`). It was the target of Phase 3 (see
 [MILESTONES.md](../../MILESTONES.md#phase-3--organise-the-code-and-prove-nothing-changed)).
+**Changes after Phase 3 (the current tree is [docs/dev/layout.md](../dev/layout.md)):** `bookkeeping_faults`
+is in `diagnostics/` and `diag` in `status/` (P4.5), and `settings/target_rate.h`,
+`settings/toml_include.h`, `ui/ui_logic.h`, `abi/token_namespace.h` and `tests/common/leak_check.h` were added.
+The tree below is the Phase 3 target as written.
 Version 1 of this document (written in P2.1) proposed a tree that included an AMD
 backend, a bundled binary, a residual-network directory and new build presets. Phase 2
 refactored the flat `src/` in place instead, and the AMD backend was removed (d95d454,
@@ -10,8 +14,8 @@ code as it is.
 
 **Rule for this layout:** it is a pure reorganisation. Files are moved with `git mv` and lose their `fg_` prefix (the folder now says what
 `fg_` said). They change only in their `#include` lines. Nothing else is renamed, split or
-rewritten, and no behaviour changes. A module boundary that the code already crosses in
-both directions is recorded in `docs/dev/layout.md`, not repaired here.
+rewritten, and no behaviour changes. A module boundary that the code already crossed in
+both directions was recorded in `docs/dev/layout.md`, not repaired here (all such crossings were removed in P4.5).
 
 ## Target tree
 
@@ -79,7 +83,7 @@ sedici/
     `-- dev/                        # Agent and contributor guide (new in Phase 3)
 ```
 
-All 58 files now in `src/` are placed above; none is left over. `exports.def` stays in the
+At the end of Phase 3 all 58 files then in `src/` were placed above; none was left over. `exports.def` stays in the
 root because the linker and the tests reference it there.
 
 ## Not carried over from version 1
@@ -98,19 +102,10 @@ root because the linker and the tests reference it there.
 
 ## Dependency direction
 
-Intended, from the ownership rules in [architecture.md](architecture.md):
-
-```text
-dllmain -> abi -> runtime -> generator
-                    |  \-> presentation -> gpu
-                    \----> settings
-ui -> settings, presentation (hooks), diagnostics
-everything -> diagnostics   settings -> diagnostics
-```
-
-The code does not follow this everywhere (for example the swapchain calls back into the
-runtime through sinks and hooks). Phase 3 moves files and records the real include edges in
-`docs/dev/layout.md`; it does not break an edge to make the picture cleaner.
+The measured layer table and include edges are in [docs/dev/layout.md](../dev/layout.md). Since P4.5
+every include goes to a strictly lower layer, and CTest `sedici_layers` (`tools/check_layers.ps1`)
+enforces it, so the intended picture that used to be drawn here (and the cycles Phase 3 only
+recorded) no longer applies. The ownership rules are in [architecture.md](architecture.md).
 
 ## Include and build rules
 

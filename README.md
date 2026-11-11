@@ -69,7 +69,7 @@ with the two source papers transcribed beside it.
 
 | Stage | Source | Resolution | What it does | Budget |
 |---|---|---|---|---|
-| 1. Analytical | Mob-FGSR | 1080p | quadratic trajectory from two motion-vector frames, depth-atomic splat, thin-object hole fill, threshold fusion, LUT (32×32×16) backward warping → `I_base`, `M_input` | ~0.15–0.30 ms estimated; **0.61 ms measured** offline at 1080p (K117, resolved) ([K117](docs/refactor/known-issues.md)) |
+| 1. Analytical | Mob-FGSR | 1080p | quadratic trajectory from two motion-vector frames, depth-atomic splat, thin-object hole fill, threshold fusion, LUT (32×32×16) backward warping → `I_base`, `M_input` | ~0.15–0.30 ms estimated; **0.61 ms measured** offline at 1080p (K117, resolved) ([K117](docs/archive/known-issues.md)) |
 | 2. Residual | GFFE SCN / STSSNet backbone | 540p | 8 conv layers, 92,992 params (~90.8 KB INT8), predicts `ΔI` and `M̂`; final `clamp(I_base + M̂ · ΔI)` | ~1.10–1.35 ms |
 
 Inputs are only what an FFX FG hook already receives: HUD-less color, depth,
@@ -80,12 +80,13 @@ Budget target: **≤ 2.0 ms at 1080p** on a Radeon RX 7700 XT — 1.30–1.67 ms
 WMMA, 0.95–1.20 ms in INT8 dp4a. These are design estimates from the papers, not
 measurements.
 
-Status: **experimental.** The offline suite is accepted (P2.1 to P2.10; 37 CTest entries,
-2026-11-09) and the owner has run an in-game acceptance checklist on the current build
-(QA-01 to QA-16, [results](tests/qa/README.md)), with findings recorded as open issues. P2.11
-is not closed. A recognized create that Sedici cannot satisfy returns an error to the game;
-there is no fallback. See the [known issues](docs/refactor/known-issues.md), the
-[feature requests](docs/refactor/feature-requests.md), the
+Status: **experimental.** The offline suite is accepted (P2.1 to P2.11, with accepted gaps; 41 CTest
+entries) and the owner has run an in-game acceptance checklist on the build
+(QA-01 to QA-20, [results](tests/qa/README.md)); the findings are open issues. A recognized
+create that Sedici cannot satisfy returns an error to the game; there is no fallback. Bugs and
+feature requests are tracked as [GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues)
+(the retired [K1-K147 list](docs/archive/known-issues.md) and
+[feature requests](docs/archive/feature-requests.md) are archived). See also the
 [historical audit](docs/refactor/audit.md), the
 [historical checkpoint](docs/findings/007-fg-baseline.md) and the
 [Mob-FGSR attribution](docs/mobfgsr-attribution.md). Constraints are in
@@ -484,8 +485,9 @@ is vendored for completeness and is not compiled.
 | Source | `https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp` |
 
 The file is vendored byte-for-byte; nothing in it is edited. Two documented
-compile-time switches are set in `src/settings/config.cpp` before the include, not in the
-header:
+compile-time switches are set in `src/settings/toml_include.h` before the include, not in the
+header, and every unit includes toml++ only through that file so the types agree across
+translation units:
 
 - `TOML_EXCEPTIONS=0` so `toml::parse` returns a `parse_result` instead of
   throwing. Nothing about configuration parsing may throw across an `ffx*`
@@ -599,8 +601,9 @@ The history in short: a pass-through proxy that validated desc shapes (removed),
 tuning (removed), the built-in real-frame limiter, the in-game overlay, and Sedici's own
 two-stage frame generation as a drop-in replacement. The plan and the current state are in
 [`MILESTONES.md`](MILESTONES.md): Phase 1 (Stage 1 shipped), Phase 2 (reliability,
-P2.1-P2.10 accepted, P2.11 open), Phase 3 (proposed: organise the code without changing
-behaviour) and Phase 4 (placeholder: the open issues and improvements).
+P2.1-P2.11 closed with accepted gaps), Phase 3 (done: the code is organised into modules
+without changing behaviour) and Phase 4 (in progress: the offline work is done; the in-game
+verdicts wait for the owner's runs).
 
 ## Present timing
 
@@ -614,24 +617,27 @@ the game's call. The timer is created lazily on the first capped present, never 
 
 ## Known limits
 
-- **Supported games.** Cyberpunk 2077 is the tested game. **Alan Wake 2 is implemented but has not run
-  since:** it asks for `FrameGenerationSwapChainNewDX12` with a 10-bit back buffer and an HDR create
-  flag; Sedici now builds that chain, accepts both, and answers the swapchain's interpolation queries
-  (K14, K100, K129-K132, [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md) and
-  [015](docs/findings/015-alan-wake-2-first-sedici-session.md)). QA-03 and QA-17 are the owner's tests.
+- **Supported games.** Cyberpunk 2077 is the tested game. **Alan Wake 2 starts but shows a black
+  scene:** it asks for `FrameGenerationSwapChainNewDX12` with a 10-bit back buffer and an HDR create
+  flag; Sedici builds that chain, accepts both, and answers the swapchain's interpolation queries, but
+  in the owner's session the scene was black after generation started (issue #31, was K139;
+  [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md),
+  [015](docs/findings/015-alan-wake-2-first-sedici-session.md) and
+  [016](docs/findings/016-alan-wake-2-black-screen.md)). QA-03 and QA-17 are the owner's tests.
 - **Formats.** The back buffer and the HUD-less image must be `R8G8B8A8_UNORM` or `R10G10B10A2_UNORM`
   (the HDR create flag is accepted; Stage 1 works in the encoding it is given); depth `D32_FLOAT`,
   `R32_TYPELESS` or `R32G8X24_TYPELESS`; motion vectors `R16G16B16A16_FLOAT`, `R16G16_FLOAT` or
   `R32G32_FLOAT`. Other formats get a defined error. The swapchain wrap, `New` and `ForHwnd` forms and
   the frame generation create type are routed.
-- **Open issues seen in the game** ([known-issues.md](docs/refactor/known-issues.md)): the
-  overlay can be dead at the next launch after frame generation was turned off (K119) or
-  disable itself after an exception (K124), which now logs the exception text; disocclusion at high
-  speed (K120); borders on loading screens (K128); short unexplained stalls (K121) and a slow
-  settle of the real rate (K123), which the new early reports measure;
+- **Open issues seen in the game** (GitHub issues labelled `needs-game`; the old K number is in each
+  title): the overlay can be dead at the next launch after frame generation was turned off (#21,
+  K119) or disable itself after an exception (#26, K124), which now logs the exception text;
+  disocclusion at high speed (#22, K120); borders on loading screens (#28, K128); short unexplained
+  stalls (#23, K121) and a slow settle of the real rate (#25, K123), which the new early reports measure;
   Cyberpunk sends no generation inputs in its menus, so the rate falls to the real fps there.
-- **Requests and test record.** [feature-requests.md](docs/refactor/feature-requests.md) holds
-  the requests; [tests/qa](tests/qa/README.md) holds the in-game acceptance record.
+- **Requests and test record.** Requests are GitHub issues (the old list is in
+  [docs/archive](docs/archive/feature-requests.md)); [tests/qa](tests/qa/README.md) holds the in-game
+  acceptance record.
 
 ## Rules
 

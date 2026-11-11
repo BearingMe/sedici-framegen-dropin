@@ -7,13 +7,11 @@
 > with that code is the tag `pre-amd-removal`; [amd-binary.md](amd-binary.md) keeps
 > what was learned about the binary.
 
-> **Status (2026-11-09): adopted ownership and dependency rules; the proposed paths are not
-> the layout.** `src/` is flat. Current owners: `dllmain.cpp` (ABI); `fg_route.*`,
-> `fg_integration.*`, `fg_context.*` (session, registry, routing); `fg_pacing.*`,
-> `fg_presenter.*`, `fg_swapchain.*`, `limiter.*` (presentation); `ui.*`, `ui_input.*`,
-> `overlay*` (UI); `config.*`, `config_patch.*`, `settings_*`, `live.*` (settings);
-> `log.*`, `diag.*`, `stats.*`, `timing.*` (diagnostics). There is one backend. Not built:
-> the watchdog and Stage 2. The audit is historical, see [audit.md](audit.md).
+> **Status (2026-11-11): adopted ownership and dependency rules; the proposed paths below
+> are not the layout.** `src/` is organised into modules since Phase 3 (the old flat `fg_*`
+> names are gone); the current modules, owners and include layers are in
+> [docs/dev/layout.md](../dev/layout.md). There is one backend. Not built: the watchdog and
+> Stage 2. The audit is historical, see [audit.md](audit.md).
 
 Status: recommended refactor baseline; paths below are proposed. See
 [decision status](README.md#decision-status) and [file structure](file-structure.md).
@@ -129,7 +127,7 @@ Errors, recovery limits, and acceptance are specified in
 ## Constraints from known defects
 
 Status: **notes, not decisions.** Defects recorded in
-[known-issues.md](known-issues.md) that the target design has to account for;
+[known-issues.md](../archive/known-issues.md) that the target design has to account for;
 each names the entries it comes from. They are deliberately left unfixed in the
 current code.
 

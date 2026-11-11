@@ -47,18 +47,21 @@ environment overrides. The real-frame limiter is optional.
 - **Document every bug you find. Always.** A bug that is only fixed, only mentioned in
   a chat, or only left in a code comment is lost. Whenever you find a defect (in
   production code, tests, build, tools, docs, or an external binary's behaviour that
-  Sedici must design around), whether or not you fix it, you must record it in
-  `docs/refactor/known-issues.md` with a new `K` number and these fields: the problem
-  and its impact; the evidence and how it was found, marked measured, code or
-  suspected; the status (fixed with the commit hash, open, or hazard); and the owning
-  milestone. Record it in the same commit as the fix, or before moving on if it is not
-  fixed. A fix with no entry is incomplete. Never delete or rewrite an entry to hide a
-  bug: mark it resolved with the commit. Report new bugs to the user in the same turn
-  you find them.
+  Sedici must design around), whether or not you fix it, you must record it as a GitHub
+  issue on `BearingMe/sedici-framegen-dropin` using the Bug template
+  (`.github/ISSUE_TEMPLATE/bug.yml`): area, severity, where it was found, the problem and
+  its impact, and evidence marked measured, code or suspected. Open it before moving on
+  if it is not fixed; if you fix it in the same change, close the issue with the commit
+  hash. A fix with no issue is incomplete. Never delete or rewrite an issue to hide a
+  bug: close it with the commit. New bugs no longer get `K` numbers.
+  `docs/archive/known-issues.md` is the read-only archive of K1-K147; commit messages and
+  code comments may still cite those numbers. Report new bugs to the user in the same
+  turn you find them.
 - **Keep the Phase 2 progress table current.** The "Phase 2 progress" table and bug
   counts in `MILESTONES.md` are what the owner reads to see where the work stands.
   Update them in the same commit as any change to a milestone's status, evidence or
-  open items, or to a `known-issues.md` entry, and refresh the "Last updated" date.
+  open items, or when a GitHub bug issue is opened or closed, and refresh the "Last
+  updated" date.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
 - **Always give a reason for a command.** Claude Code's auto-mode classifier blocks an
@@ -166,8 +169,12 @@ alone.
   controls, snapshot/cancel.
 - `src/ui/ui_input.*` — Full-menu cursor ownership: executable import interception
   for `SetCursorPos`/`ClipCursor`, clip save/restore, client-to-output mapping.
-- `src/settings/live.*` — mutable live values shared by the overlay, limiter, pacing,
-  async and logging.
+- `src/settings/live.*` — mutable live values shared by the overlay, limiter, pacing
+  and logging.
+- `src/settings/toml_include.h` — the only place toml++ is included (`TOML_EXCEPTIONS 0`,
+  formatters off); every unit includes toml++ through it so the types agree.
+- `src/generator/*` — Stage 1 (Mob-FGSR) shaders, parameters, packing and the baked LUT.
+- `src/gpu/*` — pure queue, retirement and slot policies, testable without a device.
 - `src/diagnostics/timing.*` — 360-sample real/output interval rings and percentiles.
 - `src/settings/config_patch.*` — comment-preserving `sedici.toml` value patcher.
 - `src/presentation/limiter.*` — opt-in real-frame limiter: high-resolution waitable timer
@@ -182,15 +189,19 @@ alone.
 - `src/status/diag.*` — read-only snapshot of the log counters and parked objects, and the
   "diag:" line reported with the periodic stats.
 - `sedici.toml` — shipped defaults; copied on deploy only when absent.
-- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, the Phase 3 checks
-  `baseline.ps1` and `check_moves.ps1`, `check_layers.ps1` (module layering, CTest `sedici_layers`), and the QA
-  analyzers `analyze_log.ps1` and `analyze_presents.ps1` (CTest `sedici_analyzers`).
-- `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools` — the
-  offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`, the settings worker
-  host, `deploy_check.ps1`).
+- `tools/` — deploy/restore with `.orig` safety rules, `games.json`, `check.ps1` (the developer
+  checks), the Phase 3 checks `baseline.ps1` and `check_moves.ps1`, `check_layers.ps1` (module
+  layering, CTest `sedici_layers`), the QA analyzers `analyze_log.ps1`, `analyze_presents.ps1` and
+  `analyze.py` (CTest `sedici_analyzers`), `capture.ps1`, `intro_skip.ps1` (installs a downloaded
+  intro-skip archive; never downloads or launches) and `export_mobfgsr_lut.py` (offline LUT export).
+- `tests/abi`, `tests/integration`, `tests/regression`, `tests/settings`, `tests/tools`,
+  `tests/common` — the offline test sources (`sedici_abi`, `sedici_fgcheck`, `sedici_regression`,
+  the settings worker host, `deploy_check.ps1`, and `leak_check.h`, the DXGI live-object guard).
+- `.github/ISSUE_TEMPLATE/` — the Bug and Feature request forms. GitHub issues are the only
+  tracker; `docs/archive/` holds the retired K1-K147 and FR-01 to FR-05 lists.
 - `docs/dev/` — agent and contributor guide: layout and include edges, workflow, baseline,
   and the old-to-new path ledger. Start at `docs/dev/README.md`.
-- `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-16): a table of tests
+- `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-20): a table of tests
   and one folder per test with notes, screenshots and log excerpts.
 - `third_party/ffx/` — unmodified FidelityFX/FSR v2.4.0 headers.
 - `third_party/tomlplusplus/` — unmodified toml++ v3.4.0 single header.
@@ -212,7 +223,8 @@ There must be exactly five exports. Do not add helper exports, including the
 proxy marker.
 
 Developer checks (format, warnings as errors, module layering; `-Full` adds MSVC `/analyze`,
-clang-tidy, ASan and UBSan). Details in `docs/dev/workflow.md`:
+clang-tidy, ASan, UBSan and the `leaks` step: a Debug build with the CRT heap report and the
+DXGI live-object report). Details in `docs/dev/workflow.md`:
 
 ```powershell
 .\tools\check.ps1 -Quick

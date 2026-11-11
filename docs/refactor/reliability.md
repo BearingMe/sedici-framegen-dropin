@@ -11,8 +11,8 @@
 > accepted in P2.4-P2.10: the error contract (reason string plus FFX code, K115),
 > bounded retention and parking, the asynchronous log with drop accounting, and the diag
 > line. Not built: the watchdog component and the structured event vocabulary. The
-> "Current coverage" section is the P2.2 baseline and is historical; the 37 registered
-> CTest entries are in `CMakeLists.txt` and `MILESTONES.md`.
+> "Current coverage" section is the P2.2 baseline and is historical; the registered
+> CTest entries (41 today) are in `CMakeLists.txt` and `MILESTONES.md`.
 
 Status: target contracts for the refactor, not claims that the current build passes.
 The architecture's ownership rules are in [architecture.md](architecture.md).
@@ -151,7 +151,7 @@ Evidence record: [finding 010](../findings/010-p22-coverage-gaps.md).
 This is the historical P2.2 baseline, not a claim that later work has made no
 progress. The gaps were **accepted, not forgotten**. Current status is in the
 [Phase 2 progress table](../../MILESTONES.md#phase-2-progress) and
-[known issues](known-issues.md). The uncommitted P2.5 work now injects selected
+[known issues](../archive/known-issues.md) (now GitHub issues). The uncommitted P2.5 work now injects selected
 bookkeeping, queue-signal, command-list Close and allocator Reset failures in the
 production-object host; it does not yet establish bounded live-device recovery.
 The P2.6 prototype tests settings-model save/cancel and some failure cases without

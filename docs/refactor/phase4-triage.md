@@ -1,6 +1,6 @@
 # Phase 4 triage (P4.1)
 
-**Date:** 2026-11-09. One row per entry that `known-issues.md` still shows as open, plus the
+**Date:** 2026-11-09. One row per entry that [known-issues.md](../archive/known-issues.md) still showed as open, plus the
 requests. Dispositions: **fix** (in the named milestone), **accept** (stays open by design, with
 the reason), **obsolete** (evidence), **owner** (needs a decision). "Where" says whether the
 fix can be proven offline (CTest, `sedici_fgcheck`, `sedici_regression`, ABI scenarios) or needs

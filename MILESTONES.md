@@ -12,9 +12,10 @@
 - **Phase 3:** organise the code into the module layout and prove against the Phase 2
   baseline that nothing changed; document it in the commits and in `docs/dev/`. No
   behaviour change. Complete 2026-11-09; see the Phase 3 section.
-- **Phase 4:** cover all open issues and improvements, on the Phase 3 layout. Proposed
-  2026-11-09, awaiting owner approval; offline work first, game-dependent work last; see the
-  Phase 4 section at the end.
+- **Phase 4:** cover all open issues and improvements, on the Phase 3 layout. In progress:
+  the offline work is done (P4.1 to P4.5 complete, offline parts of P4.6 to P4.9); the
+  game verdicts wait for the owner's runs. See the Phase 4 section at the end. The open
+  issues themselves are tracked on GitHub, not in this file.
 - **Later delivery:** implement and validate residual inference against
   [the two-stage design](references/papers/realtime-fg.md). Phase 2 must prepare
   the boundary, not quietly absorb model training, inference optimization, and
@@ -250,7 +251,7 @@ operate as one maintainable product rather than independently working components
 Use a session-owned runtime with explicit lifecycle, backend/context ownership,
 GPU retirement, acknowledged settings, and bounded diagnostics/recovery.
 
-**Status:** P2.1-P2.10 accepted (P2.3 and the AMD half of P2.9 superseded); P2.11 in progress.
+**Status:** P2.1-P2.10 accepted (P2.3 and the AMD half of P2.9 superseded); P2.11 closed 2026-11-09 with accepted gaps.
 The progress table below is the current state. The direction is recorded in
 [docs/refactor](docs/refactor/README.md).
 
@@ -274,18 +275,18 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-10, branch `fix/tooling-findings`;
-everything below is committed. Latest full CTest run: 37 of 37 passed on an idle GPU (with the owner's Pathtracer using the GPU at about 90%, sedici_fgcheck_present failed, K112) (offline GPU
+status, evidence or open items. Last updated: 2026-11-11, branch `docs/issues-cutover` (open bugs moved to GitHub issues #1 to #32);
+the doc changes of that cutover are in the same commit. Latest full CTest run: 41 of 41 passed (Release, 2026-11-10, after the tooling merge; under heavy GPU load sedici_fgcheck_present can still fail, issue #20, was K112) (offline GPU
 suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
 evidence only. Every check that needs the game running, a display, or an external
 overlay is collected in P2.11, the last gate, so nothing earlier waits on a game run.
 Milestones list such items as "deferred to P2.11", not as blockers. Evidence on this
-branch from the game: one user-run Alan Wake 2 session that asks for
-`SwapChainNewDX12` and is refused before any frame (K100,
-[finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)). No frame generation
-has run in the game since the AMD backend was removed.
+branch from the game: the owner's QA runs (`tests/qa/`, QA-01 to QA-20) and the Alan Wake 2
+sessions in [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md) to
+[016](docs/findings/016-alan-wake-2-black-screen.md): the create is accepted and generation
+starts, but the scene stays black (K138 fixed, K139 open as an issue).
 
 | Milestone | Status | Evidence | Open items |
 | --- | --- | --- | --- |
@@ -301,7 +302,11 @@ has run in the game since the AMD backend was removed.
 | P2.10 Errors, diagnostics and watchdog hardening | Complete (owner accepted 2026-11-09), with recorded gaps | (a) K47, K41, K48, K77, K37 resolved, K111, K113 fixed (65a30da, cf48198, 721546a). (b) K114, K115 fixed (c6ef9ab, aaa6327): bounded asynchronous log with rate limit, drop and sink-failure accounting, diag snapshot, call identity. (c) K64, K83 resolved, K116 fixed (446244d): the module pins itself once a handle is issued (`sedici_abi unload`), and a stalled settings worker is reported, cancelled best effort and its late result discarded (`sedici_regression`) | Recorded gaps: a GPU that never retires keeps its swapchain parked (option A); no background reaper thread; abandoned-prepare recovery not built; a game whose prepare queue differs from the wrap queue is untested; typed error codes and frame or settings identity are deferred to the upcoming refactor (the error contract in `docs/refactor/reliability.md`, owner decision); lines queued at a hard crash may be lost; a used DLL stays resident until process exit (behaviour change, README); a hung network share may ignore the settings cancel; in-game overhead of the observer and a real hung volume are checked in P2.11
 | P2.11 Integrated acceptance and Stage 2 handoff | Complete (owner closed 2026-11-09), with accepted gaps: offline part done (2026-11-08); in-game checklist QA-01 to QA-16 run by the owner (QA-03 fails on K100; QA-04 and QA-05 partial; QA-12 closed offline; QA-14 skipped) | `sedici_abi_integrated` (35 checks), `sedici_regression observer` (overlay and log cost per frame, QA-12), the in-game QA record in [tests/qa](tests/qa/README.md), `sedici_fgcheck --resolution` quality and timing, [Stage 2 contract](docs/refactor/stage2-contract.md), K117, K118-K128 (QA findings), K129-K132 (Alan Wake 2, finding 015), [feature requests](docs/refactor/feature-requests.md) | Accepted gaps, carried to Phase 4: QA-03 (Alan Wake 2, K100, K129-K132), the QA-04 and QA-05 present-interval captures, QA-14, and Stage 1 at 0.64-0.69 ms against the 0.15-0.30 ms estimate (K117). The in-game defects K118-K128 are open. The owner considers the behaviours proven, which is the baseline for Phase 3 |
 
-**Bugs** (all in [known-issues.md](docs/refactor/known-issues.md), 147 entries): 32 open
+**Bugs and requests: GitHub is the source of truth.** Open items are the
+[GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues) (open bugs: label `bug`; in-game work: `needs-game`;
+kept for the record: `not-a-defect`). The 32 that were open on 2026-11-11 are #1 to #32, titled with their old K number. The
+retired K1-K147 and FR-01 to FR-05 lists are in [docs/archive](docs/archive/known-issues.md) and are not updated. Counts as of
+that date, from the archive: 32 open
 (K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137, K139, K147; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 102 fixed or resolved (K144, K143, K145, K146, K141, K142, K140, K138, K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
 
 | Milestone | Size | Prerequisites |
@@ -654,8 +659,8 @@ version 2 and the baseline comparison is identical to the `phase2-baseline` tag 
 **Out of scope, by the owner's decision:** any behaviour change, any bug fix, new
 features, game or format support (10-bit, HDR, Alan Wake 2), the error-contract work, the
 watchdog, the configuration schema, Stage 2 seams, splitting or rewriting large files, and
-renaming symbols, or renaming files other than dropping the `fg_` prefix. Those stay in the backlog ([known-issues.md](docs/refactor/known-issues.md),
-[feature-requests.md](docs/refactor/feature-requests.md)) and are covered by Phase 4. The
+renaming symbols, or renaming files other than dropping the `fg_` prefix. Those stay in the backlog (at the time [known-issues.md](docs/archive/known-issues.md),
+[feature-requests.md](docs/archive/feature-requests.md); now GitHub issues) and are covered by Phase 4. The
 AGENTS.md hard rules still apply: five exports, no game launch, `third_party/` and the loader
 and upscaler DLLs untouched.
 
@@ -805,11 +810,11 @@ without reading the history. The backlog is untouched and waits for the next pha
 
 ## Phase 4 — Cover all issues and improvements
 
-**Goal:** every open entry in [known-issues.md](docs/refactor/known-issues.md) ends as fixed,
-accepted with a reason, or obsolete, and the requests in
-[feature-requests.md](docs/refactor/feature-requests.md) are decided. Fixes land in the Phase 3
+**Goal:** every open entry (at the time in [known-issues.md](docs/archive/known-issues.md), now the
+GitHub issues) ends as fixed, accepted with a reason, or obsolete, and the requests in
+[feature-requests.md](docs/archive/feature-requests.md) are decided. Fixes land in the Phase 3
 module layout. Unlike Phase 3, behaviour is allowed to change, so each fix needs: a test or
-measurement that fails before and passes after, an entry update with the commit hash, and the
+measurement that fails before and passes after, the issue closed with the commit hash, and the
 Phase 2 baseline (`tools/baseline.ps1`) still passing except for the lines the fix is meant to
 change (record those in the commit).
 

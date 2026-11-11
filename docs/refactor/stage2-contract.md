@@ -106,7 +106,7 @@ Each item is marked **as built** (taken from the code today), **from the paper**
 ## 7. Provenance and licensing
 
 - Weights are delivered as a versioned file beside the DLL (**decision**: or embedded
-  in the DLL as `fg_lut_data.h` is today). Whichever is chosen, it carries: model
+  in the DLL as `src/generator/lut_data.h` is today). Whichever is chosen, it carries: model
   version, training data description, training code revision, input conventions of
   sections 2-4, tensor layout and quantisation, and a checksum the loader verifies.
 - A weights file that is missing, fails the checksum or declares another contract version
@@ -159,7 +159,7 @@ single in-flight slot. The presenter's snapshot ring and its three generated-ima
 
 ## 9. Gate to start Stage 2
 
-1. K117 resolved (P4.4): per-pass Stage 1 timings are in `known-issues.md`; the decision is to accept 0.61 ms.
+1. K117 resolved (P4.4): per-pass Stage 1 timings are in `docs/archive/known-issues.md` (K117); the decision is to accept 0.61 ms.
 2. The decisions marked above are made (failure answer, extra Stage 1 outputs, alpha
    input, weight delivery, licence question, scratch reuse).
 3. A training plan exists (data capture from the FFX hook, loss, export to the layout of

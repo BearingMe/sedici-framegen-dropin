@@ -7,18 +7,19 @@ Phase 3 organised `src/` into modules without changing behaviour. The target is
 | --- | --- | --- |
 | `src/` | DLL entry and the five exports | `dllmain.cpp` |
 | `abi/` | desc-chain walking, handle routing, the reserved token namespace | `describe`, `route`, `token_namespace.h` |
-| `runtime/` | the frame generation context and the session that binds it to a swapchain | `integration`, `context`, `bookkeeping_faults` |
+| `runtime/` | the frame generation context and the session that binds it to a swapchain | `integration`, `context` |
 | `generator/` | Stage 1 (Mob-FGSR analytical pass), parameters, packing, embedded shaders and LUT | `stage1`, `params`, `packing.h`, `shaders.h`, `lut_data.h` |
 | `gpu/` | pure queue, slot and retirement policies | `queue_policy.h`, `slot_policy.h`, `retirement_policy.h` |
 | `presentation/` | swapchain wrapper, presenter, pacing, real-frame limiter, overlay copy | `swapchain`, `presenter`, `pacing`, `limiter`, `limiter_schedule.h`, `overlay_compose` |
 | `ui/` | overlay hooks, Dear ImGui menu, cursor ownership, ImGui config | `overlay`, `ui`, `ui_input`, `imgui_config.h`, `ui_logic.h` |
-| `settings/` | `sedici.toml` parsing, live values, patching, transactions | `config`, `config_patch`, `live`, `settings_io`, `settings_tx`, `target_rate.h` |
+| `settings/` | `sedici.toml` parsing, live values, patching, transactions | `config`, `config_patch`, `live`, `settings_io`, `settings_tx`, `target_rate.h`, `toml_include.h` (the only toml++ include) |
 | `diagnostics/` | log, rolling stats, interval rings, bookkeeping fault injection, error codes | `log`, `stats`, `timing`, `bookkeeping_faults`, `error_code.h` |
 | `status/` | the read-only snapshot of parked objects and log counters (the `diag:` line) | `diag` |
 
 All sources except `dllmain.cpp` are built once into the `sedici_core` object library, which the
-DLL and every test host share. Tests live in `tests/abi`, `tests/integration` (`sedici_fgcheck`, six files: main, a shared header and five check groups),
-`tests/regression`, `tests/settings`, `tests/tools` and `tests/qa` (the owner's in-game record).
+DLL and every test host share. Tests live in `tests/abi`, `tests/integration` (`sedici_fgcheck`, eight files: main, a shared header and six check groups),
+`tests/regression`, `tests/settings`, `tests/tools`, `tests/common` (`leak_check.h`, the DXGI live-object
+guard every GPU test host uses) and `tests/qa` (the owner's in-game record).
 
 ## Layers and include edges (P4.5)
 
