@@ -1,0 +1,65 @@
+name: Bug
+description: Something in Sedici, its tests, build or docs is wrong
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - ABI / exports / return codes
+        - Swapchain / presentation / pacing
+        - Frame generation
+        - Overlay / UI / input
+        - Settings / sedici.toml
+        - Limiter
+        - Log / diagnostics
+        - Build / tooling / tests
+        - Docs
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Crash or hang
+        - Wrong output
+        - Degraded (works, but worse)
+        - Cosmetic
+    validations:
+      required: true
+  - type: dropdown
+    id: found-in
+    attributes:
+      label: Found in
+      options:
+        - In a game
+        - Offline test
+        - Build or tooling
+        - Code reading
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Sedici build
+      description: Commit hash or release, and Release or Debug. For a game bug also the game and its version.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps or command
+      description: For an offline test, the exact command. For a game, the scene and settings.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Log excerpt or test output. Remove user names and home paths first. Say whether it was measured, seen in code, or suspected.

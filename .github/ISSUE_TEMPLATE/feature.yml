@@ -1,0 +1,41 @@
+name: Feature request
+description: A new or changed behaviour. Requests are not scheduled until the owner moves one into a milestone.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - ABI / exports / return codes
+        - Swapchain / presentation / pacing
+        - Frame generation
+        - Overlay / UI / input
+        - Settings / sedici.toml
+        - Limiter
+        - Log / diagnostics
+        - Build / tooling / tests
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: What should change.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The problem or the QA run it came from.
+    validations:
+      required: true
+  - type: checkboxes
+    id: dropin
+    attributes:
+      label: Drop-in rule
+      options:
+        - label: It keeps the DLL name, the five exports and the return codes as they are
+          required: true
