@@ -1,0 +1,95 @@
+name: Release
+
+# Pushing a tag named v* builds Release, runs the no-GPU tests and publishes a GitHub
+# pre-release with the DLL. Installing into a game is not part of this: that stays the
+# manual tools/deploy.ps1, and nothing here launches a game.
+# "Run workflow" (workflow_dispatch) does a dry run: it builds and packs, but publishes nothing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: package
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      PUBLISH: ${{ github.event_name == 'push' }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the full history (to prove the tag is on main)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refuse a tag that is not on main
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw "Tag $env:TAG is not on main; releases are cut from main only." }
+
+      - name: Configure Release with the offline tests
+        shell: pwsh
+        run: cmake -S . -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      # sedici_abi_exports fails unless the DLL has exactly the five ffx exports.
+      - name: Tests that need no GPU adapter
+        shell: pwsh
+        run: ctest --test-dir build -C Release -LE gpu --output-on-failure -j4
+
+      - name: Pack the release folder
+        shell: pwsh
+        run: |
+          $name = "sedici-$($env:TAG -replace '[^A-Za-z0-9._-]', '_')-win64"
+          $dir = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item build/Release/amd_fidelityfx_framegeneration_dx12.dll $dir
+          Copy-Item sedici.toml, LICENSE, NOTICE.md $dir
+          Copy-Item docs/mobfgsr-attribution.md $dir
+          $sums = Get-ChildItem $dir -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          $sums | Set-Content -Encoding ascii (Join-Path $dir 'SHA256SUMS.txt')
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Compress-Archive -Path "$dir\*" -DestinationPath $zip -Force
+          "ZIP=$zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Keep the package on dry runs
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish the GitHub pre-release
+        if: env.PUBLISH == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @'
+          Experimental build. Offline tests pass; the GPU-labelled tests are run locally, not in CI.
+
+          - **Licence:** Sedici's own code is MIT, but the Stage 1 shaders and LUT are adapted from
+            Mob-FGSR (CC BY-NC 4.0), so this binary is **noncommercial only**. See `NOTICE.md`.
+          - **Install:** unzip, then use `tools/deploy.ps1` from the repository, or copy the DLL and
+            `sedici.toml` beside the game's own `amd_fidelityfx_framegeneration_dx12.dll`
+            (keep a backup of that file). Verify with `SHA256SUMS.txt`.
+          '@
+          gh release create $env:TAG $env:ZIP --repo $env:GITHUB_REPOSITORY --title $env:TAG `
+            --generate-notes --notes $notes --prerelease --verify-tag
