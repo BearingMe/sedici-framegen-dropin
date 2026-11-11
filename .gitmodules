@@ -1,4 +1,4 @@
-﻿[submodule "references/sources/mobfgsr"]
+[submodule "references/sources/mobfgsr"]
 	path = references/sources/mobfgsr
 	url = https://github.com/Mob-FGSR/MobFGSR.git
 [submodule "references/sources/stssnet"]
