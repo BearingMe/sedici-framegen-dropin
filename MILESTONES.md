@@ -772,7 +772,7 @@ for agents:
 
 | File | Content |
 | --- | --- |
-| `README.md` | Start here: what Sedici is, the hard rules, where things live, how to build and run the baseline |
+| `README.md` | Start here: what Sedici is, the hard rules, where things live, where to find the build, configuration and reference docs |
 | `layout.md` | Each module: purpose, owner files, public headers, the real include edges and the known cycles |
 | `workflow.md` | How to build and test, how to make a move slice, the commit convention, what to do when the checker fails |
 | `baseline.md` | The recorded baseline values and how to reproduce them |
@@ -918,7 +918,7 @@ environment switches (K20, K21).
 - **Instrumented:** K121 and K122 (calls of 50 ms or more are logged), K101 (build line in the log).
 - **Accepted:** K11, K20, with reasons in the entries.
 - **Error contract:** every rejection is logged with a stable code, `rejected: <reason> [code=E_...]
-  [op= ctx=]` (`diagnostics/error_code.h`, listed in the README). Proposed decisions, for the owner to
+  [op= ctx=]` (`diagnostics/error_code.h`, listed in `docs/reference/abi.md`). Proposed decisions, for the owner to
   confirm or reverse: frame identity is not added (rejections happen before the descriptor is parsed;
   `slow call` lines carry the context), settings identity stays the revision in `ApplyResult`, structured
   log events and the configuration schema (`docs/refactor/configuration.md`) are not enabled: the text log

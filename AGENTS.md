@@ -16,7 +16,7 @@ environment overrides. The real-frame limiter is optional.
   behaviour and the return codes must match what a game built against FSR 3.1
   frame generation expects. A call Sedici does not implement gets a defined FFX
   error code and a log line; it never crashes the host and is never sent to
-  another DLL. Record the code chosen for each such case in the README and do not
+  another DLL. Record the code chosen for each such case in `docs/reference/abi.md` and do not
   change one without saying why.
 - Never fail a game call because of Sedici's own bookkeeping. Configuration
   errors, a malformed `sedici.toml` and logging failures are all non-fatal.
