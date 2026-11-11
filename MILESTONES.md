@@ -275,8 +275,8 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-11, branch `docs/issues-cutover` (open bugs moved to GitHub issues #1 to #32);
-the doc changes of that cutover are in the same commit. Latest full CTest run: 41 of 41 passed (Release, 2026-11-10, after the tooling merge; under heavy GPU load sedici_fgcheck_present can still fail, issue #20, was K112) (offline GPU
+status, evidence or open items. Last updated: 2026-11-11, branch `ci/pipeline-and-pr-flow` (CI and release workflows; changes now reach
+`main` only through a pull request, see `AGENTS.md`). Open bugs are GitHub issues #1 to #32. Latest full CTest run: 41 of 41 passed (Release, 2026-11-10, after the tooling merge; under heavy GPU load sedici_fgcheck_present can still fail, issue #20, was K112) (offline GPU
 suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
