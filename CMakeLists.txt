@@ -334,7 +334,9 @@ function(sedici_apply_tooling)
             endif()
         endif()
         if(SEDICI_SANITIZE)
-            target_compile_options(${tgt} PRIVATE -fsanitize=${SEDICI_SANITIZE} -fno-omit-frame-pointer)
+            # /Z7 + /DEBUG: without a PDB the sanitizer prints no source lines (K145 could not be located).
+            target_compile_options(${tgt} PRIVATE -fsanitize=${SEDICI_SANITIZE} -fno-omit-frame-pointer /Z7)
+            target_link_options(${tgt} PRIVATE /DEBUG)
             if(SEDICI_SANITIZE STREQUAL "address")
                 # Global-variable instrumentation reports false positives with merged string literals under
                 # clang-cl (odr-violation "-" vs L"-", an overflow read of a NUL-terminated literal); heap and stack

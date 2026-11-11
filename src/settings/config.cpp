@@ -6,22 +6,8 @@
 
 #include <windows.h>
 
-// The vendored single-header toml++ (v3.4.0, MIT).
-//
-// Two compile-time switches, both documented by the library:
-//  - TOML_EXCEPTIONS 0 makes `toml::parse` return a `parse_result` instead of
-//    throwing `toml::parse_error`. Nothing about configuration parsing should be
-//    able to throw across an ffx* export boundary, so the no-throw form is used
-//    and every failure becomes a `parse_result` we inspect.
-//  - TOML_ENABLE_FORMATTERS 0 drops the serialisers; Sedici only parses.
-//
-// The header file itself is unmodified.
-#define TOML_EXCEPTIONS 0
-#define TOML_ENABLE_FORMATTERS 0
-#pragma warning(push)
-#pragma warning(disable : 4127 4244 4245 4267 4324 4456 4457 4458 4459 4702 4800 4996)
-#include "toml.hpp"
-#pragma warning(pop)
+// The vendored toml++ with Sedici's two compile-time switches; see the header for why every unit must share them.
+#include "settings/toml_include.h"
 
 #include <algorithm>
 #include <cctype>

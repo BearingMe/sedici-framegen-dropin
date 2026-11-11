@@ -15,8 +15,18 @@ namespace sedici {
 namespace {
 using SetPos = BOOL(WINAPI*)(int, int);
 using Clip = BOOL(WINAPI*)(const RECT*);
-SetPos g_set_pos = ::SetCursorPos;
-Clip g_clip = ::ClipCursor;
+// The real user32 functions, looked up in the module's exports. Taking `::ClipCursor`'s address can give the
+// linker's import thunk (clang-cl with lld-link does), and that thunk jumps through the very import slot this file
+// patches, so "calling the original" would call the hook again and lock g_mutex a second time (K146).
+template <typename F>
+F user32_function(const char* name, F fallback) noexcept
+{
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    const FARPROC address = user32 ? GetProcAddress(user32, name) : nullptr;
+    return address ? reinterpret_cast<F>(address) : fallback;
+}
+SetPos g_set_pos = user32_function<SetPos>("SetCursorPos", ::SetCursorPos);
+Clip g_clip = user32_function<Clip>("ClipCursor", ::ClipCursor);
 std::atomic<bool> g_active{false};
 std::atomic<HWND> g_window{nullptr};
 std::mutex g_mutex;

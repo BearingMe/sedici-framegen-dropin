@@ -2,7 +2,7 @@
 
 #include <windows.h>
 #include <bcrypt.h>
-#include "toml.hpp"
+#include "settings/toml_include.h"
 
 #include <algorithm>
 #include <atomic>
@@ -339,7 +339,12 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values, 
         // Validate with the real parser, not the line patcher's limited syntax.
         // Comparing the complete result also protects unrelated multiline text,
         // quoted/dotted keys, arrays of tables, and case-sensitive table names.
-        toml::table expected = toml::parse(text);
+        auto parsed = toml::parse(text);
+        if (!parsed) {
+            error = "invalid or unsupported TOML layout; original file was not changed";
+            return false;
+        }
+        toml::table expected = std::move(parsed).table();
         const auto expect = [&](std::string_view section, std::string_view key, auto value) {
             if (!expected.contains(section)) expected.insert(section, toml::table{});
             auto* table = expected.get_as<toml::table>(section);
@@ -385,7 +390,12 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values, 
 
         std::string output = join_lines(lines);
         if (!output.empty() && output.back() != '\n') output += eol;
-        if (toml::parse(output) != expected) {
+        const auto reparsed = toml::parse(output);
+        if (!reparsed) {
+            error = "invalid or unsupported TOML layout; original file was not changed";
+            return false;
+        }
+        if (reparsed.table() != expected) {
             error = "unsupported TOML layout; original file was not changed";
             return false;
         }
@@ -495,9 +505,6 @@ bool config_save(const std::filesystem::path& path, const ConfigValues& values, 
         }
         if (writtenStamp) *writtenStamp = stagedStamp;
         return true;
-    } catch (const toml::parse_error&) {
-        error = "invalid or unsupported TOML layout; original file was not changed";
-        return false;
     } catch (...) {
         error = "unexpected failure while saving sedici.toml";
         return false;
