@@ -510,19 +510,9 @@ void Presenter::hold(double notBefore, HoldInfo* info) noexcept
     // also the fallback when scan lines cannot be read.
     const bool timerGuard = m_guard == TearGuard::Timer || (m_guard == TearGuard::Scanline && !m_scanline_ok);
     const bool scanGuard = m_guard == TearGuard::Scanline && m_scanline_ok;
-    // The scan-line guard needs a floor too. Right after Present returns the
-    // flip has not latched yet, so the scan line still reports the previous
-    // blank and the gate would open for a second flip ~1 ms later: that frame
-    // then shows for a millisecond and the next for ~20 (finding 009, adaptive
-    // runs). Hold until just before the previous image's scan can have ended;
-    // the scan line then decides the exact moment.
-    double floor = 0.0;
-    if (m_last_flip > 0.0) {
-        if (timerGuard)
-            floor = m_last_flip + m_period + 0.0002;
-        else if (scanGuard)
-            floor = m_last_flip + m_period - m_lead_seconds - 0.0005;
-    }
+    // The scan-line guard needs a floor too (flip_floor): hold until just before
+    // the previous image's scan can have ended; the scan line then decides.
+    const double floor = flip_floor(timerGuard, scanGuard, m_last_flip, m_period, m_lead_seconds);
     const double scheduled = std::max(notBefore, now_seconds());
     // On a fixed-refresh panel the scan-line guard can only flip at a blank. A
     // target just after one would otherwise wait a whole refresh, and at ~36 fps
@@ -775,37 +765,9 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
 
 void Presenter::track_latency(double structural, double gpu, bool measured) noexcept
 {
-    // Both parts are short windows rather than slow-decay averages: a single
-    // hitch must not hold the latency up for long, or each frame's flips take
-    // longer, the game blocks on the presenter, its frames get longer and the
-    // latency stays up (finding 009, second session).
-    //
-    // Structural: the schedule's own offset, the largest of the last 8 frames,
-    // which covers the alternating pattern of every fixed ratio.
-    if (std::isfinite(structural)) {
-        m_structural_ring[m_structural_next] = std::clamp(structural, 0.0, 0.25);
-        m_structural_next = (m_structural_next + 1) % kStructuralWindow;
-        m_structural = *std::max_element(std::begin(m_structural_ring), std::end(m_structural_ring));
-    }
-    // GPU: the median of the last 16 measurements. A slower-than-usual frame is
-    // then simply late (flipped as soon as it is ready) instead of raising the
-    // latency of the next 16; the second-highest estimate stacked with the
-    // structural maximum reached 45-60 ms at 40 real fps (finding 009, adaptive).
-    // A frame that was already finished when the presenter got to it only
-    // bounds the GPU time from above: it is recorded only when it lowers the
-    // estimate, never to raise it, which would count queueing as latency.
-    if (std::isfinite(gpu)) {
-        gpu = std::clamp(gpu, 0.0, 0.1);
-        if (measured || gpu < m_gpu_latency) {
-            m_gpu_ring[m_gpu_next] = gpu;
-            m_gpu_next = (m_gpu_next + 1) % kGpuWindow;
-            double sorted[kGpuWindow];
-            std::copy(std::begin(m_gpu_ring), std::end(m_gpu_ring), sorted);
-            std::nth_element(sorted, sorted + kGpuWindow / 2, sorted + kGpuWindow);
-            m_gpu_latency = sorted[kGpuWindow / 2];
-        }
-    }
-    m_latency = m_structural + m_gpu_latency + 0.001;
+    // The policy is LatencyEstimator (pacing.h), kept pure so it is checked offline.
+    m_estimator.observe(structural, gpu, measured);
+    m_latency = m_estimator.latency();
     m_window.latencySum += m_latency;
     ++m_window.latencySamples;
 }
@@ -899,7 +861,8 @@ try {
     log_event(2, "fg: vrr trace legend job.index{g|r}{a=already ready|-} dequeued ready target floor scan_start "
                  "flip scan_line/blank(1)|scanning(0)|unread(-1) call latency drop{-|i=in job|n=next job}; "
                  "structural_ms=" +
-                     ms(m_structural) + " gpu_ms=" + ms(m_gpu_latency) + " refresh_ms=" + ms(m_period));
+                     ms(m_estimator.structural()) + " gpu_ms=" + ms(m_estimator.gpu()) +
+                     " refresh_ms=" + ms(m_period));
     const auto tenths = [](float seconds) { return static_cast<long>(std::lround(seconds * 1.0e4f)); };
     constexpr uint32_t kPerLine = 6;
     for (uint32_t first = 0; first < w.traceCount; first += kPerLine) {

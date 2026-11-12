@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace sedici::fg {
 
@@ -32,6 +33,58 @@ double ticks_to_seconds(uint64_t ticks, uint64_t frequency) noexcept
 bool later_output_is_due(bool hasLater, double laterContent, double latency, double now) noexcept
 {
     return hasLater && laterContent + latency <= now;
+}
+
+double flip_floor(bool timerGuard, bool scanGuard, double lastFlip, double period, double lead) noexcept
+{
+    if (lastFlip <= 0.0) return 0.0;
+    // Right after Present returns the flip has not latched yet, so the scan line
+    // still reports the previous blank and the scan-line gate would open for a
+    // second flip ~1 ms later: that frame then shows for a millisecond and the
+    // next for ~20 (finding 009, adaptive runs).
+    if (timerGuard) return lastFlip + period + 0.0002;
+    if (scanGuard) return lastFlip + period - lead - 0.0005;
+    return 0.0;
+}
+
+void LatencyEstimator::reset() noexcept
+{
+    *this = LatencyEstimator{};
+}
+
+void LatencyEstimator::observe(double structural, double gpu, bool exact) noexcept
+{
+    // Both parts are short windows rather than slow-decay averages: a single
+    // hitch must not hold the latency up for long, or each frame's flips take
+    // longer, the game blocks on the presenter, its frames get longer and the
+    // latency stays up (finding 009, second session).
+    //
+    // Structural: the schedule's own offset, the largest of the last 8 frames,
+    // which covers the alternating pattern of every fixed ratio.
+    if (std::isfinite(structural)) {
+        m_structural_ring[m_structural_next] = std::clamp(structural, 0.0, 0.25);
+        m_structural_next = (m_structural_next + 1) % kStructuralWindow;
+        m_structural = *std::max_element(std::begin(m_structural_ring), std::end(m_structural_ring));
+    }
+    // GPU: the median of the last 16 measurements. A slower-than-usual frame is
+    // then simply late (flipped as soon as it is ready) instead of raising the
+    // latency of the next 16; the second-highest estimate stacked with the
+    // structural maximum reached 45-60 ms at 40 real fps (finding 009, adaptive).
+    // A frame that was already finished when the presenter got to it only
+    // bounds the GPU time from above: it is recorded only when it lowers the
+    // estimate, never to raise it, which would count queueing as latency.
+    if (std::isfinite(gpu)) {
+        gpu = std::clamp(gpu, 0.0, 0.1);
+        if (exact || gpu < m_gpu) {
+            m_gpu_ring[m_gpu_next] = gpu;
+            m_gpu_next = (m_gpu_next + 1) % kGpuWindow;
+            double sorted[kGpuWindow];
+            std::copy(std::begin(m_gpu_ring), std::end(m_gpu_ring), sorted);
+            std::nth_element(sorted, sorted + kGpuWindow / 2, sorted + kGpuWindow);
+            m_gpu = sorted[kGpuWindow / 2];
+        }
+    }
+    m_latency = m_structural + m_gpu + 0.001;
 }
 
 PacingOutput plan_present(const PacingInput& input) noexcept

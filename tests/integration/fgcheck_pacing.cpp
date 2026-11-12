@@ -3,6 +3,141 @@
 
 namespace fgcheck {
 
+namespace {
+
+// Closed loop of the vrr presenter in fake time (issue #1): a game that blocks
+// when two frames are in flight, a GPU that finishes each frame some time after
+// its Present, and one presenter thread that copies, holds and flips each output
+// in turn on a VRR panel. It drives the production pure policies (OutputSchedule,
+// LatencyEstimator, later_output_is_due, flip_floor), so a pacing cascade found in
+// the game can be reproduced and its fix checked without a device.
+struct LoopConfig {
+    double interval = 1.0 / 32.0; // game frame time, seconds
+    double jitter = 0.001;        // +/- uniform on each frame time
+    double target = 73.0;         // adaptive output fps; 0 = fixed ratio p/q
+    uint32_t p = 2, q = 1;
+    double refresh = 75.0;
+    double gpu = 0.019;                      // game Present -> frame finished on the GPU
+    double gpuLow = -0.002, gpuHigh = 0.004; // uniform spread around `gpu`
+    uint32_t spikeEvery = 20;                // one job in N takes `spike` longer
+    double spike = 0.006;
+    uint32_t jobs = 3100, warmup = 100;
+    double copy = 0.0005;   // present-queue copy of one output
+    double oversleep = 0.0; // per-flip lateness after a hold (timer wake-up, flip latch)
+};
+
+struct LoopResult {
+    double seconds = 0.0;
+    uint32_t planned = 0, shown = 0, late = 0;
+    uint32_t realsPlanned = 0, realsDropped = 0, generatedDropped = 0;
+    double latencySum = 0.0;
+    uint32_t latencySamples = 0;
+    double shownFps() const { return seconds > 0.0 ? shown / seconds : 0.0; }
+    double plannedFps() const { return seconds > 0.0 ? planned / seconds : 0.0; }
+    double lateShare() const { return shown ? static_cast<double>(late) / shown : 1.0; }
+    double latency() const { return latencySamples ? latencySum / latencySamples : 0.0; }
+};
+
+LoopResult run_present_loop(const LoopConfig& c)
+{
+    uint64_t seed = 0x9E3779B97F4A7C15ULL;
+    const auto uniform = [&seed](double low, double high) {
+        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+        return low + (high - low) * static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    struct Job {
+        double entry = 0.0, submit = 0.0, gpuReady = 0.0, done = 0.0;
+        sedici::fg::OutputPlan plan;
+    };
+    sedici::fg::OutputSchedule schedule;
+    if (c.target > 0.0)
+        schedule.set_target(c.target);
+    else
+        schedule.set_ratio(c.p, c.q);
+    sedici::fg::LatencyEstimator estimator;
+    const double period = 1.0 / c.refresh;
+    const double lead = 0.00025, copy = c.copy, call = 0.0003;
+    const double early = std::min(0.0015, period * 0.12);
+
+    std::vector<Job> jobs(c.jobs + 1);
+    const auto make = [&](uint32_t k) {
+        Job& job = jobs[k];
+        const double frame = c.interval + uniform(-c.jitter, c.jitter);
+        // The game's next frame starts after its last Present returned (it was
+        // blocked while two frames were in flight).
+        job.entry = k == 0 ? 10.0 : std::max(jobs[k - 1].entry + frame, jobs[k - 1].submit + 0.0005);
+        job.submit = k >= 2 ? std::max(job.entry, jobs[k - 2].done) : job.entry;
+        job.gpuReady = job.submit + c.gpu + uniform(c.gpuLow, c.gpuHigh) +
+                       (c.spikeEvery && k % c.spikeEvery == 0 ? c.spike : 0.0);
+        job.plan = schedule.plan(job.entry);
+    };
+
+    LoopResult result;
+    double lastFlip = 0.0, cursor = 0.0;
+    make(0);
+    for (uint32_t k = 0; k < c.jobs; ++k) {
+        make(k + 1); // depends only on jobs that are already done
+        Job& job = jobs[k];
+        const Job& next = jobs[k + 1];
+        const bool counted = k >= c.warmup;
+        const double dequeued = std::max(job.submit, cursor);
+        const bool alreadyReady = job.gpuReady <= dequeued;
+        double t = dequeued;
+        for (uint32_t i = 0; i < job.plan.count; ++i) {
+            const auto& out = job.plan.outputs[i];
+            t = std::max(t, job.gpuReady) + copy;
+            const double ready = t;
+            if (i == 0) {
+                estimator.observe(job.entry - out.content, (alreadyReady ? dequeued : ready) - job.entry,
+                                  !alreadyReady);
+                if (counted) {
+                    result.latencySum += estimator.latency();
+                    ++result.latencySamples;
+                }
+            }
+            const double latency = estimator.latency();
+            const double target = out.content + latency;
+            const bool inJob = i + 1 < job.plan.count;
+            const bool hasLater = inJob || next.submit <= ready;
+            const double laterContent = inJob ? job.plan.outputs[i + 1].content : next.plan.outputs[0].content;
+            if (counted) {
+                ++result.planned;
+                result.realsPlanned += out.real ? 1u : 0u;
+            }
+            if (sedici::fg::later_output_is_due(hasLater, laterContent, latency, ready)) {
+                if (counted) (out.real ? result.realsDropped : result.generatedDropped) += 1;
+                continue;
+            }
+            // VRR panel with the scan-line guard: the gate opens once the previous
+            // image's scan has ended, one refresh after its flip.
+            const double floor = sedici::fg::flip_floor(false, true, lastFlip, period, lead);
+            double flip = std::max({target - early, ready, floor, lastFlip > 0.0 ? lastFlip + period - lead : 0.0});
+            if (flip > ready) flip += c.oversleep;
+            if (counted) {
+                ++result.shown;
+                result.late += flip > target + 0.001 ? 1u : 0u;
+            }
+            lastFlip = flip;
+            t = flip + call;
+        }
+        job.done = t;
+        cursor = t;
+    }
+    result.seconds = jobs[c.jobs - 1].entry - jobs[c.warmup].entry;
+    return result;
+}
+
+void print_loop(const char* name, const LoopResult& r)
+{
+    std::printf(
+        "  %s: planned %.1f fps, shown %.1f fps, late %.1f%%, reals dropped %u of %u, generated dropped %u, "
+        "latency %.1f ms\n",
+        name, r.plannedFps(), r.shownFps(), 100.0 * r.lateShare(), r.realsDropped, r.realsPlanned,
+        r.generatedDropped, 1000.0 * r.latency());
+}
+
+} // namespace
+
 // Output pacing is a pure decision, so it is checked without a clock.
 bool check_pacing()
 {
@@ -241,6 +376,24 @@ bool check_pacing()
         for (uint32_t frame = 0; frame < 200; ++frame)
             worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
         expect(worst <= 2, "adaptive schedule: 40 real fps towards 144 caps at two generated frames");
+    }
+    {
+        // Issue #1: closed presenter loop at 32 real fps towards 73 on a 75 Hz VRR panel.
+        const LoopResult adaptive = run_present_loop(LoopConfig{});
+        print_loop("adaptive 32 -> 73 at 75 Hz", adaptive);
+        LoopConfig twice;
+        twice.interval = 1.0 / 47.0;
+        twice.target = 0.0;
+        twice.gpu = 0.012;
+        const LoopResult over = run_present_loop(twice);
+        print_loop("2x at 47 real fps, 75 Hz (over refresh)", over);
+        // Per-flip overhead beyond the hold (late timer wake-up, a flip that
+        // latches after Present returns) larger than the gap between the grid and
+        // the refresh keeps the presenter on its floor: in the game (2026-11-12)
+        // this looked like ~99% late flips and ~66 of 70 planned fps shown.
+        LoopConfig slowFlip;
+        slowFlip.oversleep = 0.002;
+        print_loop("adaptive 32 -> 73, 2 ms per-flip overhead", run_present_loop(slowFlip));
     }
     return failures == 0;
 }

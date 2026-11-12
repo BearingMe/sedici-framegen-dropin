@@ -16,6 +16,7 @@
 
 #include "settings/config.h"
 #include "gpu/queue_policy.h"
+#include "presentation/pacing.h"
 
 // `[fg] present = "vrr"`: presentation off the game's thread and queue.
 //
@@ -209,15 +210,8 @@ private:
     uint64_t m_generated_shown = 0;
     uint64_t m_generated_dropped = 0;
     uint64_t m_back_to_back = 0;
-    double m_latency = 0.0;     // seconds from content time to flip
-    double m_structural = 0.0;  // schedule part of the latency
-    double m_gpu_latency = 0.0; // Present-to-ready part of the latency
-    static constexpr uint32_t kStructuralWindow = 8;
-    static constexpr uint32_t kGpuWindow = 16;
-    double m_structural_ring[kStructuralWindow]{};
-    uint32_t m_structural_next = 0;
-    double m_gpu_ring[kGpuWindow]{};
-    uint32_t m_gpu_next = 0;
+    LatencyEstimator m_estimator;
+    double m_latency = 0.0; // seconds from content time to flip, m_estimator.latency()
 
     // One output as the presenter handled it, for the level-2 trace (#37). Times
     // are seconds relative to the job's entry; 0 where a step did not happen.
