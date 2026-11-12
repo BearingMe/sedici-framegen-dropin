@@ -496,7 +496,7 @@ void Presenter::wait_until(double deadline) noexcept
     while (now_seconds() < target) YieldProcessor();
 }
 
-void Presenter::hold(double notBefore) noexcept
+void Presenter::hold(double notBefore, HoldInfo* info) noexcept
 {
     const auto record = [&](double waited) {
         if (waited <= 0.0001) return;
@@ -532,11 +532,13 @@ void Presenter::hold(double notBefore) noexcept
     const double early = scanGuard && notBefore > 0.0 ? std::min(0.0015, m_period * 0.12) : 0.0;
     wait_until(std::max(notBefore - early, floor));
     if (floor > scheduled) record(now_seconds() - scheduled);
+    if (info) info->floor = floor;
 
     if (!scanGuard) return;
     // Scan-line guard: flip only while the panel is in its vertical blank, or
     // within `lead` of it so the flip has time to be latched.
     const double holdStart = now_seconds();
+    if (info) info->scanStart = holdStart;
     const double giveUp = holdStart + m_period + 0.002;
     const UINT open = m_active_lines > m_lead_lines ? m_active_lines - m_lead_lines : 0;
     for (;;) {
@@ -614,8 +616,12 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
             const UINT quarter =
                 std::min<UINT>(3, static_cast<UINT>((4ull * line) / std::max<UINT>(1, m_active_lines)));
             ++m_window.scan[blank ? 0 : 1 + quarter];
+            m_flip_line = line;
+            m_flip_blank = blank ? 1 : 0;
         } else {
             ++m_window.scan[5];
+            m_flip_line = 0;
+            m_flip_blank = -1;
         }
     }
     if (m_last_flip > 0.0) {
@@ -644,6 +650,7 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
     if (SUCCEEDED(hr) && !m_cancel.load(std::memory_order_acquire) && m_job_hooks.presented)
         m_job_hooks.presented(generated);
     const double call = now_seconds() - before;
+    m_flip_call = call;
     m_window.callSum += call;
     m_window.callMax = std::max(m_window.callMax, call);
     return hr;
@@ -657,6 +664,8 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
     // GPU latency, which feeds back into later flips and a longer queue.
     const bool alreadyReady = job.ready->GetCompletedValue() >= job.readyValue;
     const double dequeued = now_seconds();
+    const bool tracing = log_level() >= 2;
+    ++m_job_serial;
     // Nothing for this frame may start on the present queue before the game's
     // frame and its generation work are done.
     HRESULT hr = m_queue->Wait(job.ready.Get(), job.readyValue);
@@ -699,9 +708,25 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         // Each output keeps its place on the content clock, so on-screen
         // spacing follows the game's frame times and the schedule's grid.
         const double target = output.content + m_latency;
+        // Level-2 trace (#37): consecutive outputs from a fixed point of each window.
+        TraceRecord* rec = nullptr;
+        if (tracing && m_window.jobs >= kTraceStartJob && m_window.traceCount < kTraceRecords) {
+            rec = &m_window.trace[m_window.traceCount++];
+            const auto rel = [&](double t) { return static_cast<float>(t - job.entry); };
+            *rec = TraceRecord{};
+            rec->job = m_job_serial;
+            rec->index = static_cast<uint8_t>(i);
+            rec->real = output.real;
+            rec->alreadyReady = alreadyReady;
+            rec->dequeued = rel(dequeued);
+            rec->ready = rel(ready);
+            rec->target = rel(target);
+            rec->latency = static_cast<float>(m_latency);
+        }
         if (later_output_due(job, i, ready)) {
             // A later output is already due: showing this one now would put the
             // whole schedule behind. Its copy is overwritten by the next one.
+            if (rec) rec->drop = i + 1 < job.count ? 'i' : 'n';
             if (output.real) {
                 ++m_window.realsDropped;
                 stats_on_real_dropped();
@@ -711,10 +736,28 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
             }
             continue;
         }
-        hold(target);
+        HoldInfo held;
+        hold(target, &held);
         const double flip = now_seconds();
-        if (flip > target + 0.001) ++m_window.late;
+        if (flip > target + 0.001) {
+            ++m_window.late;
+            if (ready <= target + 0.001)
+                ++m_window.lateGuard;
+            else if (i == 0 && !alreadyReady)
+                ++m_window.lateGpu;
+            else
+                ++m_window.lateCarry;
+        }
         hr = native_present(job, !output.real);
+        if (rec) {
+            const auto rel = [&](double t) { return t > 0.0 ? static_cast<float>(t - job.entry) : 0.0f; };
+            rec->floor = rel(held.floor);
+            rec->scanStart = rel(held.scanStart);
+            rec->flip = rel(flip);
+            rec->call = static_cast<float>(m_flip_call);
+            rec->line = m_flip_line;
+            rec->blank = m_flip_blank;
+        }
         if (FAILED(hr)) return hr;
         if (output.real)
             ++m_window.realsShown;
@@ -825,24 +868,55 @@ void Presenter::log_window() noexcept
 try {
     auto& w = m_window;
     const auto avg = [](double sum, uint32_t n) { return n ? sum / n : 0.0; };
-    log_event(
-        1, "fg: vrr present jobs=" + std::to_string(w.jobs) + " generated{shown=" +
-               std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
-               " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) + "}" +
-               " late=" + std::to_string(w.late) + " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
-               " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
-               " back_to_back=" + std::to_string(w.backToBack) + " gap_min_ms=" + ms(w.gapMin) +
-               " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
-               " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +
-               " max_ms=" + ms(w.guardMax) + " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
-               " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
-               " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
-               " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
-               " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
-               " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
+    log_event(1, "fg: vrr present jobs=" + std::to_string(w.jobs) + " generated{shown=" +
+                     std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
+                     " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) +
+                     "}" + " late=" + std::to_string(w.late) + "{gpu=" + std::to_string(w.lateGpu) +
+                     " carry=" + std::to_string(w.lateCarry) + " guard=" + std::to_string(w.lateGuard) + "}" +
+                     " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
+                     " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
+                     " back_to_back=" + std::to_string(w.backToBack) + " gap_min_ms=" + ms(w.gapMin) +
+                     " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
+                     " guard{holds=" + std::to_string(w.guardHolds) +
+                     " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) + " max_ms=" + ms(w.guardMax) +
+                     " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
+                     " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
+                     " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
+                     " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
+                     " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
+                     " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
+    if (w.traceCount) log_trace();
     w = Window{};
 } catch (...) {
     m_window = Window{};
+}
+
+void Presenter::log_trace() noexcept
+try {
+    const auto& w = m_window;
+    // Times in 0.1 ms relative to the job's entry. One legend line, then six
+    // records per line so a window stays within the log's per-message burst.
+    log_event(2, "fg: vrr trace legend job.index{g|r}{a=already ready|-} dequeued ready target floor scan_start "
+                 "flip scan_line/blank(1)|scanning(0)|unread(-1) call latency drop{-|i=in job|n=next job}; "
+                 "structural_ms=" +
+                     ms(m_structural) + " gpu_ms=" + ms(m_gpu_latency) + " refresh_ms=" + ms(m_period));
+    const auto tenths = [](float seconds) { return static_cast<long>(std::lround(seconds * 1.0e4f)); };
+    constexpr uint32_t kPerLine = 6;
+    for (uint32_t first = 0; first < w.traceCount; first += kPerLine) {
+        std::string line = "fg: vrr trace";
+        for (uint32_t k = first; k < std::min(first + kPerLine, w.traceCount); ++k) {
+            const TraceRecord& r = w.trace[k];
+            char buffer[96];
+            std::snprintf(buffer, sizeof(buffer), " | %u.%u%c%c %ld %ld %ld %ld %ld %ld %u/%d %ld %ld %c", r.job,
+                          static_cast<unsigned>(r.index), r.real ? 'r' : 'g', r.alreadyReady ? 'a' : '-',
+                          tenths(r.dequeued), tenths(r.ready), tenths(r.target), tenths(r.floor),
+                          tenths(r.scanStart), tenths(r.flip), r.line, r.blank, tenths(r.call), tenths(r.latency),
+                          r.drop);
+            line += buffer;
+        }
+        log_event(2, line);
+    }
+} catch (...) {
 }
 
 } // namespace sedici::fg
