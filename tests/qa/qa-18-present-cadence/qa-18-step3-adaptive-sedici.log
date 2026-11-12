@@ -1,0 +1,18 @@
+# Excerpt of sedici.log (step 3, adaptive at 32 real fps, first build (drop margin, later reverted)). Full log kept locally, not committed.
+# Header and settings:
+[0.699 ms] sedici:   fg.present       = "vrr" [file]
+[0.985 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.410 ms] sedici:   fg.multiplier    = "adaptive" [file]
+[1.734 ms] sedici:   fg.target_fps    = 0 [file]
+[3.740 ms] sedici:   log.level        = 1 [file]
+[4.046 ms] sedici: build Nov 11 2026 23:53:01 (config.cpp compiled; SEDICI_PROXY_V1)
+[4.355 ms] sedici: effective: target fps uncapped
+[1680.723 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1680.746 ms] fg: schedule multiplier=adaptive target_fps=73.000000
+# Last periodic lines:
+[872508.424 ms] fg: vrr game thread cycles=27900 real_fps=36.997554 planned_output_fps=72.885181 refresh_hz=75.000000 skipped=1392 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[880933.848 ms] fg: vrr game thread cycles=28200 real_fps=35.606415 planned_output_fps=70.619389 refresh_hz=75.000000 skipped=1392 backpressure_waits=4/300 backpressure_ms{avg=2.564800 max=3.154000}
+[889227.956 ms] fg: vrr game thread cycles=28500 real_fps=36.170188 planned_output_fps=72.219809 refresh_hz=75.000000 skipped=1392 backpressure_waits=4/300 backpressure_ms{avg=2.791775 max=3.643500}
+[881008.974 ms] fg: vrr present jobs=300 generated{shown=523 dropped=7} real{shown=59 dropped=6} late=388 late_ready=154 latency_ms=45.59 short_gaps=2/582 back_to_back=0 gap_min_ms=13.07 gpu_wait_ms{avg=6.98 max=24.40} guard{holds=922 avg_ms=2.91 max_ms=12.08 timeouts=0} present_call_ms{avg=0.27 max=9.99} scan_at_flip{blank=13 q1=0 q2=0 q3=0 q4=569 unread=0} idle_in_blank=0/2
+[889306.448 ms] fg: vrr present jobs=300 generated{shown=522 dropped=21} real{shown=48 dropped=8} late=570 late_ready=505 latency_ms=50.86 short_gaps=0/570 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=1.68 max=7.93} guard{holds=1138 avg_ms=5.94 max_ms=12.13 timeouts=0} present_call_ms{avg=0.29 max=1.18} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=570 unread=0} idle_in_blank=0/0
+[896088.432 ms] fg: vrr present jobs=150 generated{shown=254 dropped=5} real{shown=30 dropped=7} late=284 late_ready=224 latency_ms=48.41 short_gaps=0/284 back_to_back=0 gap_min_ms=13.34 gpu_wait_ms{avg=1.28 max=8.19} guard{holds=567 avg_ms=6.00 max_ms=12.17 timeouts=0} present_call_ms{avg=0.27 max=0.84} scan_at_flip{blank=0 q1=0 q2=0 q3=0 q4=284 unread=0} idle_in_blank=0/0

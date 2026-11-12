@@ -1,9 +1,15 @@
 # QA-18 Present-interval capture: cadence, FG cost, FG-off throttling
 
-**Result:** **Partly run** (2026-11-12, Cyberpunk 2077, 75 Hz VRR panel, borderless, PresentMon 2.6): steps 1 to 3.
-Step 3 led to the removal of `multiplier = "adaptive"` (issue #1); it now measures 2x at about 32 real fps.
+**Result:** **Partly run** (2026-11-12, Cyberpunk 2077, 75 Hz VRR panel, borderless, PresentMon 2.6): steps 1 and 2,
+and step 3 as it was then (adaptive at 32 real fps). That run led to the removal of `multiplier = "adaptive"`
+(issue #1). Step 3 is now defined as 2x at about 32 real fps and **has not been run yet**; steps 4 to 7 have not
+been run.
+Figures, analyzer output and setup are in [qa-18-notes.md](qa-18-notes.md). The log excerpts are
+[step 2](qa-18-step2-sedici.log), [step 3 adaptive](qa-18-step3-adaptive-sedici.log) and
+[step 3 adaptive after the #35 fix](qa-18-step3-adaptive-fix-sedici.log). The CSVs and full logs stay on the owner's
+machine.
 
-Back to the [test table](../README.md). Bugs are in [known-issues.md](../../../docs/refactor/known-issues.md); requests in [feature-requests.md](../../../docs/refactor/feature-requests.md). Verdict rules: [phase4-game-checklist.md](../../../docs/refactor/phase4-game-checklist.md).
+Back to the [test table](../README.md). Bugs are [GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues) (the old K list is archived in [known-issues.md](../../../docs/archive/known-issues.md)). Verdict rules: [phase4-game-checklist.md](../../../docs/refactor/phase4-game-checklist.md).
 
 QA-04, QA-05 and QA-10 asked for present-interval captures that were not taken. This test takes them
 once, with the analyzer that reads the file, and answers K1, K2, K4, K5, K7, K8 and K15.

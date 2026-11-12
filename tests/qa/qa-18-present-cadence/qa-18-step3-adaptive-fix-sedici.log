@@ -1,0 +1,23 @@
+# Excerpt of sedici.log (step 3, adaptive at 32 real fps after the #35 fix, DLL a76489a/a0154d6, hash 460E84A7..., log level 2). Full log kept locally, not committed.
+# Header and settings:
+[0.634 ms] sedici:   fg.present       = "vrr" [file]
+[0.880 ms] sedici:   fg.tear_guard    = "scanline" [file]
+[1.117 ms] sedici:   fg.multiplier    = "adaptive" [file]
+[1.376 ms] sedici:   fg.target_fps    = 0 [file]
+[2.789 ms] sedici:   log.level        = 2 [file]
+[3.040 ms] sedici: build Nov 11 2026 23:53:01 (config.cpp compiled; SEDICI_PROXY_V1)
+[3.257 ms] sedici: effective: target fps uncapped
+[1522.803 ms] fg: vrr presenter ready guard=scanline refresh_ms=13.33 active_lines=1080 lead_lines=20 scanline=yes buffers=3 max_latency=1 fullscreen=no
+[1522.826 ms] fg: schedule multiplier=adaptive target_fps=73.000000
+# Last periodic lines:
+[1410495.724 ms] fg: vrr game thread cycles=45300 real_fps=31.999340 planned_output_fps=31.999340 refresh_hz=75.000000 skipped=32865 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[1419884.433 ms] fg: vrr game thread cycles=45600 real_fps=31.953271 planned_output_fps=31.953271 refresh_hz=75.000000 skipped=33165 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[1429259.714 ms] fg: vrr game thread cycles=45900 real_fps=31.999037 planned_output_fps=31.999037 refresh_hz=75.000000 skipped=33465 backpressure_waits=0/300 backpressure_ms{avg=0.000000 max=0.000000}
+[1410505.668 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=300 dropped=0} late=224{gpu=0 carry=0 guard=224} latency_ms=2.28 short_gaps=0/300 back_to_back=0 gap_min_ms=26.69 gpu_wait_ms{avg=1.13 max=1.63} guard{holds=273 avg_ms=5.97 max_ms=12.10 timeouts=0} present_call_ms{avg=0.16 max=0.34} scan_at_flip{blank=14 q1=0 q2=0 q3=0 q4=286 unread=0} idle_in_blank=11/300
+[1419890.115 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=300 dropped=0} late=232{gpu=0 carry=0 guard=232} latency_ms=2.33 short_gaps=0/300 back_to_back=0 gap_min_ms=26.68 gpu_wait_ms{avg=1.15 max=1.70} guard{holds=273 avg_ms=6.20 max_ms=12.20 timeouts=0} present_call_ms{avg=0.17 max=1.73} scan_at_flip{blank=9 q1=0 q2=0 q3=0 q4=291 unread=0} idle_in_blank=12/300
+[1429261.202 ms] fg: vrr present jobs=300 generated{shown=0 dropped=0} real{shown=300 dropped=0} late=228{gpu=0 carry=0 guard=228} latency_ms=2.30 short_gaps=0/300 back_to_back=0 gap_min_ms=26.69 gpu_wait_ms{avg=1.14 max=1.71} guard{holds=274 avg_ms=6.15 max_ms=12.14 timeouts=0} present_call_ms{avg=0.17 max=0.42} scan_at_flip{blank=8 q1=0 q2=0 q3=0 q4=292 unread=0} idle_in_blank=10/300
+# Last level-2 trace lines:
+[1429261.238 ms] fg: vrr trace | 45645.0r- 1 13 23 -134 13 13 1110/0 3 23 - | 45646.0r- 1 13 23 -170 13 98 1060/0 2 23 - | 45647.0r- 1 9 23 -88 9 53 1060/0 1 23 - | 45648.0r- 1 14 23 -134 14 14 1115/0 2 23 - | 45649.0r- 1 13 23 -177 13 91 1060/0 2 23 - | 45650.0r- 1 13 23 -94 13 47 1060/0 2 23 -
+[1429261.242 ms] fg: vrr trace | 45651.0r- 1 12 23 -141 12 134 1060/0 2 23 - | 45652.0r- 1 18 23 -55 18 87 1061/0 3 23 - | 45653.0r- 1 13 23 -97 13 44 1060/0 2 23 - | 45654.0r- 1 14 23 -141 14 133 1060/0 2 23 - | 45655.0r- 1 14 23 -54 14 87 1060/0 2 23 - | 45656.0r- 1 13 23 -96 13 45 1060/0 1 23 -
+[1429261.245 ms] fg: vrr trace | 45657.0r- 1 13 23 -144 13 131 1060/0 2 23 - | 45658.0r- 1 9 23 -55 9 87 1060/0 1 23 - | 45659.0r- 1 13 23 -101 13 40 1060/0 2 23 - | 45660.0r- 1 13 23 -147 13 128 1060/0 2 23 - | 45661.0r- 1 9 23 -58 9 84 1060/0 1 23 - | 45662.0r- 1 13 23 -103 13 39 1060/0 1 23 -
+[1429261.249 ms] fg: vrr trace | 45663.0r- 1 13 23 -149 14 126 1060/0 2 23 - | 45664.0r- 1 10 23 -61 10 80 1060/0 2 23 - | 45665.0r- 1 13 23 -107 13 34 1060/0 1 23 - | 45666.0r- 1 15 23 -152 15 123 1060/0 2 23 - | 45667.0r- 1 13 23 -64 13 77 1060/0 1 23 - | 45668.0r- 1 9 23 -109 10 32 1060/0 1 23 -
