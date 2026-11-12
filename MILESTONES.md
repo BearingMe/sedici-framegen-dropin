@@ -277,7 +277,8 @@ describe uncertainty and breadth, **not calendar estimates**:
 **Keep this table current.** Update it in the same commit that changes a milestone's
 status, evidence or open items. Last updated: 2026-11-12, branch `BearingMe/k1-adaptive-pacing-at-32-real-fps-55-60-ms-laten`
 (issue #1, K1: QA-18 steps 1-3 measured in the game, bugs #35 to #39 opened, presenter trace added, `multiplier = "adaptive"`
-removed by the owner's decision; full CTest 41 of 41 passed after the removal). Before that: 2026-11-11,
+removed by the owner's decision; full CTest 41 of 41 passed after the removal; `docs/dev/baseline.txt` re-recorded, 305 lines;
+QA-18 notes and log excerpts added). Before that: 2026-11-11,
 branch `docs/issues-cutover` (open bugs moved to GitHub issues #1 to #32). Latest full CTest run: 41 of 41 passed (Release, 2026-11-10, after the tooling merge; under heavy GPU load sedici_fgcheck_present can still fail, issue #20, was K112) (offline GPU
 suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
 
@@ -307,7 +308,7 @@ starts, but the scene stays black (K138 fixed, K139 open as an issue).
 **Bugs and requests: GitHub is the source of truth.** Open items are the
 [GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues) (open bugs: label `bug`; in-game work: `needs-game`;
 kept for the record: `not-a-defect`). The 32 that were open on 2026-11-11 are #1 to #32, titled with their old K number.
-Since then (2026-11-12, issue #1 analysis): #35 to #39 opened; #1, #35, #37 and #38 closed (#1 and #38 by removing adaptive). Bug issues now: 33 open, 4 closed. The
+Since then (2026-11-12, issue #1 analysis): #35 to #40 opened; #1, #35, #37, #38 and #40 closed (#1 and #38 by removing adaptive, #40 from the code review of that removal). Bug issues now: 33 open, 5 closed. The
 retired K1-K147 and FR-01 to FR-05 lists are in [docs/archive](docs/archive/known-issues.md) and are not updated. Counts as of
 that date, from the archive: 32 open
 (K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137, K139, K147; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 102 fixed or resolved (K144, K143, K145, K146, K141, K142, K140, K138, K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.

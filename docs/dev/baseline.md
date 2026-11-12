@@ -40,7 +40,7 @@ showing that every previously passing line still passes and the differences are 
 the milestone made. P4.2 added the target-fps checks and `sedici_abi_target-auto` (38 CTest entries,
 154 regression checks). P4.3 added `sedici_abi_window-replace-vsync` and the error-code checks (39 CTest entries,
 156 regression checks). P4.4 added the `fast bar` scene to the fgcheck quality lines; the
-other quality lines are unchanged to the printed precision. The P4.6 to P4.9 offline work added `sedici_analyzers`, the 10-bit equivalence lines, the cursor-scan checks and the New/ForHwnd routing checks (41 CTest entries, 163 regression checks, 303 lines); the comparison before the re-record showed only additions, and the regression host's three foreground checks present (K137). `git show phase2-baseline:docs/dev/baseline.txt` is the original.
+other quality lines are unchanged to the printed precision. The P4.6 to P4.9 offline work added `sedici_analyzers`, the 10-bit equivalence lines, the cursor-scan checks and the New/ForHwnd routing checks (41 CTest entries, 163 regression checks, 303 lines); the comparison before the re-record showed only additions, and the regression host's three foreground checks present (K137). On 2026-11-12 (issue #1) the owner removed `multiplier = "adaptive"`: the four `adaptive schedule` lines went (two of them return as `2x schedule` lines), three `presenter loop` lines were added, and `present queue released with its last presenter`, added with K140 but never recorded, was recorded (41 CTest entries, 305 lines); every other line was unchanged. `git show phase2-baseline:docs/dev/baseline.txt` is the original.
 
 ## Final result (P3.6)
 

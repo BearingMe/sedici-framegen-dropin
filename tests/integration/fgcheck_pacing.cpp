@@ -364,17 +364,32 @@ bool check_pacing()
                "presenter loop: 2x at 32 real fps shows >= 95% of 64 fps and drops no real frame");
         // Near the refresh (1.5x at 48 = 72 on 75 Hz) the same per-flip overhead
         // keeps the presenter on its floor, as adaptive did at 73 in the game (#39).
+        // Its late share is #39 and is not asserted; the bounds below only catch a
+        // change that starts dropping or losing more of the rate.
         LoopConfig nearRefresh;
         nearRefresh.interval = 1.0 / 48.0;
         nearRefresh.p = 3;
         nearRefresh.q = 2;
-        print_loop("1.5x at 48 real fps, 75 Hz", run_present_loop(nearRefresh));
+        const LoopResult near72 = run_present_loop(nearRefresh);
+        print_loop("1.5x at 48 real fps, 75 Hz", near72);
         nearRefresh.oversleep = 0.002;
-        print_loop("1.5x at 48 real fps, 2 ms per-flip overhead", run_present_loop(nearRefresh));
+        const LoopResult near72SlowFlip = run_present_loop(nearRefresh);
+        print_loop("1.5x at 48 real fps, 2 ms per-flip overhead", near72SlowFlip);
+        expect(near72.shownFps() >= 0.95 * 72.0 && near72.realsDropped == 0 &&
+                   near72SlowFlip.shownFps() >= 0.9 * 72.0 && near72SlowFlip.realsDropped == 0,
+               "presenter loop: 1.5x at 48 real fps keeps >= 95% of 72 fps (>= 90% with 2 ms per flip), no real "
+               "frame dropped");
+        // Over the refresh the panel caps the output: outputs are dropped, but the
+        // latency stays bounded and the panel stays busy.
         LoopConfig over;
         over.interval = 1.0 / 47.0;
         over.gpu = 0.012;
-        print_loop("2x at 47 real fps, 75 Hz (over refresh)", run_present_loop(over));
+        const LoopResult overRefresh = run_present_loop(over);
+        print_loop("2x at 47 real fps, 75 Hz (over refresh)", overRefresh);
+        expect(overRefresh.shownFps() >= 0.95 * 75.0 && overRefresh.latency() <= 0.06 &&
+                   overRefresh.realsDropped <= overRefresh.realsPlanned / 50,
+               "presenter loop: 2x over the refresh shows >= 95% of 75 fps, latency <= 60 ms, <= 2% real frames "
+               "dropped");
     }
     return failures == 0;
 }

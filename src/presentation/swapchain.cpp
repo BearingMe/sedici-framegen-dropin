@@ -1150,7 +1150,9 @@ try {
     OutputPlan plan = m_schedule.plan(now);
     // Generate every planned phase in one submission. The generator advances
     // its history once per real frame, so a frame with nothing generated to
-    // show (no grid point in this real interval) still runs one phase.
+    // show still runs one phase: below 2x the interval's only grid point can be
+    // the real frame itself (1.25x and 1.5x), and the first frame after a reset,
+    // a hitch or a slow stretch shows only the real frame.
     auto& set = m_phase_outputs[slot];
     GeneratePhase phases[kMaxPhases]{};
     uint32_t phaseCount = 0;

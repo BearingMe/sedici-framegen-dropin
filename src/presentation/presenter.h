@@ -57,8 +57,8 @@ struct JobOutput {
     double content = 0.0; // seconds on the game's Present clock
 };
 
-// One application frame's worth of output. A frame may show nothing of its own
-// (no grid point in its interval), only generated frames, or both.
+// One application frame's worth of output: its real frame, only generated frames
+// (below 2x some real frames are never shown on their own), or both.
 struct PresentJob {
     // Private game backbuffer for this frame, in PRESENT state.
     Microsoft::WRL::ComPtr<ID3D12Resource> real;
