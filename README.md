@@ -182,8 +182,8 @@ variables `SEDICI_PACING` and `SEDICI_ASYNC` are no longer read.
 | Key | Type | Default | Valid values | Effect |
 |---|---|---|---|---|
 | `present` | string | `"vrr"` | `"vrr"`, `"vsync"` (alias `"vblank"`), `"game"` | how output frames are presented. `vrr` presents from a dedicated thread, timing each flip from when its image is finished on the GPU; it falls back to `vsync` while RTSS is running or when the native chain cannot be recreated. `vsync` presents with `SyncInterval=1` and no `ALLOW_TEARING`: tear-free, up to one refresh of latency, real rate at or below half the refresh. `game` passes the game's own sync interval and flags through, which is lowest latency but can tear |
-| `multiplier` | string | `"2x"` | `"2x"`, `"1.75x"`, `"1.5x"`, `"1.25x"`, `"adaptive"` | output frames per real frame; only `vrr` schedules anything but 2x. Keep real fps times the multiplier under the refresh rate |
-| `target_fps` | number or `"auto"` | `0` | `0` to `1000`, or `"auto"` | the one frame-rate target, in output frames per second: `0` uncapped, `N` capped, `"auto"` = `floor(Hz - Hz^2/3600)` of the monitor (uncapped if unknown). With `adaptive` it is also the rate to aim for; `0` then behaves like `"auto"`. Replaces `limiter.fps` |
+| `multiplier` | string | `"2x"` | `"2x"`, `"1.75x"`, `"1.5x"`, `"1.25x"` | output frames per real frame; only `vrr` schedules anything but 2x. Keep real fps times the multiplier under the refresh rate. `"adaptive"` was removed on 2026-11-12 (issue #1): it is reported and falls back to `"2x"` |
+| `target_fps` | number or `"auto"` | `0` | `0` to `1000`, or `"auto"` | the one frame-rate target, in output frames per second: `0` uncapped, `N` capped, `"auto"` = `floor(Hz - Hz^2/3600)` of the monitor (uncapped if unknown). Replaces `limiter.fps` |
 | `tear_guard` | string | `"scanline"` | `"scanline"`, `"timer"`, `"off"` | only with `vrr`; how a flip is kept from landing while the panel draws the previous image |
 
 Sedici owns output pacing completely. A game's request to tune AMD's swapchain

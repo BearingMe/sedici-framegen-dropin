@@ -74,7 +74,7 @@ with a cause recorded. The criterion for each entry is what the analyzer prints.
 
 | --- | --- | --- | --- |
 
-| K1 adaptive latency and late flips (issue #1) | QA-18 step 3 (adaptive at about 32 real fps, `[log] level = 2`) | presented output at least 95% of the adaptive target (73 fps at 75 Hz: 69.4 or more); `planned_output_fps` at least 99% of the target (72.3 or more); `late` below 5% of flips in the `vrr present` lines. Changed 2026-11-12 with the owner's approval: adaptive aims at the auto target (`floor(hz - hz^2/3600)`, 73 at 75 Hz), not the display rate | keep open, attach the capture and the `vrr trace` lines |
+| K1 adaptive latency and late flips (issue #1) | Resolved by removal: the owner removed `multiplier = "adaptive"` on 2026-11-12 after QA-18 step 3 (see the QA-18 results). QA-18 step 3 now runs 2x at about 32 real fps | 2x at 32 real fps: presented output at least 95% of 64 fps, no real frames dropped; `late` and `latency_ms` recorded. Flip lateness from the tear guard is #39, from the GPU estimate #36 | record the figures on #36 and #39 |
 
 | K2 generation load lowers the real rate | QA-18 step 2 (2x, then FG off, same scene) | real fps with FG on within 10% of FG off (the cost of generation, stated) | record the cost in ms from the two runs; decide with the owner whether a budget is needed |
 

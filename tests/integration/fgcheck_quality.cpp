@@ -240,7 +240,7 @@ bool run_case(Device& state, const SceneConfig& config, bool keepImages)
     }
 
     // Phases: two generated frames from one prepare, at 1/3 and 2/3, into two
-    // outputs recorded in one command list (the "vrr" 1.5x/1.75x/adaptive path).
+    // outputs recorded in one command list (the "vrr" 1.5x/1.75x path).
     // Each must be closer to the true scene at its time than simply showing the
     // nearer real frame, which a wrong or shared alpha would not be.
     {

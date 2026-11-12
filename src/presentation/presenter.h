@@ -58,7 +58,7 @@ struct JobOutput {
 };
 
 // One application frame's worth of output. A frame may show nothing of its own
-// (adaptive target below the real rate), only generated frames, or both.
+// (no grid point in its interval), only generated frames, or both.
 struct PresentJob {
     // Private game backbuffer for this frame, in PRESENT state.
     Microsoft::WRL::ComPtr<ID3D12Resource> real;

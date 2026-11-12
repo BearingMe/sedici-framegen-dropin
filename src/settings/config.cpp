@@ -277,11 +277,19 @@ bool parse_multiplier(std::string_view text, FrameGenerationSettings::Multiplier
         out = Multiplier::X1_5;
     else if (iequals(text, "1.25x") || iequals(text, "1.25"))
         out = Multiplier::X1_25;
-    else if (iequals(text, "adaptive"))
-        out = Multiplier::Adaptive;
     else
         return false;
     return true;
+}
+
+// Why a multiplier value was not accepted, for the configuration report.
+std::string multiplier_problem(std::string_view text)
+{
+    if (iequals(text, "adaptive"))
+        return "\"adaptive\" was removed (issue #1; use a fixed multiplier and keep real fps x multiplier under "
+               "the "
+               "refresh rate)";
+    return "unknown value \"" + std::string(text) + "\" (expected \"2x\", \"1.75x\", \"1.5x\" or \"1.25x\")";
 }
 
 bool parse_tear_guard(std::string_view text, FrameGenerationSettings::TearGuard& out) noexcept
@@ -454,10 +462,7 @@ void read_fg(const toml::table& root, FrameGenerationSettings& fg, std::vector<s
             fg.multiplier = parsed;
             fg.multiplier_source = Source::File;
         } else {
-            problem_at(problems, *entry, "fg.multiplier",
-                       "unknown value \"" + value +
-                           "\" (expected \"2x\", \"1.75x\", \"1.5x\", \"1.25x\" or \"adaptive\")"
-                           " - using default \"2x\"");
+            problem_at(problems, *entry, "fg.multiplier", multiplier_problem(value) + " - using default \"2x\"");
         }
         break;
     }
@@ -773,9 +778,8 @@ void apply_env_overrides(Settings& config, std::vector<std::string>& problems)
             config.fg.multiplier = parsed;
             config.fg.multiplier_source = Source::Env;
         } else {
-            problems.push_back("SEDICI_FG_MULTIPLIER=\"" + value +
-                               "\": unknown value (expected \"2x\", \"1.75x\", \"1.5x\", \"1.25x\" or "
-                               "\"adaptive\") - override ignored");
+            problems.push_back("SEDICI_FG_MULTIPLIER=\"" + value + "\": " + multiplier_problem(value) +
+                               " - override ignored");
         }
     }
 
@@ -831,8 +835,6 @@ double nominal_output_ratio(const FrameGenerationSettings& fg) noexcept
         return 1.5;
     case M::X1_25:
         return 1.25;
-    case M::Adaptive:
-        return 1.0;
     case M::X2:
         break;
     }
@@ -998,8 +1000,6 @@ const char* multiplier_name(FrameGenerationSettings::Multiplier multiplier) noex
         return "1.5x";
     case FrameGenerationSettings::Multiplier::X1_25:
         return "1.25x";
-    case FrameGenerationSettings::Multiplier::Adaptive:
-        return "adaptive";
     case FrameGenerationSettings::Multiplier::X2:
         break;
     }

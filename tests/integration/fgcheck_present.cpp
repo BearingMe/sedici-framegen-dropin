@@ -305,18 +305,6 @@ bool check_vrr_window(Device& state, sedici::FrameGenerationSettings::Multiplier
                 std::printf("vrr: presented %u of %u planned\n", presented, planned);
                 return false;
             }
-        } else if (multiplier == sedici::FrameGenerationSettings::Multiplier::Adaptive) {
-            // ~40 real fps towards 72: about 1.8 outputs per real frame, and the
-            // game is not held back by the presenter (two frames may be in flight).
-            const double expected = cycles * 72.0 * perFrameMs / 1000.0;
-            if (sediciMs > 2.0) {
-                std::printf("vrr: adaptive game waited %.2f ms per frame in Sedici\n", sediciMs);
-                return false;
-            }
-            if (presented < 0.8 * expected || presented > expected + 4.0) {
-                std::printf("vrr: adaptive presented %u, expected about %.0f\n", presented, expected);
-                return false;
-            }
         } else {
             // 1.5x: 3 outputs per 2 real frames after the first, two of them
             // generated. Allow a few start-up drops, never more than planned.

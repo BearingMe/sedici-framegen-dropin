@@ -14,8 +14,7 @@ namespace {
 struct LoopConfig {
     double interval = 1.0 / 32.0; // game frame time, seconds
     double jitter = 0.001;        // +/- uniform on each frame time
-    double target = 73.0;         // adaptive output fps; 0 = fixed ratio p/q
-    uint32_t p = 2, q = 1;
+    uint32_t p = 2, q = 1;        // output/real ratio
     double refresh = 75.0;
     double gpu = 0.019;                      // game Present -> frame finished on the GPU
     double gpuLow = -0.002, gpuHigh = 0.004; // uniform spread around `gpu`
@@ -50,10 +49,7 @@ LoopResult run_present_loop(const LoopConfig& c)
         sedici::fg::OutputPlan plan;
     };
     sedici::fg::OutputSchedule schedule;
-    if (c.target > 0.0)
-        schedule.set_target(c.target);
-    else
-        schedule.set_ratio(c.p, c.q);
+    schedule.set_ratio(c.p, c.q);
     sedici::fg::LatencyEstimator estimator;
     const double period = 1.0 / c.refresh;
     const double lead = 0.00025, copy = c.copy, call = 0.0003;
@@ -314,37 +310,17 @@ bool check_pacing()
                "1.5x schedule: a 3x hitch shows only the real frame, then generation resumes");
     }
     {
-        // Adaptive: 48 real fps towards 72 output fps averages 1.5 outputs per
-        // real frame on an even 1/72 s grid, snapping to real frames nearby.
+        // A pause resets to the real frame alone, and below 20 real fps the
+        // schedule stops generating.
         sedici::fg::OutputSchedule schedule;
-        schedule.set_target(72.0);
-        const double interval = 1.0 / 48.0;
-        double previousContent = -1.0, maxGapError = 0.0;
-        uint32_t produced = 0, maxGenerated = 0;
-        for (uint32_t frame = 0; frame < 4801; ++frame) {
-            const auto step = schedule.plan(10.0 + frame * interval);
-            maxGenerated = std::max(maxGenerated, step.generated());
-            for (uint32_t i = 0; i < step.count; ++i) {
-                if (frame > 1) {
-                    ++produced;
-                    maxGapError =
-                        std::max(maxGapError, std::abs(step.outputs[i].content - previousContent - 1.0 / 72.0));
-                }
-                previousContent = step.outputs[i].content;
-            }
-        }
-        expect(produced >= 7190 && produced <= 7210 && maxGenerated <= 2 && maxGapError <= 0.1 / 72.0 + 1e-9,
-               "adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a tenth of a slot of the grid");
-        // A pause resets to the real frame alone, and a slower real rate than the
-        // target still never asks for more than two generated frames.
+        schedule.set_ratio(2, 1);
+        for (uint32_t frame = 0; frame < 100; ++frame) (void)schedule.plan(10.0 + frame / 48.0);
         const auto paused = schedule.plan(20.0);
-        expect(paused.count == 1 && paused.outputs[0].real,
-               "adaptive schedule: a 0.25 s gap shows only the real frame");
-        // Below 20 real fps the schedule stops generating.
+        expect(paused.count == 1 && paused.outputs[0].real, "2x schedule: a 0.25 s gap shows only the real frame");
         uint32_t slowGenerated = 0;
         for (uint32_t frame = 0; frame < 40; ++frame)
             slowGenerated += schedule.plan(21.0 + frame * 0.055).generated();
-        expect(slowGenerated == 0, "adaptive schedule: below 20 real fps shows only real frames");
+        expect(slowGenerated == 0, "2x schedule: below 20 real fps shows only real frames");
         // K95: jitter around 20 real fps must not halve the output. Alternate
         // 46 ms and 54 ms (average 50 ms) with the fixed 2x ratio.
         {
@@ -371,58 +347,34 @@ bool check_pacing()
             expect(slowOnly == 0 && recoveredCount > 90,
                    "2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation");
         }
-        {
-            // #35: at 32 real fps towards 73 an interval can hold three grid points.
-            // With two generated frames the real frame stands in for the third
-            // instead of the point being lost (70.4 fps before the fix).
-            sedici::fg::OutputSchedule slow;
-            slow.set_target(73.0);
-            const double frame = 1.0 / 32.0;
-            double previous = -1.0, minGap = 1.0;
-            uint32_t planned = 0, most = 0;
-            for (uint32_t k = 0; k < 3201; ++k) {
-                const auto step = slow.plan(100.0 + k * frame);
-                most = std::max(most, step.generated());
-                for (uint32_t i = 0; i < step.count; ++i) {
-                    if (k > 1) {
-                        ++planned;
-                        minGap = std::min(minGap, step.outputs[i].content - previous);
-                    }
-                    previous = step.outputs[i].content;
-                }
-            }
-            const double fps = planned / (3199 * frame);
-            char what[160];
-            std::snprintf(
-                what, sizeof(what),
-                "adaptive schedule: 32 real -> %.1f of 73 fps planned, <=2 generated, gap >= 0.9 slot (#35)", fps);
-            expect(fps >= 0.99 * 73.0 && most <= 2 && minGap >= 0.9 / 73.0 - 1e-9, what);
-        }
-        schedule.set_target(144.0);
-        uint32_t worst = 0;
-        for (uint32_t frame = 0; frame < 200; ++frame)
-            worst = std::max(worst, schedule.plan(30.0 + frame / 40.0).generated());
-        expect(worst <= 2, "adaptive schedule: 40 real fps towards 144 caps at two generated frames");
     }
     {
-        // Issue #1: closed presenter loop at 32 real fps towards 73 on a 75 Hz VRR panel.
-        const LoopResult adaptive = run_present_loop(LoopConfig{});
-        print_loop("adaptive 32 -> 73 at 75 Hz", adaptive);
-        expect(adaptive.plannedFps() >= 0.99 * 73.0 && adaptive.shownFps() >= 0.95 * 73.0,
-               "presenter loop: adaptive 32 -> 73 plans >= 99% and shows >= 95% of the target (#35)");
-        LoopConfig twice;
-        twice.interval = 1.0 / 47.0;
-        twice.target = 0.0;
-        twice.gpu = 0.012;
-        const LoopResult over = run_present_loop(twice);
-        print_loop("2x at 47 real fps, 75 Hz (over refresh)", over);
-        // Per-flip overhead beyond the hold (late timer wake-up, a flip that
-        // latches after Present returns) larger than the gap between the grid and
-        // the refresh keeps the presenter on its floor: in the game (2026-11-12)
-        // this looked like ~99% late flips and ~66 of 70 planned fps shown.
+        // Issue #1: closed presenter loop. 2x at 32 real fps (64 output fps) on a
+        // 75 Hz VRR panel leaves ~2.3 ms per flip over the refresh, so a 2 ms
+        // per-flip overhead still keeps it on time.
+        const LoopResult twice = run_present_loop(LoopConfig{});
+        print_loop("2x at 32 real fps, 75 Hz", twice);
         LoopConfig slowFlip;
         slowFlip.oversleep = 0.002;
-        print_loop("adaptive 32 -> 73, 2 ms per-flip overhead", run_present_loop(slowFlip));
+        const LoopResult twiceSlowFlip = run_present_loop(slowFlip);
+        print_loop("2x at 32 real fps, 2 ms per-flip overhead", twiceSlowFlip);
+        // Late flips here (~7%) come from the median GPU estimate, #36; not asserted.
+        expect(twice.shownFps() >= 0.95 * 64.0 && twice.realsDropped == 0 &&
+                   twiceSlowFlip.shownFps() >= 0.95 * 64.0 && twiceSlowFlip.realsDropped == 0,
+               "presenter loop: 2x at 32 real fps shows >= 95% of 64 fps and drops no real frame");
+        // Near the refresh (1.5x at 48 = 72 on 75 Hz) the same per-flip overhead
+        // keeps the presenter on its floor, as adaptive did at 73 in the game (#39).
+        LoopConfig nearRefresh;
+        nearRefresh.interval = 1.0 / 48.0;
+        nearRefresh.p = 3;
+        nearRefresh.q = 2;
+        print_loop("1.5x at 48 real fps, 75 Hz", run_present_loop(nearRefresh));
+        nearRefresh.oversleep = 0.002;
+        print_loop("1.5x at 48 real fps, 2 ms per-flip overhead", run_present_loop(nearRefresh));
+        LoopConfig over;
+        over.interval = 1.0 / 47.0;
+        over.gpu = 0.012;
+        print_loop("2x at 47 real fps, 75 Hz (over refresh)", run_present_loop(over));
     }
     return failures == 0;
 }

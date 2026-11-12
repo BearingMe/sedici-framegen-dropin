@@ -110,13 +110,13 @@ struct FrameGenerationSettings {
     // Output frames per real frame, `[fg] multiplier`. Only "vrr" schedules
     // anything but 2x; "vsync" and "game" always present one midpoint per
     // real frame. Below 2x outputs stay evenly paced, so some real frames are
-    // shown only as nearby generated frames.
+    // shown only as nearby generated frames. "adaptive" (an output-rate target)
+    // was removed on 2026-11-12 (issue #1); the value now falls back to "2x".
     enum class Multiplier {
-        X2,       // "2x": one generated frame between every two real frames
-        X1_75,    // "1.75x": 7 outputs per 4 real frames
-        X1_5,     // "1.5x": 3 outputs per 2 real frames
-        X1_25,    // "1.25x": 5 outputs per 4 real frames
-        Adaptive, // "adaptive": aim for `target_fps` outputs per second
+        X2,    // "2x": one generated frame between every two real frames
+        X1_75, // "1.75x": 7 outputs per 4 real frames
+        X1_5,  // "1.5x": 3 outputs per 2 real frames
+        X1_25, // "1.25x": 5 outputs per 4 real frames
     };
 
     Multiplier multiplier = Multiplier::X2;
@@ -124,9 +124,8 @@ struct FrameGenerationSettings {
     // The one frame-rate target (FR-05): output frames per second the screen
     // should receive. 0 = uncapped (the default), N = capped, `target_auto` =
     // match the monitor (settings/target_rate.h), uncapped if the refresh rate
-    // is unknown. With "adaptive" it is also the rate to aim for; 0 then
-    // behaves like auto. Replaces `[limiter] fps` (a real-frame cap), which is
-    // still read and converted (see `legacy_limiter_fps`).
+    // is unknown. Replaces `[limiter] fps` (a real-frame cap), which is still
+    // read and converted (see `legacy_limiter_fps`).
     double target_fps = 0.0;
     bool target_auto = false;
     Source target_fps_source = Source::Default;

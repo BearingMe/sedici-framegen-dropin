@@ -124,7 +124,6 @@ HRESULT Swapchain::wrap(IDXGISwapChain4* native, ID3D12CommandQueue* queue, Swap
         chosen.present = sedici::settings().fg.present;
         chosen.guard = sedici::settings().fg.tear_guard;
         chosen.multiplier = sedici::settings().fg.multiplier;
-        chosen.targetFps = sedici::settings().fg.target_fps;
     }
     std::string why;
     if (chosen.present == Present::Vrr && GetModuleHandleW(L"RTSSHooks64.dll") &&
@@ -711,18 +710,6 @@ HRESULT Swapchain::blit(ID3D12Resource* source, D3D12_RESOURCE_STATES* sourceSta
     return S_OK;
 }
 
-double Swapchain::adaptive_target() const noexcept
-{
-    // Adaptive needs a rate to aim for: the one target, or auto when it is
-    // uncapped (0). Without a known refresh rate keep the old safe fallback.
-    const sedici::LiveValues live = sedici::live_snapshot();
-    const double hz = display_refresh_hz();
-    double target = sedici::resolve_target_fps(live.target_fps, live.target_auto, hz);
-    if (target <= 0.0) target = sedici::auto_target_fps(hz);
-    if (target <= 0.0) target = std::max(1.0, hz - 3.0);
-    return target;
-}
-
 double Swapchain::display_refresh_hz() const noexcept
 {
     double hz = 0.0;
@@ -744,15 +731,10 @@ double Swapchain::display_refresh_hz() const noexcept
 
 void Swapchain::publish_output_context() noexcept
 {
-    const double ratio = !m_presenter            ? 2.0
-                         : m_schedule.adaptive() ? 1.0
-                                                 : static_cast<double>(m_schedule.numerator()) /
-                                                       static_cast<double>(m_schedule.denominator());
+    const double ratio =
+        !m_presenter ? 2.0
+                     : static_cast<double>(m_schedule.numerator()) / static_cast<double>(m_schedule.denominator());
     const double hz = display_refresh_hz();
-    if (m_presenter && m_schedule.adaptive()) {
-        const double target = adaptive_target();
-        if (std::fabs(target - m_schedule.target()) > 1e-9) m_schedule.set_target(target);
-    }
     if (sedici::live_set_output_context(ratio, hz)) limiter_on_config_changed();
     try {
         log_event(2, "fg: output context ratio=" + std::to_string(ratio) + " refresh_hz=" + std::to_string(hz) +
@@ -781,18 +763,14 @@ void Swapchain::configure_schedule(const PresentChoice& choice) noexcept
     case Multiplier::X1_25:
         m_schedule.set_ratio(5, 4);
         break;
-    case Multiplier::Adaptive:
-        m_schedule.set_target(adaptive_target());
-        break;
     case Multiplier::X2:
         m_schedule.set_ratio(2, 1);
         break;
     }
     try {
         log_event(1, std::string("fg: schedule multiplier=") + sedici::multiplier_name(choice.multiplier) +
-                         (m_schedule.adaptive() ? " target_fps=" + std::to_string(m_schedule.target())
-                                                : " ratio=" + std::to_string(m_schedule.numerator()) + "/" +
-                                                      std::to_string(m_schedule.denominator())));
+                         " ratio=" + std::to_string(m_schedule.numerator()) + "/" +
+                         std::to_string(m_schedule.denominator()));
     } catch (...) {
     }
     publish_output_context();
@@ -1172,7 +1150,7 @@ try {
     OutputPlan plan = m_schedule.plan(now);
     // Generate every planned phase in one submission. The generator advances
     // its history once per real frame, so a frame with nothing generated to
-    // show (adaptive target below the real rate) still runs one phase.
+    // show (no grid point in this real interval) still runs one phase.
     auto& set = m_phase_outputs[slot];
     GeneratePhase phases[kMaxPhases]{};
     uint32_t phaseCount = 0;
@@ -1250,8 +1228,7 @@ try {
                 const double ratio = static_cast<double>(m_rate_window_outputs) / 300.0;
                 rates += " OVER_REFRESH: cap the real rate at " +
                          std::to_string(sedici::auto_target_fps(refresh) / ratio) +
-                         " fps (set [fg] target_fps = \"auto\")";
-                if (!m_schedule.adaptive()) rates += " or use multiplier = \"adaptive\"";
+                         " fps (set [fg] target_fps = \"auto\") or use a lower multiplier";
             }
             log_event(1,
                       "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +
