@@ -1,5 +1,10 @@
 # 009: Output multipliers for the vrr presenter
 
+> **Update (2026-11-12):** the adaptive mode described below was **removed** by the owner after
+> QA-18 step 3 (issue #1, commit b405cec). `multiplier = "adaptive"` now logs a note and falls
+> back to `"2x"`. The fixed multipliers are still current. The rest of this finding is kept
+> unchanged as the record of what adaptive did.
+
 > **Status (2026-11-09): valid, and implemented.** The line below saying nothing has run in
 > the game predates the three game sessions recorded further down. The multipliers, the
 > adaptive mode and the latency fixes are the current implementation. Finding number 004

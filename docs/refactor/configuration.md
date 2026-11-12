@@ -149,7 +149,7 @@ TOML/defaults/documented overrides or UI request
 | --- | --- |
 | `fg.mode`, `[pacing]`, `[async]` | Removed with the AMD backend. An old file that still has them loads and the log says they are ignored. |
 | `fg.present`, `fg.tear_guard` | Replace implementation choices with explicit presentation intent/capability policy; preserve or warn during migration. |
-| `fg.multiplier`, `fg.target_fps` | Current fractional/adaptive work must be accounted for, not deleted by omission from the minimal example. |
+| `fg.multiplier`, `fg.target_fps` | Current fractional work must be accounted for, not deleted by omission from the minimal example. `"adaptive"` was removed on 2026-11-12 (issue #1); an old value logs a note and falls back to `"2x"`. |
 | `limiter.fps` | Candidate rename to `limiter.real_fps`; preserve fractional units/meaning and disabled behavior. |
 | `pacing.*`, `async.mode`, `limiter.spin_us` | Separate supported user intent from internal tuning; current pacing-on default and opt-outs remain required until approved changes. |
 | `log.level`, `MFSRFG_LOG` | Candidate migration to named logging levels, with explicit precedence/deprecation. |
@@ -160,7 +160,7 @@ environment variables. Internal experiments belong in clearly identified develop
 builds or the offline host, not the normal user surface. Compatibility guards such
 as third-party overlay detection are reported decisions, not invisible mode changes.
 
-If fractional/adaptive output is exposed, specify backend support, multiplier vs
+If fractional output (or, should it return, an output-rate target) is exposed, specify backend support, multiplier vs
 output-target semantics, real-frame omission, latency, and overload behavior. Apply
 it coherently with the cap and sync policy; do not expose combinations known not
 to work. Do not promise that requested output FPS equals displayed FPS.
@@ -170,7 +170,7 @@ to work. Do not promise that requested output FPS equals displayed FPS.
 - Final key names, numeric bounds, schema/version migration, and alias lifetime.
 - Which legacy overrides remain supported and their precedence over live edits.
 - Final sync choices/defaults and how unsupported combinations are surfaced.
-- Public multiplier/adaptive controls and their AMD backend applicability.
+- Public multiplier controls (adaptive removed 2026-11-12, issue #1) and their AMD backend applicability.
 - Which legacy pacing/async controls remain product settings versus experiments.
 - Exact backend recreation boundary; seamless live backend switching is not assumed.
 
