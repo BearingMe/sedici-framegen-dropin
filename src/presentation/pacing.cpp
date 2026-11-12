@@ -242,6 +242,15 @@ OutputPlan OutputSchedule::plan(double entry) noexcept
             m_next_slot += period;
             break; // the real frame closes this interval
         }
+        if (plan.generated() >= 2) {
+            // No generated frame left for this grid point (kMaxPhases): skipping
+            // it lost an output, 70.4 instead of 73 fps at 32 real fps (#35). The
+            // real frame stands in for it instead, and the grid restarts after the
+            // real frame no closer than a snapped real frame allows (0.9 period).
+            if (plan.count < kMaxPlannedOutputs) plan.outputs[plan.count++] = PlannedOutput{1.0f, true, entry};
+            m_next_slot = std::max(m_next_slot + period, entry + period - snap);
+            break;
+        }
         addGenerated((m_next_slot - previous) / interval);
         m_next_slot += period;
     }

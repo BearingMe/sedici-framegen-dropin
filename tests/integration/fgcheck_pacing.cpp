@@ -371,6 +371,33 @@ bool check_pacing()
             expect(slowOnly == 0 && recoveredCount > 90,
                    "2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation");
         }
+        {
+            // #35: at 32 real fps towards 73 an interval can hold three grid points.
+            // With two generated frames the real frame stands in for the third
+            // instead of the point being lost (70.4 fps before the fix).
+            sedici::fg::OutputSchedule slow;
+            slow.set_target(73.0);
+            const double frame = 1.0 / 32.0;
+            double previous = -1.0, minGap = 1.0;
+            uint32_t planned = 0, most = 0;
+            for (uint32_t k = 0; k < 3201; ++k) {
+                const auto step = slow.plan(100.0 + k * frame);
+                most = std::max(most, step.generated());
+                for (uint32_t i = 0; i < step.count; ++i) {
+                    if (k > 1) {
+                        ++planned;
+                        minGap = std::min(minGap, step.outputs[i].content - previous);
+                    }
+                    previous = step.outputs[i].content;
+                }
+            }
+            const double fps = planned / (3199 * frame);
+            char what[160];
+            std::snprintf(
+                what, sizeof(what),
+                "adaptive schedule: 32 real -> %.1f of 73 fps planned, <=2 generated, gap >= 0.9 slot (#35)", fps);
+            expect(fps >= 0.99 * 73.0 && most <= 2 && minGap >= 0.9 / 73.0 - 1e-9, what);
+        }
         schedule.set_target(144.0);
         uint32_t worst = 0;
         for (uint32_t frame = 0; frame < 200; ++frame)
@@ -381,6 +408,8 @@ bool check_pacing()
         // Issue #1: closed presenter loop at 32 real fps towards 73 on a 75 Hz VRR panel.
         const LoopResult adaptive = run_present_loop(LoopConfig{});
         print_loop("adaptive 32 -> 73 at 75 Hz", adaptive);
+        expect(adaptive.plannedFps() >= 0.99 * 73.0 && adaptive.shownFps() >= 0.95 * 73.0,
+               "presenter loop: adaptive 32 -> 73 plans >= 99% and shows >= 95% of the target (#35)");
         LoopConfig twice;
         twice.interval = 1.0 / 47.0;
         twice.target = 0.0;
