@@ -27,8 +27,10 @@ Each step is 2 minutes after the scene has settled. Run
 2. **2x, uncapped** (`fg.multiplier = "2x"`, `fg.target_fps = 0`, `fg.present = "vrr"`). Capture. Compare the real
    fps with step 1 (K2) and read `dropped` in the periodic lines (K7). Repeat once with `fg.present = "vsync"`
    and compare the GPU time (K15).
-3. **Adaptive at about 32 real fps** (`fg.multiplier = "adaptive"`, cap the game or raise the settings
-   until it runs near 32). Capture. Read the `vrr present` lines for late flips (K1).
+3. **Adaptive at about 32 real fps** (`fg.multiplier = "adaptive"`, `[log] level = 2`, cap the game or raise
+   the settings until it runs near 32). Capture and run the analyzer with `-TargetFps` set to the adaptive
+   target (73 at 75 Hz). Read the `vrr present` lines for late flips by cause (`late=N{gpu carry guard}`) and
+   `planned_output_fps` in the `vrr game thread` lines, and keep the `vrr trace` lines (issue #1, K1).
 4. **Frame generation idle.** Open a menu in which Cyberpunk stops generating, game uncapped, capture
    30 seconds; repeat the same menu with `tools\restore.ps1` (K4).
 5. **Tear guard off** (`fg.tear_guard = "off"`, VRR on, 2x). Capture 1 minute and keep the `vrr present`
