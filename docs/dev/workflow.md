@@ -37,6 +37,11 @@ Do not fix bugs inside a move commit.
 Conventional Commits. A move commit is `refactor(<module>): ...` with a body listing the moves,
 "Changed: #include lines and CMake paths only", the baseline result and "No behaviour change".
 
+Code commits are reviewed with `/code-review` on their own diff before they are made;
+documentation-only commits are reviewed by their author. Every commit body carries a `Reviewed:`
+line, and a pull request carries one review of the whole branch against `main`. The procedure is
+the "Code is reviewed before it is committed" rule in `AGENTS.md`.
+
 ## Bugs
 
 Every defect found gets a GitHub issue (Bug template, `.github/ISSUE_TEMPLATE/bug.yml`) before

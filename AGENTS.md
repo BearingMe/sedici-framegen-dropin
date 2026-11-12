@@ -64,6 +64,22 @@ environment overrides. The real-frame limiter is optional.
   updated" date.
 - Use Conventional Commits for every commit, for example
   `feat: add present timing stats`.
+- **Code is reviewed before it is committed (owner rule, 2026-11-12).** Too many bugs were left
+  behind in commits that only an after-the-fact review caught.
+  1. A commit that changes code (`src/`, `tests/`, `tools/`, `CMakeLists.txt`, the shipped
+     `sedici.toml`; a commit mixing code and docs counts as code) is reviewed before
+     `git commit` with the `/code-review` skill, on that commit's own staged diff only (not the
+     whole branch).
+  2. A documentation-only commit is reviewed by the author: re-read the diff against the code and
+     the other docs it describes before committing. No review agent is needed.
+  3. Every finding is fixed in the same commit, recorded as a GitHub Bug issue before the commit,
+     or rejected with a one-line reason. A finding is never dropped silently. Re-run the checks
+     the change affects (`tools/check.ps1 -Quick` at least) after the fixes.
+  4. The commit body records the review on one line, for example
+     `Reviewed: /code-review, 4 findings: 3 fixed, 1 -> #41` or `Reviewed: self (docs only)`.
+  5. Before opening a pull request, review the whole branch diff against `main` with
+     `/code-review`, handle its findings the same way, and put the result in the pull request
+     description. This is the only review that compares against `main`.
 - **Always give a reason for a command.** Claude Code's auto-mode classifier blocks an
   action when it sees no stated reason ("no reason was provided"). Before any command
   that writes, deletes, rewrites many files, runs a script or changes git state, say in
