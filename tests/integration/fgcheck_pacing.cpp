@@ -9,7 +9,7 @@ namespace {
 // when two frames are in flight, a GPU that finishes each frame some time after
 // its Present, and one presenter thread that copies, holds and flips each output
 // in turn on a VRR panel. It drives the production pure policies (OutputSchedule,
-// LatencyEstimator, later_output_is_due, flip_floor), so a pacing cascade found in
+// LatencyEstimator, later_output_is_due, flip_floor; the scan-line gate is modelled), so a pacing cascade found in
 // the game can be reproduced and its fix checked without a device.
 struct LoopConfig {
     double interval = 1.0 / 32.0; // game frame time, seconds
@@ -29,6 +29,7 @@ struct LoopResult {
     double seconds = 0.0;
     uint32_t planned = 0, shown = 0, late = 0;
     uint32_t realsPlanned = 0, realsDropped = 0, generatedDropped = 0;
+    uint32_t floorPastGate = 0; // flips where flip_floor ended after the scan-line gate
     double latencySum = 0.0;
     uint32_t latencySamples = 0;
     double shownFps() const { return seconds > 0.0 ? shown / seconds : 0.0; }
@@ -104,10 +105,14 @@ LoopResult run_present_loop(const LoopConfig& c)
                 if (counted) (out.real ? result.realsDropped : result.generatedDropped) += 1;
                 continue;
             }
-            // VRR panel with the scan-line guard: the gate opens once the previous
-            // image's scan has ended, one refresh after its flip.
+            // VRR panel with the scan-line guard, as in Presenter::hold: wait for the
+            // production flip_floor, then for the gate, which opens once the previous
+            // image's scan has ended (one refresh minus the lead after its flip). A
+            // floor past the gate would make every flip wait for the next blank.
             const double floor = sedici::fg::flip_floor(false, true, lastFlip, period, lead);
-            double flip = std::max({target - early, ready, floor, lastFlip > 0.0 ? lastFlip + period - lead : 0.0});
+            const double gate = lastFlip > 0.0 ? lastFlip + period - lead : 0.0;
+            if (counted && floor > gate) ++result.floorPastGate;
+            double flip = std::max({target - early, ready, floor, gate});
             if (flip > ready) flip += c.oversleep;
             if (counted) {
                 ++result.shown;
@@ -229,6 +234,20 @@ bool check_pacing()
     }
 
     // Current presenter policy, characterized without changing real-drop semantics.
+    // The tear guard's flip floor; the presenter loop below also checks that it
+    // never ends after the scan-line gate.
+    {
+        const double refresh = 1.0 / 75.0, lead = 0.00025;
+        expect(sedici::fg::flip_floor(true, false, 0.0, refresh, lead) == 0.0 &&
+                   sedici::fg::flip_floor(false, true, 0.0, refresh, lead) == 0.0 &&
+                   std::abs(sedici::fg::flip_floor(true, false, 1.0, refresh, lead) - (1.0 + refresh + 0.0002)) <
+                       1e-12 &&
+                   std::abs(sedici::fg::flip_floor(false, true, 1.0, refresh, lead) -
+                            (1.0 + refresh - lead - 0.0005)) < 1e-12 &&
+                   sedici::fg::flip_floor(false, false, 1.0, refresh, lead) == 0.0,
+               "flip floor: none before the first flip; timer one refresh + 0.2 ms; scan-line one refresh - lead - "
+               "0.5 ms; none with the guard off");
+    }
     expect(!sedici::fg::later_output_is_due(false, 1.0, 0.1, 9.0) &&
                !sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.124) &&
                sedici::fg::later_output_is_due(true, 1.0, 0.125, 1.125) &&
@@ -362,6 +381,8 @@ bool check_pacing()
         expect(twice.shownFps() >= 0.95 * 64.0 && twice.realsDropped == 0 &&
                    twiceSlowFlip.shownFps() >= 0.95 * 64.0 && twiceSlowFlip.realsDropped == 0,
                "presenter loop: 2x at 32 real fps shows >= 95% of 64 fps and drops no real frame");
+        expect(twice.floorPastGate == 0 && twiceSlowFlip.floorPastGate == 0,
+               "presenter loop: the scan-line flip floor never ends after the scan-line gate");
         // Near the refresh (1.5x at 48 = 72 on 75 Hz) the same per-flip overhead
         // keeps the presenter on its floor, as adaptive did at 73 in the game (#39).
         // Its late share is #39 and is not asserted; the bounds below only catch a

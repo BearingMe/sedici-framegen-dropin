@@ -47,11 +47,6 @@ double flip_floor(bool timerGuard, bool scanGuard, double lastFlip, double perio
     return 0.0;
 }
 
-void LatencyEstimator::reset() noexcept
-{
-    *this = LatencyEstimator{};
-}
-
 void LatencyEstimator::observe(double structural, double gpu, bool exact) noexcept
 {
     // Both parts are short windows rather than slow-decay averages: a single

@@ -36,7 +36,7 @@ Each step is 2 minutes after the scene has settled. Run
    and compare the GPU time (K15).
 3. **2x at about 32 real fps** (`fg.multiplier = "2x"`, `[log] level = 2`, cap the game at 32). Capture and run
    the analyzer with `-TargetFps 64`. Read the `vrr present` lines for late flips by cause
-   (`late=N{gpu carry guard}`) and `latency_ms`, and keep the `vrr trace` lines (issue #1, K1). Until
+   (`late=N{gpu carry guard oversleep}`) and `latency_ms`, and keep the `vrr trace` lines (issue #1, K1). Until
    2026-11-12 this step measured `multiplier = "adaptive"`, which was removed after it.
 4. **Frame generation idle.** Open a menu in which Cyberpunk stops generating, game uncapped, capture
    30 seconds; repeat the same menu with `tools\restore.ps1` (K4).

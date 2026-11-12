@@ -1230,7 +1230,11 @@ try {
                 const double ratio = static_cast<double>(m_rate_window_outputs) / 300.0;
                 rates += " OVER_REFRESH: cap the real rate at " +
                          std::to_string(sedici::auto_target_fps(refresh) / ratio) +
-                         " fps (set [fg] target_fps = \"auto\") or use a lower multiplier";
+                         " fps (set [fg] target_fps = \"auto\")";
+                // 1.25x (5/4) is the lowest multiplier parse_multiplier accepts
+                // (settings/config.cpp); keep this in step if the set changes.
+                if (m_schedule.numerator() * 4ull > m_schedule.denominator() * 5ull)
+                    rates += " or use a lower multiplier";
             }
             log_event(1,
                       "fg: vrr game thread cycles=" + std::to_string(m_present_cycles) + rates +

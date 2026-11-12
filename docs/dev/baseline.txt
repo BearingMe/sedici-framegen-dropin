@@ -121,6 +121,7 @@ PASS an invalid interval falls back to a bounded pacing value
 PASS 20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall
 PASS ratio validation handles large denominators without overflow
 PASS ratio validation rejects a zero denominator
+PASS flip floor: none before the first flip; timer one refresh + 0.2 ms; scan-line one refresh - lead - 0.5 ms; none with the guard off
 PASS presenter stale-output policy uses the later deadline including equality
 PASS stale-output policy drains a hitch backlog chronologically
 PASS 2x schedule: 800 outputs per 400 real frames, 400 real, <=2 generated, even 10.417 ms grid
@@ -133,6 +134,7 @@ PASS 2x schedule: below 20 real fps shows only real frames
 PASS 2x schedule: jitter averaging 20 real fps still generates for almost every frame
 PASS 2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation
 PASS presenter loop: 2x at 32 real fps shows >= 95% of 64 fps and drops no real frame
+PASS presenter loop: the scan-line flip floor never ends after the scan-line gate
 PASS presenter loop: 1.5x at 48 real fps keeps >= 95% of 72 fps (>= 90% with 2 ms per flip), no real frame dropped
 PASS presenter loop: 2x over the refresh shows >= 95% of 75 fps, latency <= 60 ms, <= 2% real frames dropped
 == regression 

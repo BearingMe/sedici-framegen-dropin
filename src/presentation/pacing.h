@@ -46,7 +46,6 @@ double flip_floor(bool timerGuard, bool scanGuard, double lastFlip, double perio
 // Present the frame's first image is ready (GPU), plus 1 ms.
 class LatencyEstimator {
 public:
-    void reset() noexcept;
     // `structural`: entry - content of the frame's first output (exact).
     // `gpu`: seconds from the game's Present to that output being ready; with
     // `exact` false the frame was already finished when the presenter got to

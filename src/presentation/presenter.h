@@ -154,6 +154,7 @@ private:
     struct HoldInfo {
         double floor = 0.0;
         double scanStart = 0.0;
+        double guardWait = 0.0; // seconds the floor and the scan-line gate delayed the flip
     };
     // Holds until `notBefore`, then applies the tear guard.
     void hold(double notBefore, HoldInfo* info = nullptr) noexcept;
@@ -215,6 +216,9 @@ private:
 
     // One output as the presenter handled it, for the level-2 trace (#37). Times
     // are seconds relative to the job's entry; 0 where a step did not happen.
+    // The records are consecutive on purpose (a pacing cascade only shows across
+    // neighbouring outputs), so each window traces a short stretch starting at
+    // job kTraceStartJob; dropped outputs use a record too.
     struct TraceRecord {
         uint32_t job = 0;
         uint8_t index = 0;
@@ -246,11 +250,14 @@ private:
         uint32_t late = 0; // flipped more than 1 ms after its target
         // `late` by cause (#37): the frame's first output was not finished on the
         // GPU by its target; a later output (or a job dequeued behind earlier
-        // flips) was not ready by its target; ready in time but the floor or
-        // scan-line gate held the flip past its target.
+        // flips) was not ready by its target; ready in time but the tear guard
+        // (flip floor or scan-line gate, whichever guard mode is set) held the flip
+        // past its target; ready in time and not held by the guard, so the wait for
+        // the target itself overslept.
         uint32_t lateGpu = 0;
         uint32_t lateCarry = 0;
         uint32_t lateGuard = 0;
+        uint32_t lateOversleep = 0;
         TraceRecord trace[kTraceRecords]{};
         uint32_t traceCount = 0;
         double latencySum = 0.0;

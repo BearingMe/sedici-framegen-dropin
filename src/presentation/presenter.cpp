@@ -500,6 +500,7 @@ void Presenter::hold(double notBefore, HoldInfo* info) noexcept
 {
     const auto record = [&](double waited) {
         if (waited <= 0.0001) return;
+        if (info) info->guardWait += waited;
         ++m_window.guardHolds;
         m_window.guardSum += waited;
         m_window.guardMax = std::max(m_window.guardMax, waited);
@@ -731,8 +732,11 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         const double flip = now_seconds();
         if (flip > target + 0.001) {
             ++m_window.late;
+            // Ready in time: the tear guard made it late if hold() counted a guard
+            // delay for it (the same delay as guard{holds}); otherwise the wait for
+            // the target itself overslept.
             if (ready <= target + 0.001)
-                ++m_window.lateGuard;
+                ++(held.guardWait > 0.0 ? m_window.lateGuard : m_window.lateOversleep);
             else if (i == 0 && !alreadyReady)
                 ++m_window.lateGpu;
             else
@@ -834,12 +838,12 @@ try {
                      std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
                      " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) +
                      "}" + " late=" + std::to_string(w.late) + "{gpu=" + std::to_string(w.lateGpu) +
-                     " carry=" + std::to_string(w.lateCarry) + " guard=" + std::to_string(w.lateGuard) + "}" +
-                     " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
-                     " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
-                     " back_to_back=" + std::to_string(w.backToBack) + " gap_min_ms=" + ms(w.gapMin) +
-                     " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
-                     " guard{holds=" + std::to_string(w.guardHolds) +
+                     " carry=" + std::to_string(w.lateCarry) + " guard=" + std::to_string(w.lateGuard) +
+                     " oversleep=" + std::to_string(w.lateOversleep) + "}" + " latency_ms=" +
+                     ms(avg(w.latencySum, w.latencySamples)) + " short_gaps=" + std::to_string(w.shortGaps) + "/" +
+                     std::to_string(w.flips) + " back_to_back=" + std::to_string(w.backToBack) +
+                     " gap_min_ms=" + ms(w.gapMin) + " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) +
+                     " max=" + ms(w.gpuWaitMax) + "}" + " guard{holds=" + std::to_string(w.guardHolds) +
                      " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) + " max_ms=" + ms(w.guardMax) +
                      " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
                      " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
