@@ -16,7 +16,7 @@ environment overrides. The real-frame limiter is optional.
   behaviour and the return codes must match what a game built against FSR 3.1
   frame generation expects. A call Sedici does not implement gets a defined FFX
   error code and a log line; it never crashes the host and is never sent to
-  another DLL. Record the code chosen for each such case in the README and do not
+  another DLL. Record the code chosen for each such case in `docs/reference/abi.md` and do not
   change one without saying why.
 - Never fail a game call because of Sedici's own bookkeeping. Configuration
   errors, a malformed `sedici.toml` and logging failures are all non-fatal.
@@ -62,8 +62,16 @@ environment overrides. The real-frame limiter is optional.
   Update them in the same commit as any change to a milestone's status, evidence or
   open items, or when a GitHub bug issue is opened or closed, and refresh the "Last
   updated" date.
+- **Every change reaches `main` through a pull request.** Work on a branch, push it and
+  open a PR with `.github/pull_request_template.md` filled in. Never commit or push
+  directly to `main` and never force-push a shared branch. The `windows` CI check
+  (`.github/workflows/ci.yml`) must be green before merge, and the PR is squash-merged.
+  CI cannot run the `gpu`-labelled tests or the game, so state in the PR which of those
+  were run locally. One concern per PR. Releases are `vX.Y.Z` tags the owner pushes from
+  `main`; do not create tags or releases. Details in `docs/dev/workflow.md`.
 - Use Conventional Commits for every commit, for example
-  `feat: add present timing stats`.
+  `feat: add present timing stats`. A PR is squash-merged, so its title is the commit
+  message on `main`, with the attribution line at the end.
 - **Always give a reason for a command.** Claude Code's auto-mode classifier blocks an
   action when it sees no stated reason ("no reason was provided"). Before any command
   that writes, deletes, rewrites many files, runs a script or changes git state, say in
@@ -199,6 +207,8 @@ alone.
   the settings worker host, `deploy_check.ps1`, and `leak_check.h`, the DXGI live-object guard).
 - `.github/ISSUE_TEMPLATE/` — the Bug and Feature request forms. GitHub issues are the only
   tracker; `docs/archive/` holds the retired K1-K147 and FR-01 to FR-05 lists.
+- `.github/pull_request_template.md`, `.github/workflows/` — the PR checklist, `ci.yml` (the
+  required check on every PR) and `release.yml` (a `v*` tag builds and publishes a pre-release).
 - `docs/dev/` — agent and contributor guide: layout and include edges, workflow, baseline,
   and the old-to-new path ledger. Start at `docs/dev/README.md`.
 - `tests/qa/` — the owner's in-game acceptance tests (QA-01 to QA-20): a table of tests
@@ -229,6 +239,9 @@ DXGI live-object report). Details in `docs/dev/workflow.md`:
 ```powershell
 .\tools\check.ps1 -Quick
 ```
+
+CI repeats `-Quick`, builds Release and runs `ctest -LE gpu` on every pull request; run
+`ctest -L gpu` yourself on a machine with an adapter before asking for review.
 
 ## Deploy safety
 
