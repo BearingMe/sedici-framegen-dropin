@@ -275,9 +275,10 @@ describe uncertainty and breadth, **not calendar estimates**:
 ### Phase 2 progress
 
 **Keep this table current.** Update it in the same commit that changes a milestone's
-status, evidence or open items. Last updated: 2026-11-11, branch `ci/pipeline-and-pr-flow` (CI and release workflows; changes now reach
-`main` only through a pull request, see `AGENTS.md`). Open bugs are GitHub issues #1 to #32. Latest full CTest run: 41 of 41 passed (Release, 2026-11-10, after the tooling merge; under heavy GPU load sedici_fgcheck_present can still fail, issue #20, was K112) (offline GPU
-suites, ABI scenarios on the real DLL with a tripwire stub "original", regression).
+status, evidence or open items. Last updated: 2026-11-13, branch `fix/ci-checkout-yaml`
+(issue #45: fix the CI checkout step's invalid YAML; no milestone status changes).
+Bug issues: 35 open, 7 closed after closing #45 with the fixing commit. Latest full CTest run: 41 of 41 passed (Release, 2026-11-13, including 27 GPU-labelled tests); `tools/check.ps1 -Quick` and the workflow YAML parse regression check passed. The Release build still emits the existing MSBuild stamp warning (#43). Under heavy GPU load sedici_fgcheck_present can still fail (#20, was K112). Coverage includes offline GPU
+suites, ABI scenarios on the real DLL with a tripwire stub "original", and regression.
 
 **Gate policy (owner decision, 2026-11-08):** P2.1-P2.10 are accepted on offline
 evidence only. Every check that needs the game running, a display, or an external
@@ -305,7 +306,7 @@ starts, but the scene stays black (K138 fixed, K139 open as an issue).
 **Bugs and requests: GitHub is the source of truth.** Open items are the
 [GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues) (open bugs: label `bug`; in-game work: `needs-game`;
 kept for the record: `not-a-defect`). The 32 that were open on 2026-11-11 are #1 to #32, titled with their old K number.
-Since then (2026-11-12, issue #1 analysis): #35 to #43 opened; #1, #35, #37, #38, #40 and #42 closed (#1 and #38 by removing adaptive, #40 and #42 from code reviews). Bug issues now: 35 open, 6 closed. #43 records the existing MSBuild stamp warning found during final verification and remains open. The
+Since then (2026-11-12, issue #1 analysis): #35 to #43 opened; #1, #35, #37, #38, #40 and #42 closed (#1 and #38 by removing adaptive, #40 and #42 from code reviews). On 2026-11-13, #45 records the invalid YAML in the CI checkout step name, corrected by moving the submodule explanation to a comment and closed with the fixing commit. Bug issues now: 35 open, 7 closed. #43 records the existing MSBuild stamp warning found during final verification and remains open. The
 retired K1-K147 and FR-01 to FR-05 lists are in [docs/archive](docs/archive/known-issues.md) and are not updated. Counts as of
 that date, from the archive: 32 open
 (K1, K2, K4, K5, K7-K11, K13, K15, K16, K20, K23, K24, K36, K54, K98, K101, K112, K119-K124, K127, K128, K130, K137, K139, K147; K16, K23, K24, K36, K54, K101 and K112 are accepted gaps or not product defects, see the file header), 102 fixed or resolved (K144, K143, K145, K146, K141, K142, K140, K138, K6, K14, K100, K129, K131, K132, K3, K12, K17, K117, K19, K22, K59, K99, K25-K29, K33-K35, K37-K53, K55, K57, K58, K60, K61, K63-K86, K92, K93, K95-K97, K102-K111, K113-K116, K118, K125, K126, K133-K136; hashes are in each entry), 12 obsolete with the AMD path (K18, K21, K31, K32, K56, K62, K87-K91, K94) and 1 retracted claim (K30). Decision waiting on the owner: K129 (accept the HDR flag or leave Alan Wake 2 without generation). K100 (Alan Wake 2's `SwapChainNewDX12` create is refused; [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md)) and K101 (game-side `sedici.log` files mix several builds and games) were recorded on 2026-11-08 from a user-run AW2 session.
