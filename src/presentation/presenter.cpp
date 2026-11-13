@@ -496,10 +496,11 @@ void Presenter::wait_until(double deadline) noexcept
     while (now_seconds() < target) YieldProcessor();
 }
 
-void Presenter::hold(double notBefore) noexcept
+void Presenter::hold(double notBefore, HoldInfo* info) noexcept
 {
     const auto record = [&](double waited) {
         if (waited <= 0.0001) return;
+        if (info) info->guardWait += waited;
         ++m_window.guardHolds;
         m_window.guardSum += waited;
         m_window.guardMax = std::max(m_window.guardMax, waited);
@@ -510,19 +511,9 @@ void Presenter::hold(double notBefore) noexcept
     // also the fallback when scan lines cannot be read.
     const bool timerGuard = m_guard == TearGuard::Timer || (m_guard == TearGuard::Scanline && !m_scanline_ok);
     const bool scanGuard = m_guard == TearGuard::Scanline && m_scanline_ok;
-    // The scan-line guard needs a floor too. Right after Present returns the
-    // flip has not latched yet, so the scan line still reports the previous
-    // blank and the gate would open for a second flip ~1 ms later: that frame
-    // then shows for a millisecond and the next for ~20 (finding 009, adaptive
-    // runs). Hold until just before the previous image's scan can have ended;
-    // the scan line then decides the exact moment.
-    double floor = 0.0;
-    if (m_last_flip > 0.0) {
-        if (timerGuard)
-            floor = m_last_flip + m_period + 0.0002;
-        else if (scanGuard)
-            floor = m_last_flip + m_period - m_lead_seconds - 0.0005;
-    }
+    // The scan-line guard needs a floor too (flip_floor): hold until just before
+    // the previous image's scan can have ended; the scan line then decides.
+    const double floor = flip_floor(timerGuard, scanGuard, m_last_flip, m_period, m_lead_seconds);
     const double scheduled = std::max(notBefore, now_seconds());
     // On a fixed-refresh panel the scan-line guard can only flip at a blank. A
     // target just after one would otherwise wait a whole refresh, and at ~36 fps
@@ -532,11 +523,13 @@ void Presenter::hold(double notBefore) noexcept
     const double early = scanGuard && notBefore > 0.0 ? std::min(0.0015, m_period * 0.12) : 0.0;
     wait_until(std::max(notBefore - early, floor));
     if (floor > scheduled) record(now_seconds() - scheduled);
+    if (info) info->floor = floor;
 
     if (!scanGuard) return;
     // Scan-line guard: flip only while the panel is in its vertical blank, or
     // within `lead` of it so the flip has time to be latched.
     const double holdStart = now_seconds();
+    if (info) info->scanStart = holdStart;
     const double giveUp = holdStart + m_period + 0.002;
     const UINT open = m_active_lines > m_lead_lines ? m_active_lines - m_lead_lines : 0;
     for (;;) {
@@ -614,8 +607,12 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
             const UINT quarter =
                 std::min<UINT>(3, static_cast<UINT>((4ull * line) / std::max<UINT>(1, m_active_lines)));
             ++m_window.scan[blank ? 0 : 1 + quarter];
+            m_flip_line = line;
+            m_flip_blank = blank ? 1 : 0;
         } else {
             ++m_window.scan[5];
+            m_flip_line = 0;
+            m_flip_blank = -1;
         }
     }
     if (m_last_flip > 0.0) {
@@ -644,6 +641,7 @@ HRESULT Presenter::native_present(const PresentJob& job, bool generated) noexcep
     if (SUCCEEDED(hr) && !m_cancel.load(std::memory_order_acquire) && m_job_hooks.presented)
         m_job_hooks.presented(generated);
     const double call = now_seconds() - before;
+    m_flip_call = call;
     m_window.callSum += call;
     m_window.callMax = std::max(m_window.callMax, call);
     return hr;
@@ -657,6 +655,8 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
     // GPU latency, which feeds back into later flips and a longer queue.
     const bool alreadyReady = job.ready->GetCompletedValue() >= job.readyValue;
     const double dequeued = now_seconds();
+    const bool tracing = log_level() >= 2;
+    ++m_job_serial;
     // Nothing for this frame may start on the present queue before the game's
     // frame and its generation work are done.
     HRESULT hr = m_queue->Wait(job.ready.Get(), job.readyValue);
@@ -699,9 +699,25 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
         // Each output keeps its place on the content clock, so on-screen
         // spacing follows the game's frame times and the schedule's grid.
         const double target = output.content + m_latency;
+        // Level-2 trace (#37): consecutive outputs from a fixed point of each window.
+        TraceRecord* rec = nullptr;
+        if (tracing && m_window.jobs >= kTraceStartJob && m_window.traceCount < kTraceRecords) {
+            rec = &m_window.trace[m_window.traceCount++];
+            const auto rel = [&](double t) { return static_cast<float>(t - job.entry); };
+            *rec = TraceRecord{};
+            rec->job = m_job_serial;
+            rec->index = static_cast<uint8_t>(i);
+            rec->real = output.real;
+            rec->alreadyReady = alreadyReady;
+            rec->dequeued = rel(dequeued);
+            rec->ready = rel(ready);
+            rec->target = rel(target);
+            rec->latency = static_cast<float>(m_latency);
+        }
         if (later_output_due(job, i, ready)) {
             // A later output is already due: showing this one now would put the
             // whole schedule behind. Its copy is overwritten by the next one.
+            if (rec) rec->drop = i + 1 < job.count ? 'i' : 'n';
             if (output.real) {
                 ++m_window.realsDropped;
                 stats_on_real_dropped();
@@ -711,10 +727,31 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
             }
             continue;
         }
-        hold(target);
+        HoldInfo held;
+        hold(target, &held);
         const double flip = now_seconds();
-        if (flip > target + 0.001) ++m_window.late;
+        if (flip > target + 0.001) {
+            ++m_window.late;
+            // Ready in time: the tear guard made it late if hold() counted a guard
+            // delay for it (the same delay as guard{holds}); otherwise the wait for
+            // the target itself overslept.
+            if (ready <= target + 0.001)
+                ++(held.guardWait > 0.0 ? m_window.lateGuard : m_window.lateOversleep);
+            else if (i == 0 && !alreadyReady)
+                ++m_window.lateGpu;
+            else
+                ++m_window.lateCarry;
+        }
         hr = native_present(job, !output.real);
+        if (rec) {
+            const auto rel = [&](double t) { return t > 0.0 ? static_cast<float>(t - job.entry) : 0.0f; };
+            rec->floor = rel(held.floor);
+            rec->scanStart = rel(held.scanStart);
+            rec->flip = rel(flip);
+            rec->call = static_cast<float>(m_flip_call);
+            rec->line = m_flip_line;
+            rec->blank = m_flip_blank;
+        }
         if (FAILED(hr)) return hr;
         if (output.real)
             ++m_window.realsShown;
@@ -732,37 +769,9 @@ HRESULT Presenter::present_job(PresentJob& job) noexcept
 
 void Presenter::track_latency(double structural, double gpu, bool measured) noexcept
 {
-    // Both parts are short windows rather than slow-decay averages: a single
-    // hitch must not hold the latency up for long, or each frame's flips take
-    // longer, the game blocks on the presenter, its frames get longer and the
-    // latency stays up (finding 009, second session).
-    //
-    // Structural: the schedule's own offset, the largest of the last 8 frames,
-    // which covers the alternating pattern of every fixed ratio.
-    if (std::isfinite(structural)) {
-        m_structural_ring[m_structural_next] = std::clamp(structural, 0.0, 0.25);
-        m_structural_next = (m_structural_next + 1) % kStructuralWindow;
-        m_structural = *std::max_element(std::begin(m_structural_ring), std::end(m_structural_ring));
-    }
-    // GPU: the median of the last 16 measurements. A slower-than-usual frame is
-    // then simply late (flipped as soon as it is ready) instead of raising the
-    // latency of the next 16; the second-highest estimate stacked with the
-    // structural maximum reached 45-60 ms at 40 real fps (finding 009, adaptive).
-    // A frame that was already finished when the presenter got to it only
-    // bounds the GPU time from above: it is recorded only when it lowers the
-    // estimate, never to raise it, which would count queueing as latency.
-    if (std::isfinite(gpu)) {
-        gpu = std::clamp(gpu, 0.0, 0.1);
-        if (measured || gpu < m_gpu_latency) {
-            m_gpu_ring[m_gpu_next] = gpu;
-            m_gpu_next = (m_gpu_next + 1) % kGpuWindow;
-            double sorted[kGpuWindow];
-            std::copy(std::begin(m_gpu_ring), std::end(m_gpu_ring), sorted);
-            std::nth_element(sorted, sorted + kGpuWindow / 2, sorted + kGpuWindow);
-            m_gpu_latency = sorted[kGpuWindow / 2];
-        }
-    }
-    m_latency = m_structural + m_gpu_latency + 0.001;
+    // The policy is LatencyEstimator (pacing.h), kept pure so it is checked offline.
+    m_estimator.observe(structural, gpu, measured);
+    m_latency = m_estimator.latency();
     m_window.latencySum += m_latency;
     ++m_window.latencySamples;
 }
@@ -825,24 +834,56 @@ void Presenter::log_window() noexcept
 try {
     auto& w = m_window;
     const auto avg = [](double sum, uint32_t n) { return n ? sum / n : 0.0; };
-    log_event(
-        1, "fg: vrr present jobs=" + std::to_string(w.jobs) + " generated{shown=" +
-               std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
-               " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) + "}" +
-               " late=" + std::to_string(w.late) + " latency_ms=" + ms(avg(w.latencySum, w.latencySamples)) +
-               " short_gaps=" + std::to_string(w.shortGaps) + "/" + std::to_string(w.flips) +
-               " back_to_back=" + std::to_string(w.backToBack) + " gap_min_ms=" + ms(w.gapMin) +
-               " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) + " max=" + ms(w.gpuWaitMax) + "}" +
-               " guard{holds=" + std::to_string(w.guardHolds) + " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) +
-               " max_ms=" + ms(w.guardMax) + " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
-               " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
-               " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
-               " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
-               " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
-               " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
+    log_event(1, "fg: vrr present jobs=" + std::to_string(w.jobs) + " generated{shown=" +
+                     std::to_string(w.generatedShown) + " dropped=" + std::to_string(w.generatedDropped) + "}" +
+                     " real{shown=" + std::to_string(w.realsShown) + " dropped=" + std::to_string(w.realsDropped) +
+                     "}" + " late=" + std::to_string(w.late) + "{gpu=" + std::to_string(w.lateGpu) +
+                     " carry=" + std::to_string(w.lateCarry) + " guard=" + std::to_string(w.lateGuard) +
+                     " oversleep=" + std::to_string(w.lateOversleep) + "}" + " latency_ms=" +
+                     ms(avg(w.latencySum, w.latencySamples)) + " short_gaps=" + std::to_string(w.shortGaps) + "/" +
+                     std::to_string(w.flips) + " back_to_back=" + std::to_string(w.backToBack) +
+                     " gap_min_ms=" + ms(w.gapMin) + " gpu_wait_ms{avg=" + ms(avg(w.gpuWaitSum, w.gpuWaits)) +
+                     " max=" + ms(w.gpuWaitMax) + "}" + " guard{holds=" + std::to_string(w.guardHolds) +
+                     " avg_ms=" + ms(avg(w.guardSum, w.guardHolds)) + " max_ms=" + ms(w.guardMax) +
+                     " timeouts=" + std::to_string(w.guardTimeouts) + "}" +
+                     " present_call_ms{avg=" + ms(avg(w.callSum, w.flips)) + " max=" + ms(w.callMax) + "}" +
+                     " scan_at_flip{blank=" + std::to_string(w.scan[0]) + " q1=" + std::to_string(w.scan[1]) +
+                     " q2=" + std::to_string(w.scan[2]) + " q3=" + std::to_string(w.scan[3]) +
+                     " q4=" + std::to_string(w.scan[4]) + " unread=" + std::to_string(w.scan[5]) + "}" +
+                     " idle_in_blank=" + std::to_string(w.idleBlank) + "/" + std::to_string(w.idleSamples));
+    if (w.traceCount) log_trace();
     w = Window{};
 } catch (...) {
     m_window = Window{};
+}
+
+void Presenter::log_trace() noexcept
+try {
+    const auto& w = m_window;
+    // Times in 0.1 ms relative to the job's entry. One legend line, then six
+    // records per line so a window stays within the log's per-message burst.
+    log_event(2, "fg: vrr trace legend job.index{g|r}{a=already ready|-} dequeued ready target floor scan_start "
+                 "flip scan_line/blank(1)|scanning(0)|unread(-1) call latency drop{-|i=in job|n=next job}; "
+                 "structural_ms=" +
+                     ms(m_estimator.structural()) + " gpu_ms=" + ms(m_estimator.gpu()) +
+                     " refresh_ms=" + ms(m_period));
+    const auto tenths = [](float seconds) { return static_cast<long>(std::lround(seconds * 1.0e4f)); };
+    constexpr uint32_t kPerLine = 6;
+    for (uint32_t first = 0; first < w.traceCount; first += kPerLine) {
+        std::string line = "fg: vrr trace";
+        for (uint32_t k = first; k < std::min(first + kPerLine, w.traceCount); ++k) {
+            const TraceRecord& r = w.trace[k];
+            char buffer[96];
+            std::snprintf(buffer, sizeof(buffer), " | %u.%u%c%c %ld %ld %ld %ld %ld %ld %u/%d %ld %ld %c", r.job,
+                          static_cast<unsigned>(r.index), r.real ? 'r' : 'g', r.alreadyReady ? 'a' : '-',
+                          tenths(r.dequeued), tenths(r.ready), tenths(r.target), tenths(r.floor),
+                          tenths(r.scanStart), tenths(r.flip), r.line, r.blank, tenths(r.call), tenths(r.latency),
+                          r.drop);
+            line += buffer;
+        }
+        log_event(2, line);
+    }
+} catch (...) {
 }
 
 } // namespace sedici::fg

@@ -49,9 +49,8 @@ struct HudSource {
     D3D12_RESOURCE_STATES realState = D3D12_RESOURCE_STATE_PRESENT;
 };
 
-// Most generated frames recorded for one real frame. Two covers every output
-// rate up to twice the real rate, including an adaptive target whose output
-// slots do not line up with real frames.
+// Most generated frames recorded for one real frame. Two covers every fixed
+// output ratio up to twice the real rate (1.75x needs two in some intervals).
 constexpr uint32_t kMaxPhases = 2;
 
 // One generated frame: `alpha` in (0, 1) is its time between the previous real

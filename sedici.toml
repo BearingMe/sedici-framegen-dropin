@@ -42,15 +42,12 @@ present = "vrr"
 # "1.75x"    - 7 frames for every 4 real ones.
 # "1.5x"     - 3 frames for every 2 real ones, e.g. 48 real FPS -> 72.
 # "1.25x"    - 5 frames for every 4 real ones, e.g. 60 real FPS -> 75.
-# "adaptive" - aim for target_fps frames per second whatever the real rate,
-#              up to two generated frames per real one. Latency is up to one
-#              real frame (25 ms at 40 FPS). Below 20 real FPS it shows only
-#              real frames.
 # Below 2x, frames stay evenly spaced, so most of what you see is generated:
 # 1.5x shows every second real frame on its own, 1.25x every fourth. It also
 # adds latency compared with 2x at the same real FPS: about a sixth of a real
-# frame at 1.5x, a third at 1.25x, up to half with "adaptive".
+# frame at 1.5x, a third at 1.25x. Below 20 real FPS only real frames are shown.
 # Keep real FPS x multiplier under the refresh rate.
+# ("adaptive" was removed; an old file that still says it gets "2x".)
 multiplier = "2x"
 
 # The one frame-rate target: output frames per second the screen should get.
@@ -61,8 +58,7 @@ multiplier = "2x"
 # "auto" - match the monitor: floor(Hz - Hz^2/3600), the low-lag rule for VRR and
 #          v-sync (59 at 60 Hz, 73 at 75 Hz, 138 at 144 Hz, 224 at 240 Hz).
 #          Uncapped if the refresh rate cannot be read.
-# With multiplier = "adaptive" it is also the rate to aim for; 0 then acts as
-# "auto". Replaces [limiter] fps, which is still read (see below).
+# Replaces [limiter] fps, which is still read (see below).
 target_fps = 0
 
 # Only used with present = "vrr". Stops a frame from being shown while the

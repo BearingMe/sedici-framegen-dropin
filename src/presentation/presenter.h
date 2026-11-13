@@ -16,6 +16,7 @@
 
 #include "settings/config.h"
 #include "gpu/queue_policy.h"
+#include "presentation/pacing.h"
 
 // `[fg] present = "vrr"`: presentation off the game's thread and queue.
 //
@@ -56,8 +57,8 @@ struct JobOutput {
     double content = 0.0; // seconds on the game's Present clock
 };
 
-// One application frame's worth of output. A frame may show nothing of its own
-// (adaptive target below the real rate), only generated frames, or both.
+// One application frame's worth of output: its real frame, only generated frames
+// (below 2x some real frames are never shown on their own), or both.
 struct PresentJob {
     // Private game backbuffer for this frame, in PRESENT state.
     Microsoft::WRL::ComPtr<ID3D12Resource> real;
@@ -148,8 +149,15 @@ private:
     HRESULT copy_to_native(ID3D12Resource* source, D3D12_RESOURCE_STATES state, bool generated) noexcept;
     HRESULT wait_fence(uint64_t value) noexcept;
     HRESULT native_present(const PresentJob& job, bool generated) noexcept;
+    // What hold() decided, for the level-2 trace: the flip floor (0 = none) and
+    // when the scan-line gate started polling (0 = no gate).
+    struct HoldInfo {
+        double floor = 0.0;
+        double scanStart = 0.0;
+        double guardWait = 0.0; // seconds the floor and the scan-line gate delayed the flip
+    };
     // Holds until `notBefore`, then applies the tear guard.
-    void hold(double notBefore) noexcept;
+    void hold(double notBefore, HoldInfo* info = nullptr) noexcept;
     void wait_until(double deadline) noexcept;
     // Re-reads the containing output: refresh period, active height and the
     // kernel adapter handle used for scan-line reads.
@@ -157,6 +165,8 @@ private:
     void close_adapter() noexcept;
     bool read_scanline(bool& inBlank, UINT& line) noexcept;
     void log_window() noexcept;
+    // Level 2: the latency parts and the window's per-output trace (#37).
+    void log_trace() noexcept;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain4> m_native;
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
@@ -193,19 +203,42 @@ private:
     UINT m_source = 0;  // VidPnSourceId
     bool m_scanline_ok = false;
     double m_last_flip = 0.0;
+    // Last native_present: scan line read just before the flip and the call time.
+    UINT m_flip_line = 0;
+    int m_flip_blank = -1; // 1 blank, 0 scanning, -1 unread
+    double m_flip_call = 0.0;
 
     uint64_t m_generated_shown = 0;
     uint64_t m_generated_dropped = 0;
     uint64_t m_back_to_back = 0;
-    double m_latency = 0.0;     // seconds from content time to flip
-    double m_structural = 0.0;  // schedule part of the latency
-    double m_gpu_latency = 0.0; // Present-to-ready part of the latency
-    static constexpr uint32_t kStructuralWindow = 8;
-    static constexpr uint32_t kGpuWindow = 16;
-    double m_structural_ring[kStructuralWindow]{};
-    uint32_t m_structural_next = 0;
-    double m_gpu_ring[kGpuWindow]{};
-    uint32_t m_gpu_next = 0;
+    LatencyEstimator m_estimator;
+    double m_latency = 0.0; // seconds from content time to flip, m_estimator.latency()
+
+    // One output as the presenter handled it, for the level-2 trace (#37). Times
+    // are seconds relative to the job's entry; 0 where a step did not happen.
+    // The records are consecutive on purpose (a pacing cascade only shows across
+    // neighbouring outputs), so each window traces a short stretch starting at
+    // job kTraceStartJob; dropped outputs use a record too.
+    struct TraceRecord {
+        uint32_t job = 0;
+        uint8_t index = 0;
+        bool real = false;
+        bool alreadyReady = false;
+        char drop = '-'; // '-' shown, 'i' later output in this job due, 'n' next job's output due
+        float dequeued = 0.0f;
+        float ready = 0.0f;
+        float target = 0.0f;
+        float floor = 0.0f;
+        float scanStart = 0.0f;
+        float flip = 0.0f;
+        float call = 0.0f; // native Present duration, seconds
+        float latency = 0.0f;
+        UINT line = 0;
+        int blank = -1;
+    };
+    static constexpr uint32_t kTraceRecords = 48;
+    static constexpr uint32_t kTraceStartJob = 20; // into each 300-job window
+    uint32_t m_job_serial = 0;
 
     // Diagnostics, reported every 300 jobs and then reset.
     struct Window {
@@ -215,6 +248,18 @@ private:
         uint32_t realsShown = 0;
         uint32_t realsDropped = 0;
         uint32_t late = 0; // flipped more than 1 ms after its target
+        // `late` by cause (#37): the frame's first output was not finished on the
+        // GPU by its target; a later output (or a job dequeued behind earlier
+        // flips) was not ready by its target; ready in time but the tear guard
+        // (flip floor or scan-line gate, whichever guard mode is set) held the flip
+        // past its target; ready in time and not held by the guard, so the wait for
+        // the target itself overslept.
+        uint32_t lateGpu = 0;
+        uint32_t lateCarry = 0;
+        uint32_t lateGuard = 0;
+        uint32_t lateOversleep = 0;
+        TraceRecord trace[kTraceRecords]{};
+        uint32_t traceCount = 0;
         double latencySum = 0.0;
         uint32_t latencySamples = 0;
         uint32_t gpuWaits = 0;

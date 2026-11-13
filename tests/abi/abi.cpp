@@ -630,6 +630,8 @@ int run_session(Harness& h)
     const auto has = [&](const char* needle) { return text.find(needle) != std::string::npos; };
     const bool rtss = GetModuleHandleW(L"RTSSHooks64.dll") != nullptr;
     expect(has("fg: context created"), "log: the generator context was created");
+    expect(has("\"adaptive\" was removed") && has("using default \"2x\""),
+           "log: the removed multiplier \"adaptive\" is reported and falls back to 2x");
     if (rtss) {
         expect(has("falling back to \"vsync\""), "log: under RTSS the wrapper falls back to \"vsync\"");
     } else {
@@ -1540,8 +1542,9 @@ scale = 2
          true, run_legacy_config},
         {"target-auto", "[fg]\ntarget_fps = \"auto\"\n", true, run_target_auto},
         {"bad-config", "[fg\nmode = \n", true, run_bad_config},
+        // multiplier = "adaptive" was removed (issue #1): it must fall back to 2x, not fail.
         {"session",
-         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"2x\"\n"
+         "[fg]\nmode = \"sedici\"\npresent = \"vrr\"\ntear_guard = \"scanline\"\nmultiplier = \"adaptive\"\n"
          "[ui]\nmode = \"mini\"\n[limiter]\nfps = 30\n",
          false, run_session},
         {"window-replace-vsync", "[fg]\npresent = \"vsync\"\n[ui]\nmode = \"off\"\n", false,

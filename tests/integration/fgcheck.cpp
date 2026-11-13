@@ -249,10 +249,9 @@ int main(int argc, char** argv)
     if (present) ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x") && ok;
     if (present)
         ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X1_5, "1.5x overload", 6) && ok;
+    // A slow game (~32 real fps) at 2x: what replaced "adaptive" (issue #1).
     if (present)
-        ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::Adaptive, "adaptive at ~40 fps",
-                              21) &&
-             ok;
+        ok = check_vrr_window(state, sedici::FrameGenerationSettings::Multiplier::X2, "2x at ~32 fps", 21) && ok;
 
     if (ComPtr<ID3D12InfoQueue> info; SUCCEEDED(state.device.As(&info))) {
         const UINT64 count = info->GetNumStoredMessages();

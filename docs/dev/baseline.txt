@@ -105,6 +105,7 @@ PASS split-queue generation consumes the recovered snapshot
 PASS generation retirement covers the cross-queue dependency
 PASS retired context destroys safely
 PASS presenter refuses a job after stop without advancing its queue
+PASS present queue released with its last presenter (queues 0 before, 1 with a presenter, 0 after)
 PASS QPC counts divide by frequency to produce seconds
 PASS QPC conversion preserves a 36 fps interval after long uptime
 PASS missing QPC frequency does not divide by zero
@@ -120,6 +121,7 @@ PASS an invalid interval falls back to a bounded pacing value
 PASS 20000-cycle closed loop stays at 36 real / 72 output and recovers from off/on and a stall
 PASS ratio validation handles large denominators without overflow
 PASS ratio validation rejects a zero denominator
+PASS flip floor: none before the first flip; timer one refresh + 0.2 ms; scan-line one refresh - lead - 0.5 ms; none with the guard off
 PASS presenter stale-output policy uses the later deadline including equality
 PASS stale-output policy drains a hitch backlog chronologically
 PASS 2x schedule: 800 outputs per 400 real frames, 400 real, <=2 generated, even 10.417 ms grid
@@ -127,12 +129,14 @@ PASS 1.75x schedule: 2800 outputs per 1600 real frames, 400 real, <=2 generated,
 PASS 1.5x schedule: 1200 outputs per 800 real frames, 400 real, <=2 generated, even 13.889 ms grid
 PASS 1.25x schedule: 2000 outputs per 1600 real frames, 400 real, <=2 generated, even 16.667 ms grid
 PASS 1.5x schedule: a 3x hitch shows only the real frame, then generation resumes
-PASS adaptive schedule: 48 real -> ~72 output fps, <=2 generated, within a tenth of a slot of the grid
-PASS adaptive schedule: a 0.25 s gap shows only the real frame
-PASS adaptive schedule: below 20 real fps shows only real frames
+PASS 2x schedule: a 0.25 s gap shows only the real frame
+PASS 2x schedule: below 20 real fps shows only real frames
 PASS 2x schedule: jitter averaging 20 real fps still generates for almost every frame
 PASS 2x schedule: a steady 60 ms interval is real-only and recovery to 40 ms resumes generation
-PASS adaptive schedule: 40 real fps towards 144 caps at two generated frames
+PASS presenter loop: 2x at 32 real fps shows >= 95% of 64 fps and drops no real frame
+PASS presenter loop: the scan-line flip floor never ends after the scan-line gate
+PASS presenter loop: 1.5x at 48 real fps keeps >= 95% of 72 fps (>= 90% with 2 ms per flip), no real frame dropped
+PASS presenter loop: 2x over the refresh shows >= 95% of 75 fps, latency <= 60 ms, <= 2% real frames dropped
 == regression 
 PASS config: an attribute-query error is not treated as a missing file
 PASS save accepts array-of-table boundary

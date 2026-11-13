@@ -16,7 +16,7 @@ obsolete, 1 retracted (136 entries).
 
 | Entry | Disposition | Milestone | Where | Note |
 | --- | --- | --- | --- | --- |
-| K1 | fix or accept | P4.6 | game | Latency of adaptive at ~32 fps; measure after the target-fps change |
+| K1 | resolved by removal (2026-11-12) | P4.6 | game | Adaptive was measured in QA-18 step 3 and removed by the owner (issue #1, closed); QA-18 step 3 now measures 2x at ~32 fps. Remaining pacing work: #36, #39 |
 | K2 | fix or accept | P4.6 | game | Generation cost feeding back into the real rate |
 | K3 | fix | P4.2 | offline | Solved by the single target fps (FR-05): the planned output never exceeds the cap |
 | K4 | fix or accept | P4.6 | game | FG off and uncapped still goes through the presenter; the target fps `0` default keeps this |

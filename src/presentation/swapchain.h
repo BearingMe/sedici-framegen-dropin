@@ -68,7 +68,6 @@ struct PresentChoice {
     FrameGenerationSettings::Present present = FrameGenerationSettings::Present::Vsync;
     FrameGenerationSettings::TearGuard guard = FrameGenerationSettings::TearGuard::Scanline;
     FrameGenerationSettings::Multiplier multiplier = FrameGenerationSettings::Multiplier::X2;
-    double targetFps = 0.0; // adaptive; 0 = three below the refresh rate
 };
 
 class Swapchain final : public IDXGISwapChain4 {
@@ -218,7 +217,6 @@ private:
     // configure, on resize and every 300 cycles, so a monitor change is picked up.
     void publish_output_context() noexcept;
     double display_refresh_hz() const noexcept;
-    double adaptive_target() const noexcept;
     // "vrr": copies the game's backbuffer into snapshot `slot` on the game queue.
     HRESULT snapshot_real(uint32_t slot) noexcept;
     HRESULT resize(UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags, const UINT* masks,
