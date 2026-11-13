@@ -1,0 +1,62 @@
+name: CI
+
+# Every change reaches main through a pull request (AGENTS.md). This workflow is the
+# required check. It runs what needs no GPU; the gpu-labelled tests stay a local
+# `tools/check.ps1 -Full` plus `ctest` on a machine with an adapter (docs/dev/workflow.md).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: windows
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository (no submodules: references/sources is never built)
+        uses: actions/checkout@v4
+
+      - name: Developer checks (format, warnings as errors, module layering)
+        shell: pwsh
+        run: ./tools/check.ps1 -Quick
+
+      - name: Configure Release with the offline tests
+        shell: pwsh
+        run: cmake -S . -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      # sedici_abi_exports inside this run fails unless the DLL has exactly the five ffx exports.
+      - name: Tests that need no GPU adapter
+        shell: pwsh
+        run: ctest --test-dir build -C Release -LE gpu --output-on-failure -j4
+
+      - name: Upload the built DLL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sedici-dll-${{ github.sha }}
+          path: build/Release/amd_fidelityfx_framegeneration_dx12.dll
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload check logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs-${{ github.sha }}
+          path: build-check-logs/
+          if-no-files-found: ignore
+          retention-days: 7

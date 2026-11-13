@@ -1,25 +1,27 @@
 # Sedici
 
-A drop-in replacement for AMD's DX12 frame-generation DLL,
-`amd_fidelityfx_framegeneration_dx12.dll`, built for Cyberpunk 2077.
+[![CI](https://github.com/BearingMe/sedici-framegen-dropin/actions/workflows/ci.yml/badge.svg)](https://github.com/BearingMe/sedici-framegen-dropin/actions/workflows/ci.yml)
 
-The game loads Sedici instead of AMD's DLL. Sedici exports the same five `ffx*`
-entry points and answers every call with its own frame generation, swapchain
-wrapper, frame-pacing scheduler, optional real-frame limiter and in-game overlay.
-There is no AMD backend: the original DLL is never loaded, and a call Sedici does
-not implement gets a defined FFX error code and a log line instead of being
-forwarded.
+A drop-in replacement for AMD's FSR 3.1 frame generation DLL on DX12. The game loads
+`amd_fidelityfx_framegeneration_dx12.dll` as usual, but it is Sedici's: it exports the same five
+`ffx*` entry points and makes the extra frames with its own generator, swapchain wrapper, frame
+pacing and in-game overlay. AMD's DLL is never loaded.
 
-The loader and upscaler DLLs are never touched.
+> **Experimental, noncommercial.** Cyberpunk 2077 is the tested game. Part of the generator is
+> adapted from Mob-FGSR (CC BY-NC 4.0), so a built DLL is for noncommercial use. See
+> [`NOTICE.md`](NOTICE.md).
 
-> **History.** Sedici began as a pass-through proxy that sent AMD's frame pacing
-> tuning and optionally rewrote one async flag. Those measurements still motivate
-> the design and are kept in [`docs/findings/`](docs/findings/); the AMD-forwarding
-> code was removed afterwards. The last commit that still has it is the tag
-> `pre-amd-removal`. [`docs/refactor/amd-binary.md`](docs/refactor/amd-binary.md)
-> keeps what was learned about AMD's binary.
+## What you get
 
-## What it does now
+- **Same interface.** Exactly five exports and the same descriptor types, so a game built for
+  FSR 3.1 frame generation cannot tell the difference. A call Sedici does not implement gets a
+  defined FFX error code and a log line; it never crashes the game.
+- **Its own frame generation.** Stage 1 is analytical (Mob-FGSR: motion-vector warping with a
+  lookup table). Stage 2, a small residual network, is designed but postponed.
+- **Owned presentation.** `vrr` pacing with a tear guard, a 2x default multiplier and an optional
+  frame-rate target.
+- **A live overlay.** `Alt+F10` cycles Off, Mini and Full; the Full menu changes the limit, log
+  level and scale and can save them to `sedici.toml`.
 
 | Behaviour | Default | How to change it |
 |---|---|---|
@@ -194,454 +196,95 @@ and [finding 008](docs/findings/008-fg-tearing.md); none has been repeated since
 the AMD backend was removed.
 
 ### `[limiter]`
+## Quick start
 
-| Key | Type | Default | Valid values | Effect |
-|---|---|---|---|---|
-| `fps` | number | absent | `0` to `1000` | **deprecated**, replaced by `fg.target_fps`. It capped real frames; it is still read, multiplied by the output ratio (25 at 2x becomes `target_fps = 50`) and a note is logged. `fg.target_fps` wins when both are set |
-| `spin_us` | integer | `1000` | `0` to `100000` | final busy-wait window before the deadline, in microseconds |
-
-For a 75 Hz panel with VRR in the 40-75 Hz range, `target_fps = "auto"` gives 73 output
-fps: inside the VRR window, with about 2 fps of headroom under the 75 Hz
-ceiling. That is the usual target when VSync cannot be used with FG. At 74 the
-cap sits on the ceiling, and the uneven real/generated split is more likely to
-tear (finding 008 measured 10.55/16.86 ms and 6.43/20.96 ms splits).
-
-The timer is a `CreateWaitableTimerExW` handle created with
-`CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, one at a time. It is recreated when the cap
-changes live and armed per frame. There is no `Sleep` and no `timeBeginPeriod`. The spin is the last
-`spin_us` before the deadline and uses QPC plus `YieldProcessor`.
-
-`spin_us = 0` is timer-only and measurably coarser. In an offline test at 37 fps
-with 320 frames, overshoot p99 was 0.000 ms with the default 1000 us spin and
-0.533 ms with no spin; the average interval matched the target in all cases
-([finding 005](docs/findings/005-sedici-limiter.md)).
-
-The limiter only engages on Sedici's swapchain wrapper. If the game never
-creates or wraps a frame generation swapchain, nothing is capped. When frame
-generation is off the same code still caps at `fps`, and the log labels the mode
-`fg=off` (so the output rate is about `fps`, not 2x).
-
-### `[log]`
-
-| Key | Type | Default | Valid values | Effect |
-|---|---|---|---|---|
-| `level` | integer | `1` | `0`, `1`, `2` | `0` errors only, `1` normal, `2` verbose |
-
-### `[ui]`
-
-| Key | Type | Default | Valid values | Effect |
-|---|---|---|---|---|
-| `mode` | string | `"off"` | `"off"`, `"mini"`, `"full"` | startup overlay mode; `off` stays invisible until the hotkey is pressed |
-| `scale` | string or number | `"auto"` | `"auto"` or `0.5`-`2.0` | menu scale; `auto` uses output height / 1080, clamped |
-| `hotkey` | string | `"alt+f10"` | modifier(s) plus F1-F12 or a lowercase letter or digit | cycles `Off -> Mini -> Full -> Off` |
-
-The overlay is drawn on the final output image by the swapchain wrapper, after
-frame generation, so it is not interpolated and does not ghost. Composition of a
-game-registered UI resource and of a game present callback is not implemented (no
-owning milestone is recorded); Cyberpunk registers neither.
-
-`Alt+F10` cycles the mode. In `Full`, the game's window procedure is subclassed,
-keyboard and mouse input is consumed while the menu is open, and the cursor is
-shown. Closing the menu returns input to the game.
-
-The `Full` menu can change the real-frame limit, log level and menu scale live. Controls overridden by `SEDICI_*`/`MFSRFG_LOG` are disabled
-and say which variable wins. **Save** patches `sedici.toml` in place, preserving
-comments and formatting; **Cancel** restores the values captured when the menu
-opened; **Close** keeps the live values. `[ui] mode` is a startup preference and
-is not rewritten by Save.
-
-### Environment overrides
-
-Environment variables win over the file. They are for A/B runs and for testing
-one configuration without editing anything.
-
-| Variable | Overrides | Values |
-|---|---|---|
-| `SEDICI_LIMIT_FPS` | `fg.target_fps` (deprecated; read as a real-frame cap and converted) | number `0` to `1000` |
-| `SEDICI_FG_PRESENT` | `fg.present` | as the file |
-| `SEDICI_FG_MULTIPLIER` | `fg.multiplier` | as the file |
-| `SEDICI_FG_TARGET_FPS` | `fg.target_fps` | number `0` to `1000`, or `auto` |
-| `SEDICI_FG_TEAR_GUARD` | `fg.tear_guard` | as the file |
-| `MFSRFG_LOG` | `log.level` | `0`, `1`, `2` |
-
-A few A/B switches are read straight from the environment and are not part of the
-configuration (K20): `SEDICI_FG_ALLOW_RTSS=1` lets `vrr` run while RTSS is injected instead
-of falling back to `vsync`, `SEDICI_FG_SYNC` and `SEDICI_FG_ALIGN` change the `vsync`/`game`
-paths, and `SEDICI_FG_SCANLINE_LEAD_US` tunes the scanline guard.
-
-String values are case-insensitive. Numeric overrides must be a plain
-non-negative decimal; `36.5 ` or `-1` is reported and ignored rather than
-half-parsed.
-
-### Errors never fail the game
-
-Configuration is best-effort. Every problem is written to `sedici.log`, the
-affected key falls back to its default, and the call proceeds.
-
-| Problem | Result |
-|---|---|
-| file missing | all defaults |
-| syntax error | all defaults; logged with line and column |
-| one key has the wrong type | that key's default; logged with line and column |
-| one key has an unknown value | that key's default; logged with the value and the allowed set |
-| one key is out of range | that key's default; logged with the constraint |
-| a section is not a table | the whole section ignored; logged once |
-| an unknown section or key (a typo) | ignored; logged with its line |
-| environment value unknown | override ignored, file/default stays; logged |
-| anything unexpected | defaults for keys not yet read; logged |
-
-A syntax error looks like this, and the game still runs:
-
-```text
-sedici.toml:5:1: parse error: expected a value - using built-in defaults for every key
-```
-
-Per-key errors name the key and what was allowed:
-
-```text
-sedici.toml:2:11: fg.present: unknown value "turbo" (expected "game", "vsync" or "vrr") - using default "vrr"
-sedici.toml:3:1: fg.target_fps: must be within [0, 1000] (0 = uncapped) - using default 0
-```
-
-### Effective configuration log
-
-The first call writes the effective settings once, with provenance:
-
-```text
-sedici: read C:\...\bin\x64\sedici.toml (once, on the first ffx call)
-sedici:   fg.target_fps                           = 0 [default]
-sedici:   limiter.spin_us                         = 1000 [default]
-sedici:   ui.mode                                 = "off" [default]
-sedici:   ui.scale                                = "auto" [default]
-sedici:   ui.hotkey                               = "alt+f10" [default]
-sedici:   log.level                               = 1 [default]
-sedici: effective: target fps uncapped
-```
-
-`[default]`, `[file]` and `[env]` say where each value came from. A missing file
-prints `sedici: no sedici.toml beside the DLL; using built-in defaults` instead
-of the path line.
-
-## DLL lifetime
-
-A DLL that was loaded but never used unloads normally. Once a game has created a Sedici
-context the DLL pins itself in memory for the rest of the process: its handle namespace,
-any swapchain still waiting for the GPU, and its worker threads all live in the module, so
-`FreeLibrary` becomes a no-op and a reload returns the same module. The log says
-`module pinned in memory` when this happens.
-
-## Logging
-
-The log is `sedici.log`, beside the deployed DLL. A background thread writes it, so a
-slow or failing disk can never stall a game call. Lines wait in a fixed 256-line queue;
-when it is full the extra lines are dropped, counted, and reported in the log once the
-disk keeps up. A message repeated in a tight loop is rate limited (a burst of eight,
-then two a second) and the next line that gets through says how many were suppressed.
-If the file cannot be written, the lines are discarded and counted, and the log says how
-many were lost when it becomes writable again. The last lines before a hard crash may
-not have reached the file.
-
-```powershell
-$env:MFSRFG_LOG = "1"   # 0 = errors only, 1 = normal, 2 = verbose
-```
-
-Levels:
-
-- **0** - only internal errors.
-- **1** - the effective configuration; first 50 calls of each export; one full
-  description per newly seen desc type; every non-OK return; limiter activation
-  and stats; overlay and presentation statistics.
-- **2** - every call, in addition to level 1.
-
-The log level controls logging only.
-
-### What the descriptions include
-
-- **create** - FG context flags (decoded), display size, max render size,
-  backbuffer format; HUD-less format; FG version; swapchain wrap/new/for-HWND
-  variant, swapchain pointer, queue, DXGI swapchain desc; DX12 backend device.
-- **configure** - FG `frameGenerationEnabled`, `allowAsyncWorkloads`, present and
-  generation callbacks set/not set, `HUDLessColor` present yes/no and format,
-  `generationRect`, `frameID`, flags, `onlyPresentGenerated`; swapchain UI
-  resource registered and its format; every key/value configure including
-  `FRAMEPACINGTUNING` and its five tuning fields (accepted and ignored); global
-  debug descs.
-- **dispatch** - prepare `frameID`, render size, jitter, MV scale,
-  `frameTimeDelta`, reset, camera near/far/FOV, `viewSpaceToMetersFactor`,
-  depth/MV formats; the deprecated prepare and V2 prepare are both handled;
-  camera-info pNext; the generation desc if the game uses one.
-- **query** - type and result, plus known output fields/pointers.
-- **any non-OK return** - logged at level 1 regardless of call count.
-
-### Stats
-
-The periodic report also carries a `diag:` line (log queue drops, lost lines, parked
-objects) and, when the planned output rate would exceed the display refresh, an
-`OVER_REFRESH` note with the real-frame cap that would fit.
-
-Every 300 prepare calls:
-
-- `frameTimeDelta` (ms): average, minimum, maximum, standard deviation.
-- Real interval between prepares from QPC (ms): average, minimum, maximum,
-  standard deviation.
-
-The present-interval and presents-per-prepare statistics of the old proxy are not
-produced any more; nothing feeds them from Sedici's wrapper yet (K99).
-
-### Limiter
-
-Activation is logged once, and again whenever the frame-generation state
-changes:
-
-```text
-sedici: limiter active target=37 fps interval=27.027 ms spin=1000 us fg=on
-```
-
-Every 300 real frames it reports what the schedule actually achieved:
-
-```text
-sedici: limiter stats frames=300 target_ms=27.027 interval_ms{avg=27.027 p50=27.027 p99=27.027 max=27.132} wait_ms{avg=26.936} overshoot_ms{avg=0.001 p99=0.000 max=0.105} late=0 resets=0 fg=on
-```
-
-| Field | Meaning |
-|---|---|
-| `frames` | real frames in this window |
-| `target_ms` | `1000 / limiter.fps` |
-| `interval_ms` | measured interval between real presents after the wait: avg, p50, p99, max |
-| `wait_ms` | average time spent waiting (timer + spin) before the original Present |
-| `overshoot_ms` | how far past the deadline the spin ended, for frames that waited; this is spin accuracy, not lateness |
-| `late` | frames that arrived at or after their deadline and were not waited on |
-| `resets` | times the schedule reseeded because a frame arrived more than one interval late |
-| `fg` | frame generation state the game last requested |
-
-`late` and `resets` are the two numbers to watch for a hitch: a long stall
-produces one reset and no burst, rather than a queue of back-to-back presents.
-
-### Stall instrumentation
-
-Run I in `docs/findings/002-pacing-baseline.md` contained five episodic stalls: a
-prepare interval of 22-72 ms followed immediately by a sub-2 ms one. Nothing
-else in the log explained them, so Sedici now reports each one as it happens, at
-log level 1.
-
-A stall is a real-frame prepare interval that is **both** more than 3x the
-rolling median of the last 61 prepare intervals **and** at least 25 ms. The
-median is taken before the new sample is added, so a stall cannot hide in its
-own baseline. The log is rate-limited to one line per second.
-
-```text
-sedici: stall prepare interval=72.406 ms median=13.402 ms ratio=5.402x frameID=4242 reset=n/a presentsSincePrepare=0 swapchainEvents1s{count=0} qpc=78860918227
-```
-
-| Field | Meaning |
-|---|---|
-| `interval` | measured gap between prepares, ms |
-| `median` | rolling median the comparison used, ms |
-| `ratio` | `interval / median` |
-| `frameID` | the prepare's frame id |
-| `reset` | the prepare's reset flag, or `n/a` for the legacy prepare desc, whose reset field is unused |
-| `presentsSincePrepare` | always 0 at present: nothing counts presents for the detector yet (K99) |
-| `swapchainEvents1s` | always empty at present: nothing records swapchain events on the Sedici path yet (K99) |
-| `qpc` | raw QPC timestamp, for correlating with external tools |
-
-A stall line means the game's own prepare calls arrived late. Whether that
-coincided with a swapchain rebuild cannot be told from this line yet.
-
-## Requirements
-
-- Windows x64, Visual Studio 2022 C++ tools, CMake 3.21+, Windows SDK.
-- Static CRT, C++20.
-- The FidelityFX/FSR headers in `third_party/ffx/` are unmodified SDK v2.4.0
-  headers. See `third_party/ffx/README.md` for upstream paths and blob IDs.
-- toml++ v3.4.0, single-header flavour, unmodified, in
-  `third_party/tomlplusplus/toml.hpp`. MIT.
-- Dear ImGui v1.93.0, unmodified, in `third_party/imgui/` with the DX12 and
-  Win32 backends. MIT. See `third_party/imgui/README.md`.
-
-No other dependencies.
-
-### Dear ImGui provenance
-
-| | |
-|---|---|
-| Project | [ocornut/imgui](https://github.com/ocornut/imgui) |
-| Version | **v1.93.0** (released 2026-10-14) |
-| Tag commit | `c1aaac65e896a45f81f47a4d68f9959e0f86c859` |
-| Sources | core `imgui*.cpp/.h`, `imconfig.h`, `imstb_*.h`; `backends/imgui_impl_dx12.*`, `backends/imgui_impl_win32.*` |
-| Licence | MIT (`third_party/imgui/LICENSE.txt`) |
-
-The files are copied byte-for-byte from the release archive. `imgui_demo.cpp`
-is vendored for completeness and is not compiled.
-
-### toml++ provenance
-
-| | |
-|---|---|
-| Project | [marzer/tomlplusplus](https://github.com/marzer/tomlplusplus) |
-| Version | **v3.4.0** (tag `v3.4.0`, released 2023-10-13) |
-| File | single-header `toml.hpp`, 485,931 bytes |
-| SHA-256 | `6B5172AD4DD6519AEC67B919181FA7A38A2234131E5B2AFA232DFE444819783E` |
-| Licence | MIT (`SPDX-License-Identifier: MIT` in the header preamble) |
-| Source | `https://raw.githubusercontent.com/marzer/tomlplusplus/v3.4.0/toml.hpp` |
-
-The file is vendored byte-for-byte; nothing in it is edited. Two documented
-compile-time switches are set in `src/settings/toml_include.h` before the include, not in the
-header, and every unit includes toml++ only through that file so the types agree across
-translation units:
-
-- `TOML_EXCEPTIONS=0` so `toml::parse` returns a `parse_result` instead of
-  throwing. Nothing about configuration parsing may throw across an `ffx*`
-  export boundary.
-- `TOML_ENABLE_FORMATTERS=0` because Sedici only parses; this drops the
-  serialisers.
-
-`CMakeLists.txt` fails the configure step with an explanatory message if the
-header is missing.
-
-## Build
+Requirements: Windows x64, Visual Studio 2022 with the C++ workload, CMake 3.21 or newer.
 
 ```powershell
 cmake -B build -A x64
 cmake --build build --config Release
+.\tools\deploy.ps1 -Game cp2077     # backs up the original DLL, installs Sedici, adds sedici.toml
+.\tools\restore.ps1 -Game cp2077    # puts the original back
 ```
 
-Output: `build/Release/amd_fidelityfx_framegeneration_dx12.dll`.
+The DLL is `build/Release/amd_fidelityfx_framegeneration_dx12.dll`. `deploy.ps1` refuses to run
+while the game is running and only touches the DLL, its `.orig` backup, `sedici.toml` and
+`sedici.log`. Each tagged version publishes a zip on the [releases page](https://github.com/BearingMe/sedici-framegen-dropin/releases).
+Details: [deploy](docs/reference/deploy.md), [build and test](docs/reference/build-and-test.md).
 
-Verify the export table from a Visual Studio developer shell:
+## Configuration
 
-```powershell
-dumpbin /exports build\Release\amd_fidelityfx_framegeneration_dx12.dll
-```
+`sedici.toml` sits beside the DLL and is read once. Every key is optional and a bad value falls
+back to its default, so a typo never stops the game.
 
-There must be exactly five exports: `ffxCreateContext`, `ffxDestroyContext`,
-`ffxConfigure`, `ffxQuery`, `ffxDispatch`. No helper exports. The DLL carries a
-non-exported `SEDICI_PROXY_V1` marker that `deploy.ps1` uses to recognise it.
-
-Optional offline regression checks (do not launch the game):
-
-```powershell
-cmake -B build -A x64 -DSEDICI_BUILD_TESTS=ON -DSEDICI_BUILD_FGCHECK=ON
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-```
-
-These cover config-save safety, settings transactions, token and retirement
-policies, window and input handling, the live limiter, failure handling, and
-Mini/Full DX12 rendering with window replacement. GPU tests use the installed debug layer when available; they never
-download one. Their explicit GPU waits do not prove FFX's in-game queue bounds.
-
-`sedici_abi_*` load the built DLL through its five exports. A stub beside it,
-named like the original DLL, is a tripwire: Sedici must never load it, and
-`sedici_abi_contract` checks that every call, including version queries and the
-error codes for foreign, null and unknown inputs, is answered locally. Other
-scenarios cover a malformed config, handle rejection, and a combined session with
-the Mini overlay and limiter (`sedici_abi_session`). Each run writes a new
-`build/tests/<config>/abi/<scenario>-<time>-<pid>` directory and never deletes
-anything. `sedici_fgcheck*` need `SEDICI_BUILD_FGCHECK`; known failures print
-`XFAIL` and are listed in `docs/refactor/reliability.md`. Close RTSS first:
-its overlay is injected into test windows (vrr checks are then skipped).
-
-## Deploy and restore
-
-```powershell
-.\tools\deploy.ps1 -Game cp2077
-.\tools\restore.ps1 -Game cp2077
-```
-
-Game ids in `tools/games.json`: `cp2077` (Cyberpunk 2077) and `aw2` (Alan Wake 2,
-Epic launcher, no `bin\x64` subdirectory).
-
-`deploy.ps1`:
-
-- resolves the game from `tools/games.json` or an explicit `-GamePath`;
-- refuses to run while the game's executable is running;
-- resolves Steam library folders automatically; installs outside Steam (for
-  example Epic) come from `installDirHints` or `-GamePath`;
-- never overwrites an existing `.orig` backup (AMD's original DLL, kept only so
-  `restore.ps1` can put it back; Sedici itself never loads it);
-- refuses to overwrite a DLL that is not Sedici's;
-- copies `sedici.toml` only if one is not already there, so a tuned file is kept.
-
-`restore.ps1` puts the original DLL back and removes `sedici.log` and
-`sedici.toml`. Restore is an uninstall, not a merge: **copy your `sedici.toml`
-out first if you tuned it.** It refuses to touch a DLL that is not Sedici's.
-
-Both scripts only touch `amd_fidelityfx_framegeneration_dx12.dll`, its `.orig`
-backup, `sedici.toml` and `sedici.log`. The loader and upscaler DLLs are never
-modified.
-
-## Capture analysis
-
-`tools/capture.ps1` writes one PresentMon v1 CSV per run. `tools/analyze.py`
-summarizes it per swapchain and can append the Markdown report to a findings
-file:
-
-```powershell
-python tools\analyze.py --histogram captures\2026-11-05-N1.csv
-python tools\analyze.py --histogram --append docs\findings\005-sedici-limiter.md captures\2026-11-05-N1.csv
-```
-
-`--histogram` adds the `MsBetweenDisplayChange` distribution in 1 ms bins
-(`--bin-ms` changes the width). The histogram is how the two clusters of a
-non-uniform pattern become visible; the summary tables alone hide them.
-
-When the CSV contains them, these columns are reported as well. They are
-relative proxies, not click-to-photon measurements:
-
-| Column | What it measures | What it does not measure |
+| Setting | Default | Key |
 |---|---|---|
-| `MsUntilDisplayed` | PresentMon's software estimate from the Present call to the display change | input sampling, game simulation, photon emission; not comparable across present modes |
-| `MsInPresentAPI` | how long the application blocked inside Present | latency; with the limiter it includes the deliberate wait |
-| `MsUntilRenderComplete` | Present call to GPU render completion | display latency; mostly queue depth |
-| `MsGPUActive` | GPU busy time for the frame | CPU frame time or latency |
+| Output multiplier | `2x` | `fg.multiplier` |
+| Presentation | `vrr` with the `scanline` tear guard | `fg.present`, `fg.tear_guard` |
+| Target output rate | uncapped (`0`); `"auto"` matches the monitor | `fg.target_fps` |
+| Overlay | off until `Alt+F10` | `ui.mode`, `ui.hotkey` |
+| Log level | `1` | `log.level` or `MFSRFG_LOG` |
 
-## Milestones
+Environment variables win over the file. Every key, the error behaviour and the effective-config
+log are in [`docs/reference/configuration.md`](docs/reference/configuration.md).
 
-The history in short: a pass-through proxy that validated desc shapes (removed), AMD pacing
-tuning (removed), the built-in real-frame limiter, the in-game overlay, and Sedici's own
-two-stage frame generation as a drop-in replacement. The plan and the current state are in
-[`MILESTONES.md`](MILESTONES.md): Phase 1 (Stage 1 shipped), Phase 2 (reliability,
-P2.1-P2.11 closed with accepted gaps), Phase 3 (done: the code is organised into modules
-without changing behaviour) and Phase 4 (in progress: the offline work is done; the in-game
-verdicts wait for the owner's runs).
+## How it works
 
-## Present timing
+```
+game.exe
+  └── amd_fidelityfx_framegeneration_dx12.dll      <- Sedici, the only implementation
+```
 
-The wrapper presents on its own thread and queue in `vrr` mode and runs the real
-frame limiter from the game's thread, before the real `Present`. `DXGI_PRESENT_TEST`
-calls never reach the limiter. If the limiter's high-resolution timer cannot be
-created it falls back to a standard waitable timer, and if no timer can be created the
-limiter disables itself and the game runs uncapped; the error is logged and nothing fails
-the game's call. The timer is created lazily on the first capped present, never in
-`DllMain`, and is not closed at process exit.
+1. **Answer every call.** The five exports act only on handles Sedici issued; foreign, stale and
+   unknown calls are refused locally with a stable error code.
+2. **Wrap the swapchain**, as AMD's did, and present real and generated frames itself.
+3. **Generate.** Each prepare dispatch hands depth, motion vectors and render size to Stage 1.
+4. **Pace.** The optional limiter caps real frames so the output lands on the target.
+5. **Observe.** Calls, cadence and limiter statistics go to `sedici.log`.
 
-## Known limits
+The design is in [`references/papers/realtime-fg.md`](references/papers/realtime-fg.md).
+Return codes and the DLL lifetime are in [`docs/reference/abi.md`](docs/reference/abi.md).
 
-- **Supported games.** Cyberpunk 2077 is the tested game. **Alan Wake 2 starts but shows a black
-  scene:** it asks for `FrameGenerationSwapChainNewDX12` with a 10-bit back buffer and an HDR create
-  flag; Sedici builds that chain, accepts both, and answers the swapchain's interpolation queries, but
-  in the owner's session the scene was black after generation started (issue #31, was K139;
-  [finding 014](docs/findings/014-alan-wake-2-swapchain-new.md),
-  [015](docs/findings/015-alan-wake-2-first-sedici-session.md) and
-  [016](docs/findings/016-alan-wake-2-black-screen.md)). QA-03 and QA-17 are the owner's tests.
-- **Formats.** The back buffer and the HUD-less image must be `R8G8B8A8_UNORM` or `R10G10B10A2_UNORM`
-  (the HDR create flag is accepted; Stage 1 works in the encoding it is given); depth `D32_FLOAT`,
-  `R32_TYPELESS` or `R32G8X24_TYPELESS`; motion vectors `R16G16B16A16_FLOAT`, `R16G16_FLOAT` or
-  `R32G32_FLOAT`. Other formats get a defined error. The swapchain wrap, `New` and `ForHwnd` forms and
-  the frame generation create type are routed.
-- **Open issues seen in the game** (GitHub issues labelled `needs-game`; the old K number is in each
-  title): the overlay can be dead at the next launch after frame generation was turned off (#21,
-  K119) or disable itself after an exception (#26, K124), which now logs the exception text;
-  disocclusion at high speed (#22, K120); borders on loading screens (#28, K128); short unexplained
-  stalls (#23, K121) and a slow settle of the real rate (#25, K123), which the new early reports measure;
-  Cyberpunk sends no generation inputs in its menus, so the rate falls to the real fps there.
-- **Requests and test record.** Requests are GitHub issues (the old list is in
-  [docs/archive](docs/archive/feature-requests.md)); [tests/qa](tests/qa/README.md) holds the in-game
-  acceptance record.
+## Status and limits
 
-## Rules
+- **Tested game:** Cyberpunk 2077. **Alan Wake 2** starts but shows a black scene
+  ([#31](https://github.com/BearingMe/sedici-framegen-dropin/issues/31)).
+- **Formats:** 8-bit or 10-bit back buffer and HUD-less image; `D32_FLOAT`, `R32_TYPELESS` or
+  `R32G8X24_TYPELESS` depth; `R16G16B16A16_FLOAT`, `R16G16_FLOAT` or `R32G32_FLOAT` motion
+  vectors. Anything else gets a defined error.
+- **Offline suite:** 41 CTest entries pass. The owner's in-game acceptance record is in
+  [`tests/qa`](tests/qa/README.md).
+- **Known problems** are [GitHub issues](https://github.com/BearingMe/sedici-framegen-dropin/issues);
+  those that need a game run are labelled `needs-game`.
+- **Stage 1 cost:** 0.61 ms at 1080p, measured offline on an RX 7700 XT. The Stage 2 budget is a
+  design estimate, not a measurement.
 
-[`AGENTS.md`](AGENTS.md) owns the rules. In short: stay a drop-in replacement (exactly five
-exports, defined FFX error codes, no crash), never fail a game call because of Sedici's own
-bookkeeping, never modify the loader or the upscaler DLL, keep `third_party/` unmodified, and
-never download SDKs or launch the game as part of a build.
+## Documentation
+
+| Topic | Where |
+|---|---|
+| Rules and layout for contributors and agents | [`AGENTS.md`](AGENTS.md), [`docs/dev/`](docs/dev/README.md) |
+| Plan and acceptance gates | [`MILESTONES.md`](MILESTONES.md) |
+| Configuration reference | [`docs/reference/configuration.md`](docs/reference/configuration.md) |
+| Return codes, DLL lifetime | [`docs/reference/abi.md`](docs/reference/abi.md) |
+| Logging, stats, present timing | [`docs/reference/logging.md`](docs/reference/logging.md) |
+| Capture analysis | [`docs/reference/capture-analysis.md`](docs/reference/capture-analysis.md) |
+| Dependencies and provenance | [`docs/reference/provenance.md`](docs/reference/provenance.md) |
+| Measurements behind the defaults | [`docs/findings/`](docs/findings/) |
+| Retired K1-K147 and FR lists | [`docs/archive/`](docs/archive/) |
+| Rust port (branch `experiment/rust`) | [`docs/rust/`](docs/rust/) |
+
+## Contributing
+
+Changes reach `main` through a pull request; CI must be green. Bugs and requests are GitHub issues
+(Bug and Feature request forms). Read [`AGENTS.md`](AGENTS.md) first; the short version: stay a
+drop-in replacement, never fail a game call because of Sedici's own bookkeeping, leave
+`third_party/` and AMD's loader and upscaler DLLs alone, and never launch the game from a build or
+test. Run `.\tools\check.ps1 -Quick` before you push.
+
+## Licence
+
+Sedici's own code is MIT ([`LICENSE`](LICENSE)). The Stage 1 shaders and lookup table are adapted
+from [Mob-FGSR](docs/mobfgsr-attribution.md) (CC BY-NC 4.0), so binaries that include them are
+noncommercial. Vendored FidelityFX headers, toml++ and Dear ImGui keep their own licences; see
+[`NOTICE.md`](NOTICE.md) and [provenance](docs/reference/provenance.md).

@@ -42,6 +42,30 @@ they are made; documentation-only commits, including `tests/qa/` evidence, are r
 author. Every commit body carries a `Reviewed:`
 line, and a pull request carries one review of the whole branch against `main`. The procedure is
 the "Code is reviewed before it is committed" rule in `AGENTS.md`.
+## Pull requests and CI
+
+Nothing is pushed to `main`. Work on a branch (`feat/...`, `fix/...`, `docs/...`, `ci/...`), push it and open
+a pull request; the template in `.github/pull_request_template.md` is the checklist. The PR title is a
+Conventional Commit because the PR is squash-merged and the title becomes the commit on `main`
+(ending with the `Co-Authored-By` line from `AGENTS.md`). One concern per PR.
+
+`.github/workflows/ci.yml` is the required check, run on every PR and on `main` (Windows Server 2022 runner,
+no GPU):
+
+1. `tools/check.ps1 -Quick`: format, warnings as errors, module layering.
+2. Release build with `SEDICI_BUILD_TESTS` and `SEDICI_BUILD_FGCHECK`.
+3. `ctest -C Release -LE gpu`: everything not labelled `gpu`, including `sedici_abi_exports` (exactly five exports).
+4. The built DLL is attached to the run for 14 days, so a reviewer can try a PR build without building.
+
+What CI does not cover, and so stays with the author before asking for review: the `gpu`-labelled tests
+(`ctest -C Release -L gpu` on a machine with an adapter, idle GPU, RTSS closed), `check.ps1 -Full`, and every
+in-game check. Say in the PR which of those were run. If a test turns out to need an adapter without the label,
+that is a bug: open an issue and add the label; do not weaken the check.
+
+Releases: the owner pushes a tag `vX.Y.Z` from `main`. `.github/workflows/release.yml` builds Release, runs the same
+no-GPU tests, packs `sedici-<tag>-win64.zip` (DLL, `sedici.toml`, `LICENSE`, `NOTICE.md`, the Mob-FGSR attribution and
+`SHA256SUMS.txt`) and publishes a GitHub pre-release. "Run workflow" on the Release workflow is a dry run that only
+uploads the zip. Installing into a game is still the manual `tools/deploy.ps1`; no workflow touches a game.
 
 ## Bugs
 
