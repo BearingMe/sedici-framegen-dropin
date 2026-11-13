@@ -23,7 +23,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-      - name: Check out the repository (no submodules: references/sources is never built)
+      # No submodules: references/sources is never built.
+      - name: Check out the repository
         uses: actions/checkout@v4
 
       - name: Developer checks (format, warnings as errors, module layering)
